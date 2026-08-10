@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="GeoraphMap.API/GeoraphMap.API.csproj" Id="e0932bf2-a44b-4e3d-bf88-fb60d8bc302a" />
+  <Project Path="GeoraphMap.Core/GeoraphMap.Core.csproj" Id="cefdda47-5cd1-416d-9039-5bf27fb38481" />
+  <Project Path="GeoraphMap.Infrastructure/GeoraphMap.Infrastructure.csproj" Id="1b1021f1-3587-4e38-9bb0-5abbdda9df60" />
+</Solution>
