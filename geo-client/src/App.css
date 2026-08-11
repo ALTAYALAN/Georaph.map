@@ -4,6 +4,14 @@
     padding: 0;
 }
 
+body,
+button,
+input,
+select,
+textarea {
+    font-family: 'Montserrat', 'Inter', 'Open Sans', sans-serif;
+}
+
 .login-container {
     display: flex;
     flex-direction: column;
@@ -11,13 +19,13 @@
     justify-content: center;
     height: 100vh;
     background-color: #f5f7fb;
-    font-family: Arial, sans-serif;
 }
 
 .login-card {
     background: white;
     padding: 30px;
     border-radius: 8px;
+    border: 5px solid #0056b3;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
     width: 100%;
     max-width: 350px;
@@ -44,7 +52,7 @@
 .login-btn {
     width: 100%;
     padding: 12px;
-    background-color: #007bff;
+    background-color: #0056b3;
     color: white;
     border: none;
     border-radius: 4px;
@@ -86,4 +94,42 @@
     z-index: 1000;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
     width: 280px;
+}
+
+.session-timer-badge {
+    background-color: #0056b3;
+    color: #ffffff;
+    border: 1px solid #0056b3;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+
+}
+
+.session-timer-badge strong {
+    font-family: 'Open Sans', sans-serif;
+    font-size: 15px;
+    color: #ffffff;
+}
+
+/* Responsive (Mobil Uyumlu) Tasarım */
+@media (max-width: 768px) {
+    .map-sidebar {
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        width: auto;
+        padding: 15px;
+        max-height: 45vh;
+        overflow-y: auto;
+    }
+
+    .login-card {
+        margin: 0 15px;
+        padding: 20px;
+    }
 }

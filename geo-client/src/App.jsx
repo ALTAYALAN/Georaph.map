@@ -13,6 +13,9 @@ function App() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
+    // Oturum Kalan Süresi (Saniye Cinsinden)
+    const [timeLeft, setTimeLeft] = useState(0);
+
     // Harita Formu Durumları
     const [placeName, setPlaceName] = useState('');
     const [coords, setCoords] = useState({ lon: 32.8597, lat: 39.9334 }); // Varsayılan Ankara
@@ -21,13 +24,47 @@ function App() {
     // OpenLayers harita nesnesini referans olarak tutuyoruz
     const mapRef = useRef(null);
 
-    // MANÜEL LOGIN İŞLEMİ (JWT Endpoint'ine İstek Atma)
+    //  OTURUM SÜRESİ KONTROLÜ VE GERİ SAYIM ZAMANLAYICISI (10 Dakika)
+    useEffect(() => {
+        if (!token) return;
+
+        const checkSessionExpiration = () => {
+            const expirationTime = localStorage.getItem('session_expiration');
+            if (!expirationTime) {
+                handleLogout('Oturum bilgisi bulunamadı.');
+                return;
+            }
+
+            const remainingMs = parseInt(expirationTime, 10) - Date.now();
+            const remainingSeconds = Math.floor(remainingMs / 1000);
+
+            if (remainingSeconds <= 0) {
+                // OTURUM SÜRESİ DOLDU - Otomatik Çıkış Yap
+                localStorage.removeItem('jwt_token');
+                localStorage.removeItem('session_expiration');
+                setToken('');
+                setError('Oturum süreniz sona erdi.');
+            } else {
+                setTimeLeft(remainingSeconds);
+            }
+        };
+
+        // Sayfa açıldığında ilk kontrolü yap
+        checkSessionExpiration();
+
+        // Her 1 saniyede bir geri sayımı güncelle
+        const interval = setInterval(checkSessionExpiration, 1000);
+
+        return () => clearInterval(interval);
+    }, [token]);
+
+    // MANÜEL LOGIN İŞLEMİ (10 Dakikalık Oturum Başlatma)
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
 
         try {
-            const response = await fetch('http://localhost:5041/api/auth/login', { // Kendi backend portunla eşleştir (örn: 5041 veya 5000)
+            const response = await fetch('http://localhost:5041/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
@@ -36,8 +73,15 @@ function App() {
             const data = await response.json();
 
             if (response.ok) {
-                localStorage.setItem('jwt_token', data.token); // Token'ı tarayıcı hafızasına alıyoruz
-                setToken(data.token); // State'i güncelleyip harita ekranına geçiyoruz
+                // 10 Dakika = 600.000 Milisaniye
+                const TEN_MINUTES_MS = 10 * 60 * 1000;
+                const expirationTimestamp = Date.now() + TEN_MINUTES_MS;
+
+                localStorage.setItem('jwt_token', data.token);
+                localStorage.setItem('session_expiration', expirationTimestamp.toString());
+
+                setToken(data.token);
+                setTimeLeft(600); // 600 saniye = 10 dakika
             } else {
                 setError(data.message || 'Giriş başarısız.');
             }
@@ -47,34 +91,42 @@ function App() {
     };
 
     // ÇIKIŞ İŞLEMİ
-    const handleLogout = () => {
+    const handleLogout = (customMessage = '') => {
         localStorage.removeItem('jwt_token');
+        localStorage.removeItem('session_expiration');
         setToken('');
+        if (customMessage) {
+            setError(customMessage);
+        }
+    };
+
+    // Dakika:Saniye Formatlama (örn: 09:45)
+    const formatTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
     // OPENLAYERS HARİTA KURULUMU (Sadece giriş yapıldıysa çalışır)
     useEffect(() => {
         if (!token) return;
 
-        // Haritayı başlatıyoruz
         const map = new Map({
-            target: 'map', // CSS'deki id ile eşleşiyor
+            target: 'map',
             layers: [
                 new TileLayer({
-                    source: new OSM() // Ücretsiz OpenStreetMap altlığı
+                    source: new OSM()
                 })
             ],
             view: new View({
-                center: fromLonLat([coords.lon, coords.lat]), // OpenLayers koordinat sistemi (EPSG:3857) dönüştürme
-                zoom: 12
+                center: fromLonLat([35.2433, 38.9637]),
+                zoom: 6
             })
         });
 
         mapRef.current = map;
 
-        // Haritaya tıklama olayını (Click Event) manüel bağlıyoruz
         map.on('click', function (evt) {
-            // Tıklanan yerin koordinatını normal Boylam/Enlem formatına (EPSG:4326) geri çeviriyoruz
             const coordinate = map.getCoordinateFromPixel(evt.pixel);
             const lonLat = map.getView().getProjection().toGlobalLonLat(coordinate);
 
@@ -84,7 +136,6 @@ function App() {
             });
         });
 
-        // Sayfa kapandığında haritayı temizle (Hafıza sızıntısını önlemek için)
         return () => map.setTarget(null);
     }, [token]);
 
@@ -94,11 +145,11 @@ function App() {
         setInfoMessage('');
 
         try {
-            const response = await fetch('http://localhost:5041/api/places', { // Kendi backend portunla eşleştir
+            const response = await fetch('http://localhost:5041/api/places', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}` // İşte manüel JWT gönderme anı!
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
                     name: placeName,
@@ -155,8 +206,14 @@ function App() {
     // 2. DURUM: GİRİŞ BAŞARILIYSA (OPENLAYERS HARİTA EKRANI)
     return (
         <div className="map-container">
-            {/* Sol Panel: Veri Girişi Formu */}
+            {/* Sol Panel: Veri Girişi Formu & Oturum Sayacı */}
             <div className="map-sidebar">
+                {/* Oturum Süresi Geri Sayım Rozeti */}
+                <div className="session-timer-badge">
+                    <span>Oturum Süresi:</span>
+                    <strong>{formatTime(timeLeft)}</strong>
+                </div>
+
                 <h3>Mekan Ekle</h3>
                 <p style={{ fontSize: '12px', color: '#666', margin: '5px 0 15px 0' }}>
                     Haritada bir yere tıklayarak koordinat seçebilirsiniz.
@@ -184,7 +241,7 @@ function App() {
 
                 {infoMessage && <p style={{ marginTop: '10px', color: 'blue', fontSize: '14px' }}>{infoMessage}</p>}
 
-                <button onClick={handleLogout} className="login-btn" style={{ background: '#dc3545', marginTop: '20px', padding: '8px' }}>
+                <button onClick={() => handleLogout()} className="login-btn" style={{ background: '#dc3545', marginTop: '20px', padding: '8px' }}>
                     Güvenli Çıkış Yap
                 </button>
             </div>

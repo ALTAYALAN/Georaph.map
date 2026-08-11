@@ -1,11 +1,13 @@
 using GeoraphMap.Core;
 using GeoraphMap.Infrastructure;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 
 namespace GeoraphMap.API.Controllers
 {
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class PlacesController : ControllerBase
@@ -18,7 +20,7 @@ namespace GeoraphMap.API.Controllers
         }
         public class CreatePlaceDto
         {
-            public string Name { get; set; }
+            public string Name { get; set; } = string.Empty;
             public double Longitude { get; set; }
             public double Latitude { get; set; }
         }
