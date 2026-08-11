@@ -1,10 +1,10 @@
-# 🗺️ GeoMap - Harita ve Mekan Yönetim Uygulaması
+# GeoMap - Harita ve Mekan Yönetim Uygulaması
 
 GeoMap, **.NET 8 Web API** ve **React (OpenLayers)** kullanılarak geliştirilmiş, JWT kimlik doğrulamalı ve coğrafi konum tabanlı bir harita uygulamasıdır.
 
 ---
 
-## 📌 Teknolojiler
+## Teknolojiler
 
 * **Backend:** .NET 8 Web API, Entity Framework Core, PostgreSQL (PostGIS / NetTopologySuite)
 * **Frontend:** React (Vite), OpenLayers (`ol`)
@@ -12,7 +12,7 @@ GeoMap, **.NET 8 Web API** ve **React (OpenLayers)** kullanılarak geliştirilmi
 
 ---
 
-## 🛠️ Ön Gereksinimler
+## Ön Gereksinimler
 
 Projeyi bilgisayarınızda çalıştırmak için aşağıdaki yazılımların kurulu olması gerekir:
 
@@ -22,7 +22,7 @@ Projeyi bilgisayarınızda çalıştırmak için aşağıdaki yazılımların ku
 
 ---
 
-## ⚙️ Kurulum ve Yapılandırma
+## Kurulum ve Yapılandırma
 
 ### 1. Veritabanı Ayarları (Backend)
 `GeoraphMap.API/appsettings.json` dosyasındaki veritabanı bağlantı cümlesini kendi PostgreSQL şifrenize göre düzenleyin:
@@ -35,7 +35,7 @@ Projeyi bilgisayarınızda çalıştırmak için aşağıdaki yazılımların ku
 
 ---
 
-## 🚀 Projeyi Çalıştırma
+## Projeyi Çalıştırma
 
 Uygulamayı çalıştırmak için **iki ayrı terminal** kullanabilirsiniz:
 
@@ -69,7 +69,7 @@ Uygulamayı çalıştırmak için **iki ayrı terminal** kullanabilirsiniz:
 
 ---
 
-## 💡 Kullanım
+## Kullanım
 
 1. Tarayıcınızda `http://localhost:5173` adresini açın.
 2. Giriş ekranında **Kullanıcı Adı** ve **Şifre** girerek giriş yapın.
