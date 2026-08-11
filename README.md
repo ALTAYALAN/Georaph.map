@@ -1,10 +1,10 @@
-GeoMap - Harita ve Mekan Yönetim Uygulaması
+# 🗺️ GeoMap - Harita ve Mekan Yönetim Uygulaması
 
 GeoMap, **.NET 8 Web API** ve **React (OpenLayers)** kullanılarak geliştirilmiş, JWT kimlik doğrulamalı ve coğrafi konum tabanlı bir harita uygulamasıdır.
 
 ---
 
-Teknolojiler
+## 📌 Teknolojiler
 
 * **Backend:** .NET 8 Web API, Entity Framework Core, PostgreSQL (PostGIS / NetTopologySuite)
 * **Frontend:** React (Vite), OpenLayers (`ol`)
@@ -12,7 +12,7 @@ Teknolojiler
 
 ---
 
-Ön Gereksinimler
+## 🛠️ Ön Gereksinimler
 
 Projeyi bilgisayarınızda çalıştırmak için aşağıdaki yazılımların kurulu olması gerekir:
 
@@ -22,9 +22,9 @@ Projeyi bilgisayarınızda çalıştırmak için aşağıdaki yazılımların ku
 
 ---
 
-Kurulum ve Yapılandırma
+## ⚙️ Kurulum ve Yapılandırma
 
-    1. Veritabanı Ayarları (Backend)
+### 1. Veritabanı Ayarları (Backend)
 `GeoraphMap.API/appsettings.json` dosyasındaki veritabanı bağlantı cümlesini kendi PostgreSQL şifrenize göre düzenleyin:
 
 ```json
@@ -35,11 +35,11 @@ Kurulum ve Yapılandırma
 
 ---
 
-Projeyi Çalıştırma
+## 🚀 Projeyi Çalıştırma
 
-Uygulamayı çalıştırmak için iki ayrı terminal kullanabilirsiniz:
+Uygulamayı çalıştırmak için **iki ayrı terminal** kullanabilirsiniz:
 
-    1. Adım: Backend (API) Sunucusunu Başlatma
+### 1. Adım: Backend (API) Sunucusunu Başlatma
 1. Birinci terminalde `GeoraphMap.API` klasörüne gidin:
    ```bash
    cd GeoraphMap.API
@@ -52,7 +52,7 @@ Uygulamayı çalıştırmak için iki ayrı terminal kullanabilirsiniz:
 
 ---
 
-    2. Adım: Frontend (React) İstemcisini Başlatma
+### 2. Adım: Frontend (React) İstemcisini Başlatma
 1. İkinci terminalde `geo-client` klasörüne gidin:
    ```bash
    cd geo-client
@@ -69,7 +69,7 @@ Uygulamayı çalıştırmak için iki ayrı terminal kullanabilirsiniz:
 
 ---
 
-Kullanım
+## 💡 Kullanım
 
 1. Tarayıcınızda `http://localhost:5173` adresini açın.
 2. Giriş ekranında **Kullanıcı Adı** ve **Şifre** girerek giriş yapın.
