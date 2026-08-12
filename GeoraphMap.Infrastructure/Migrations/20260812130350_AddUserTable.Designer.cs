@@ -3,6 +3,7 @@ using System;
 using GeoraphMap.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeoraphMap.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812130350_AddUserTable")]
+    partial class AddUserTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -66,30 +69,17 @@ namespace GeoraphMap.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
                     b.Property<Point>("Location")
                         .IsRequired()
                         .HasColumnType("geometry");
-
-                    b.Property<DateTime>("ModifiedDate")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Wkt")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.HasKey("Id");
 
-                    b.ToTable("tbl_place", (string)null);
+                    b.ToTable("Places");
                 });
 
             modelBuilder.Entity("GeoraphMap.Core.PointFeature", b =>

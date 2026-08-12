@@ -1,77 +1,71 @@
-# GeoMap - Harita ve Mekan Yönetim Uygulaması
+# Georaph.map - Coğrafi Konum ve Mekan Yönetim Platformu
 
-GeoMap, **.NET 8 Web API** ve **React (OpenLayers)** kullanılarak geliştirilmiş, JWT kimlik doğrulamalı ve coğrafi konum tabanlı bir harita uygulamasıdır.
-
----
-
-## Teknolojiler
-
-* **Backend:** .NET 8 Web API, Entity Framework Core, PostgreSQL (PostGIS / NetTopologySuite)
-* **Frontend:** React (Vite), OpenLayers (`ol`)
-* **Kimlik Doğrulama:** JWT (JSON Web Token) - *10 Dakikalık Oturum Süresi*
+Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılarak geliştirilmiş, PostGIS coğrafi veritabanı destekli, JWT kimlik doğrulamalı ve gelişmiş GIS (Coğrafi Bilgi Sistemleri) özelliklerine sahip bir web uygulamasıdır.
 
 ---
 
-## Ön Gereksinimler
+## 🌟 Öne Çıkan Özellikler
 
-Projeyi bilgisayarınızda çalıştırmak için aşağıdaki yazılımların kurulu olması gerekir:
+### 🔐 Kimlik Doğrulama & Oturum Yönetimi
+- **JWT (JSON Web Token)** tabanlı güvenli kimlik doğrulama.
+- **10 Dakikalık Oturum Takibi**: Canlı geri sayım sayacı ve otomatik oturum sonlandırma.
+- **Geçiş Animasyonu**: Giriş yapıldığında 0.5 saniyelik eğrisel yörünge animasyonu ile haritaya akıcı geçiş.
+- **Dark Glassmorphism Tasarımı**: Modern gece temalı giriş ekranı arayüzü.
 
-1. **.NET 8 SDK** ([İndir](https://dotnet.microsoft.com/download/dotnet/8.0))
-2. **Node.js** (v18 veya üzeri) ([İndir](https://nodejs.org/))
-3. **PostgreSQL** (PostGIS eklentisi ile birlikte)
+### 🗺️ OpenLayers Çizim ve Mekansal İşlemler (GIS)
+- **Nokta (Point / tbl_point)**: Harita tıklaması veya dinamik konum aracı ile nokta verisi kaydetme.
+- **Çizgi (LineString / tbl_line)**: Serbest hat ve vektör çizgi çizimi, veritabanına aktarımı.
+- **Poligon (Polygon / tbl_polygon)**: Alan ve bölge sınır çizimi, veritabanına aktarımı.
+- **Veri Yalıtımı ve Rubberband Temizliği**: Çizim esnasında menü etkileşimlerinin haritaya yansımasını önleyen olay yalıtımı (`e.stopPropagation()`) ve canlı fare takip uzantısı temizliği (`finishDrawing()`).
+
+### 📐 Coğrafi Veri Formatı & Projeksiyon Yönetimi
+- **WKT (Well-Known Text)**: Veri okuma, yazma ve transferinde standart WKT formatı kullanımı (`WKTReader` / `WKTWriter`).
+- **Projeksiyon Dönüşümü**: Haritadaki Web Mercator (`EPSG:3857`) ile PostgreSQL / PostGIS veritabanındaki WGS84 (`EPSG:4326`) koordinat projeksiyonları arasında otomatik dönüşüm.
+
+### 🎨 Kullanıcı Deneyimi (UX) & PrimeReact Entegrasyonu
+- **PrimeReact Bileşenleri**: Toast bildirimleri ve silme onay modalı (`Dialog`).
+- **Error Prevention (Silme Onayı)**: Konum veya çizim silme işlemlerinden önce uyarı penceresi.
+- **Birleşik Kayıtlı Menü**: Kayıtlı konumlar ve çizimler tek sekmeli panel altında görsel simgelerle listelenir.
+- **Sade Vektörel İkonlar**: SVG formatında sadeleştirilmiş arayüz elemanları ve çöp kutusu ikonları.
 
 ---
 
-## Kurulum ve Yapılandırma
+## 🛠️ Teknolojiler
 
-### 1. Veritabanı Ayarları (Backend)
-`GeoraphMap.API/appsettings.json` dosyasındaki veritabanı bağlantı cümlesini kendi PostgreSQL şifrenize göre düzenleyin:
+* **Backend:** .NET 9 Web API, Entity Framework Core, PostgreSQL, PostGIS, NetTopologySuite
+* **Frontend:** React (Vite), OpenLayers (`ol`), PrimeReact (`primereact`), PrimeIcons
+* **Güvenlik:** JWT (JSON Web Token), BCrypt Password Hashing
 
-```json
-"ConnectionStrings": {
-  "DefaultConnection": "Host=localhost;Database=Geo;Username=postgres;Password=KENDI_SIFRENIZ"
-}
+---
+
+## 🗄️ Veritabanı Tablo Yapısı
+
+- `tbl_user`: Kullanıcı hesapları (`id`, `username`, `password_hash`, `is_active`, `is_deleted`, `modified_date`)
+- `tbl_place`: Konum verileri (`id`, `name`, `wkt`, `longitude`, `latitude`, `modified_date`)
+- `tbl_point`: Nokta katmanı (`id`, `name`, `wkt`, `geometry`, `modified_date`)
+- `tbl_line`: Çizgi katmanı (`id`, `name`, `wkt`, `geometry`, `modified_date`)
+- `tbl_polygon`: Poligon katmanı (`id`, `name`, `wkt`, `geometry`, `modified_date`)
+
+---
+
+## 🚀 Kurulum ve Çalıştırma
+
+### 1. Backend (API) Başlatma
+```bash
+cd GeoraphMap.API
+dotnet run
 ```
+*Backend API: `http://localhost:5041`*
+
+### 2. Frontend (React) Başlatma
+```bash
+cd geo-client
+npm install
+npm run dev
+```
+*Frontend İstemci: `http://localhost:5173`*
 
 ---
 
-## Projeyi Çalıştırma
-
-Uygulamayı çalıştırmak için **iki ayrı terminal** kullanabilirsiniz:
-
-### 1. Adım: Backend (API) Sunucusunu Başlatma
-1. Birinci terminalde `GeoraphMap.API` klasörüne gidin:
-   ```bash
-   cd GeoraphMap.API
-   ```
-2. API sunucusunu başlatın:
-   ```bash
-   dotnet run
-   ```
-   * *Backend `http://localhost:5041` adresinde çalışır.*
-
----
-
-### 2. Adım: Frontend (React) İstemcisini Başlatma
-1. İkinci terminalde `geo-client` klasörüne gidin:
-   ```bash
-   cd geo-client
-   ```
-2. Paketleri yükleyin (yalnızca ilk kurulumda):
-   ```bash
-   npm install
-   ```
-3. Arayüz sunucusunu başlatın:
-   ```bash
-   npm run dev
-   ```
-   * *Arayüz `http://localhost:5173` adresinde çalışır.*
-
----
-
-## Kullanım
-
-1. Tarayıcınızda `http://localhost:5173` adresini açın.
-2. Giriş ekranında **Kullanıcı Adı** ve **Şifre** girerek giriş yapın.
-3. Giriş yapıldığında harita **Türkiye** merkezli (`zoom: 6`) açılır ve 10 dakikalık geri sayım sayacı başlar.
-4. Harita üzerinden konum seçip mekan adı yazarak veritabanına kaydedebilirsiniz.
+## 📄 Lisans
+Bu proje geliştirme ve eğitim amaçlı tasarlanmıştır. Tüm hakları saklıdır.

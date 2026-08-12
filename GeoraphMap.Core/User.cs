@@ -1,14 +1,12 @@
-using NetTopologySuite.Geometries;
 using System;
 
 namespace GeoraphMap.Core
 {
-    public class Place
+    public class User
     {
         public int Id { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string Wkt { get; set; } = string.Empty;
-        public Point Location { get; set; } = null!;
+        public string Username { get; set; } = string.Empty;
+        public string PasswordHash { get; set; } = string.Empty;
         public bool IsActive { get; set; } = true;
         public bool IsDeleted { get; set; } = false;
         public DateTime ModifiedDate { get; set; } = DateTime.UtcNow;

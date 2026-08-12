@@ -3,6 +3,7 @@ using System;
 using GeoraphMap.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeoraphMap.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812125634_AddDrawingTables")]
+    partial class AddDrawingTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -66,30 +69,17 @@ namespace GeoraphMap.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
                     b.Property<Point>("Location")
                         .IsRequired()
                         .HasColumnType("geometry");
-
-                    b.Property<DateTime>("ModifiedDate")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Wkt")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.HasKey("Id");
 
-                    b.ToTable("tbl_place", (string)null);
+                    b.ToTable("Places");
                 });
 
             modelBuilder.Entity("GeoraphMap.Core.PointFeature", b =>
@@ -158,36 +148,6 @@ namespace GeoraphMap.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("tbl_polygon", (string)null);
-                });
-
-            modelBuilder.Entity("GeoraphMap.Core.User", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("ModifiedDate")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PasswordHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Username")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("tbl_user", (string)null);
                 });
 #pragma warning restore 612, 618
         }
