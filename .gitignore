@@ -40,3 +40,5 @@ node_modules/
 dist/
 
 notlar
+DEVELOPMENT_LOG.md
+TECHNICAL_CONCEPTS.md

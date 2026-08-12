@@ -1,13 +1,8 @@
-using GeoraphMap.Core;
-using GeoraphMap.Infrastructure;
+using GeoraphMap.Core.DTOs;
+using GeoraphMap.Core.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using NetTopologySuite.Geometries;
-using NetTopologySuite.IO;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace GeoraphMap.API.Controllers
@@ -17,185 +12,101 @@ namespace GeoraphMap.API.Controllers
     [Route("api/[controller]")]
     public class DrawingsController : ControllerBase
     {
-        private readonly AppDbContext _context;
-        private readonly WKTReader _wktReader;
-        private readonly WKTWriter _wktWriter;
+        private readonly IDrawingService _drawingService;
 
-        public DrawingsController(AppDbContext context)
+        public DrawingsController(IDrawingService drawingService)
         {
-            _context = context;
-            _wktReader = new WKTReader { DefaultSRID = 4326 };
-            _wktWriter = new WKTWriter();
-        }
-
-        public class CreateDrawingDto
-        {
-            public string Name { get; set; } = string.Empty;
-            public string Wkt { get; set; } = string.Empty;
-        }
-
-        public class DrawingResponseDto
-        {
-            public int Id { get; set; }
-            public string Name { get; set; } = string.Empty;
-            public string Wkt { get; set; } = string.Empty;
-            public string Type { get; set; } = string.Empty; // Line, Polygon
-            public DateTime ModifiedDate { get; set; }
+            _drawingService = drawingService;
         }
 
         [HttpGet]
         public async Task<IActionResult> GetAllDrawings()
         {
-            var lines = await _context.Lines
-                .Where(l => !l.IsDeleted && l.IsActive)
-                .Select(l => new DrawingResponseDto
+            var drawings = await _drawingService.GetAllDrawingsAsync();
+            return Ok(drawings);
+        }
+
+        [HttpPost("point")]
+        public async Task<IActionResult> CreatePoint([FromBody] CreateDrawingDto dto)
+        {
+            try
+            {
+                var result = await _drawingService.CreatePointAsync(dto);
+                return Ok(new
                 {
-                    Id = l.Id,
-                    Name = string.IsNullOrEmpty(l.Name) ? $"Çizgi #{l.Id}" : l.Name,
-                    Wkt = l.Wkt != "" ? l.Wkt : _wktWriter.Write(l.Geometry),
-                    Type = "Line",
-                    ModifiedDate = l.ModifiedDate
-                })
-                .ToListAsync();
-
-            var polygons = await _context.Polygons
-                .Where(pg => !pg.IsDeleted && pg.IsActive)
-                .Select(pg => new DrawingResponseDto
-                {
-                    Id = pg.Id,
-                    Name = string.IsNullOrEmpty(pg.Name) ? $"Poligon #{pg.Id}" : pg.Name,
-                    Wkt = pg.Wkt != "" ? pg.Wkt : _wktWriter.Write(pg.Geometry),
-                    Type = "Polygon",
-                    ModifiedDate = pg.ModifiedDate
-                })
-                .ToListAsync();
-
-            var result = new List<DrawingResponseDto>();
-            result.AddRange(lines);
-            result.AddRange(polygons);
-
-            return Ok(result);
+                    Message = "Nokta veritabanına (tbl_point) başarıyla kaydedildi.",
+                    Data = result
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
+            }
         }
 
         [HttpPost("line")]
         public async Task<IActionResult> CreateLine([FromBody] CreateDrawingDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.Wkt))
-                return BadRequest(new { Message = "WKT verisi boş olamaz." });
-
             try
             {
-                var geom = _wktReader.Read(dto.Wkt);
-                if (geom is not LineString lineGeom)
-                    return BadRequest(new { Message = "Girdi geçerli bir LineString WKT verisi değil." });
-
-                lineGeom.SRID = 4326;
-
-                var entity = new LineFeature
-                {
-                    Name = dto.Name,
-                    Wkt = dto.Wkt,
-                    Geometry = lineGeom,
-                    IsActive = true,
-                    IsDeleted = false,
-                    ModifiedDate = DateTime.UtcNow
-                };
-
-                _context.Lines.Add(entity);
-                await _context.SaveChangesAsync();
-
+                var result = await _drawingService.CreateLineAsync(dto);
                 return Ok(new
                 {
                     Message = "Çizgi veritabanına (tbl_line) başarıyla kaydedildi.",
-                    Data = new DrawingResponseDto
-                    {
-                        Id = entity.Id,
-                        Name = entity.Name,
-                        Wkt = entity.Wkt,
-                        Type = "Line",
-                        ModifiedDate = entity.ModifiedDate
-                    }
+                    Data = result
                 });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { Message = $"WKT ayrıştırma hatası: {ex.Message}" });
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
             }
         }
 
         [HttpPost("polygon")]
         public async Task<IActionResult> CreatePolygon([FromBody] CreateDrawingDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.Wkt))
-                return BadRequest(new { Message = "WKT verisi boş olamaz." });
-
             try
             {
-                var geom = _wktReader.Read(dto.Wkt);
-                if (geom is not Polygon polygonGeom)
-                    return BadRequest(new { Message = "Girdi geçerli bir Polygon WKT verisi değil." });
-
-                polygonGeom.SRID = 4326;
-
-                var entity = new PolygonFeature
-                {
-                    Name = dto.Name,
-                    Wkt = dto.Wkt,
-                    Geometry = polygonGeom,
-                    IsActive = true,
-                    IsDeleted = false,
-                    ModifiedDate = DateTime.UtcNow
-                };
-
-                _context.Polygons.Add(entity);
-                await _context.SaveChangesAsync();
-
+                var result = await _drawingService.CreatePolygonAsync(dto);
                 return Ok(new
                 {
                     Message = "Poligon veritabanına (tbl_polygon) başarıyla kaydedildi.",
-                    Data = new DrawingResponseDto
-                    {
-                        Id = entity.Id,
-                        Name = entity.Name,
-                        Wkt = entity.Wkt,
-                        Type = "Polygon",
-                        ModifiedDate = entity.ModifiedDate
-                    }
+                    Data = result
                 });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { Message = $"WKT ayrıştırma hatası: {ex.Message}" });
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
             }
         }
 
         [HttpDelete("{type}/{id}")]
         public async Task<IActionResult> DeleteDrawing(string type, int id)
         {
-            switch (type.ToLower())
+            try
             {
-                case "line":
-                    var l = await _context.Lines.FindAsync(id);
-                    if (l == null) return NotFound();
-                    l.IsDeleted = true;
-                    l.IsActive = false;
-                    l.ModifiedDate = DateTime.UtcNow;
-                    break;
+                var success = await _drawingService.DeleteDrawingAsync(type, id);
+                if (!success)
+                    return NotFound(new { Message = "Çizim bulunamadı." });
 
-                case "polygon":
-                    var pg = await _context.Polygons.FindAsync(id);
-                    if (pg == null) return NotFound();
-                    pg.IsDeleted = true;
-                    pg.IsActive = false;
-                    pg.ModifiedDate = DateTime.UtcNow;
-                    break;
-
-                default:
-                    return BadRequest(new { Message = "Geçersiz çizim tipi." });
+                return Ok(new { Message = "Çizim başarıyla silindi." });
             }
-
-            await _context.SaveChangesAsync();
-            return Ok(new { Message = "Çizim başarıyla silindi." });
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
         }
     }
 }

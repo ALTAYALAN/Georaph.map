@@ -1,4 +1,6 @@
+using GeoraphMap.Core.Services;
 using GeoraphMap.Infrastructure;
+using GeoraphMap.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -12,6 +14,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         builder.Configuration.GetConnectionString("DefaultConnection"),
         x => x.UseNetTopologySuite()
     ));
+
+// Custom Application Services (N-Tier Architecture)
+builder.Services.AddScoped<IPlaceService, PlaceService>();
+builder.Services.AddScoped<IDrawingService, DrawingService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IAnalysisService, AnalysisService>();
 
 // JWT Authentication Configuration
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "GeoMap_Super_Secret_Key_For_Jwt_Authentication_2026_Key!";
@@ -54,6 +62,13 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+// Otomatik Veritabanı Migrasyonunu Uygula
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    dbContext.Database.Migrate();
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
