@@ -8,6 +8,7 @@ import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
 import { Style, Icon, Stroke, Fill, Circle as CircleStyle } from 'ol/style';
 import OSM from 'ol/source/OSM';
+import XYZ from 'ol/source/XYZ';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import Draw from 'ol/interaction/Draw';
 import WKT from 'ol/format/WKT';
@@ -22,6 +23,9 @@ import './App.css';
 function App() {
     // PrimeReact Toast Referansı
     const toastRef = useRef(null);
+
+    // Tema (Karanlık / Aydınlık Mod) Durumu
+    const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
 
     // Kullanıcı ve Token Durumları (State)
     const [token, setToken] = useState(localStorage.getItem('jwt_token') || '');
@@ -193,6 +197,22 @@ function App() {
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
+    const tileLayerRef = useRef(null);
+
+    // TEMA DEĞİŞTİĞİNDE HARİTA ALTLIK KATMANINI VE LOCALSTORAGE'I GÜNCELLE
+    useEffect(() => {
+        localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+        if (tileLayerRef.current) {
+            if (isDarkMode) {
+                tileLayerRef.current.setSource(new XYZ({
+                    url: 'https://{a-c}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+                }));
+            } else {
+                tileLayerRef.current.setSource(new OSM());
+            }
+        }
+    }, [isDarkMode]);
+
     // OPENLAYERS HARİTA KURULUMU
     useEffect(() => {
         if (!token) return;
@@ -206,12 +226,15 @@ function App() {
         const drawingsSource = new VectorSource();
         drawingsSourceRef.current = drawingsSource;
 
+        const baseTileLayer = new TileLayer({
+            source: isDarkMode ? new XYZ({ url: 'https://{a-c}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' }) : new OSM()
+        });
+        tileLayerRef.current = baseTileLayer;
+
         const map = new Map({
             target: 'map',
             layers: [
-                new TileLayer({
-                    source: new OSM()
-                }),
+                baseTileLayer,
                 new VectorLayer({
                     source: savedPlacesSource,
                     style: new Style({
@@ -753,14 +776,21 @@ function App() {
 
     // 2. DURUM: GİRİŞ BAŞARILIYSA (HARİTA EKRANI)
     return (
-        <div className="map-container">
+        <div className={`map-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
             <Toast ref={toastRef} />
             {/* Sol Panel */}
             <div className="map-sidebar">
                 <div className="map-sidebar-top">
-                    {/* Marka Header */}
+                    {/* Marka Header & Tema Değiştirme Butonu */}
                     <div className="map-brand-header">
                         <h2 className="map-brand-title">Georaph.map</h2>
+                        <button
+                            className="theme-toggle-btn"
+                            onClick={() => setIsDarkMode(!isDarkMode)}
+                            title={isDarkMode ? "Aydınlık Moduna Geç" : "Karanlık Moduna Geç"}
+                        >
+                            {isDarkMode ? '☀️' : '🌙'}
+                        </button>
                     </div>
 
                     {/* Oturum Süresi Geri Sayım Rozeti */}
