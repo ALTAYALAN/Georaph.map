@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="geo-client/public/logo.png" alt="Georaph.map Logo" width="120" />
+</p>
+
 # Georaph.map - Coğrafi Konum ve Mekan Yönetim Platformu
 
 Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılarak geliştirilmiş, PostGIS coğrafi veritabanı destekli, JWT kimlik doğrulamalı ve gelişmiş GIS (Coğrafi Bilgi Sistemleri) özelliklerine sahip bir web uygulamasıdır.
