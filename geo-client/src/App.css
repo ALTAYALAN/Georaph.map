@@ -345,17 +345,138 @@ textarea {
     top: 0;
     left: 0;
     bottom: 0;
-    width: 290px;
+    width: 275px;
     background: #ffffff;
-    padding: 22px 18px;
+    padding: 18px 14px;
     z-index: 1000;
     border-right: 3px solid #2563eb;
     box-shadow: 16px 0 45px rgba(15, 23, 42, 0.14);
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    overflow-y: auto;
+    overflow-y: visible;
     box-sizing: border-box;
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Yan Menü Kapalı Durumu */
+.map-sidebar.collapsed {
+    transform: translateX(-100%);
+}
+
+/* Sekmenin Dış Tarafında Duran Küçültme/Açma Butonu */
+.sidebar-close-btn-outside {
+    position: absolute;
+    top: 16px;
+    right: -34px;
+    width: 34px;
+    height: 42px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    border-left: none;
+    border-radius: 0 10px 10px 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #2563eb;
+    box-shadow: 4px 0 14px rgba(15, 23, 42, 0.15);
+    transition: all 0.25s ease;
+    z-index: 1005;
+}
+
+.dark-theme .sidebar-close-btn-outside {
+    background: #1e293b;
+    border-color: #334155;
+    color: #60a5fa;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.5);
+}
+
+.sidebar-close-btn-outside:hover {
+    background: #2563eb;
+    color: #ffffff;
+    width: 38px;
+    right: -38px;
+}
+
+.map-brand-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 18px;
+    width: 100%;
+}
+
+/* İÇ SERBEST KAYDIRILABİLİR ALAN (Independent Scroll Container) */
+.map-sidebar-top {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+    margin-bottom: 10px;
+}
+
+.map-sidebar-top::-webkit-scrollbar {
+    width: 5px;
+}
+
+.map-sidebar-top::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.map-sidebar-top::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.4);
+    border-radius: 4px;
+}
+
+.map-sidebar-top::-webkit-scrollbar-thumb:hover {
+    background: rgba(59, 130, 246, 0.7);
+}
+
+.map-brand-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.header-action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+/* Yan Menü Kapalıyken Sol Üstte Duran Yüzen Menü Açma Butonu */
+.sidebar-open-floating-btn {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 1001;
+    background: #ffffff;
+    color: #0f172a;
+    border: 1.5px solid #cbd5e1;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);
+    border-radius: 10px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.sidebar-open-floating-btn:hover {
+    background: #2563eb;
+    color: #ffffff;
+    border-color: #2563eb;
+    transform: scale(1.05);
 }
 
 .map-brand-header {
@@ -520,10 +641,24 @@ textarea {
     background: #15803d;
 }
 
+.map-sidebar-bottom {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    width: 100%;
+}
+
 .btn-logout {
     background: #dc2626;
     color: #ffffff;
-    margin-top: 20px;
+    margin-top: 0;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    width: auto;
+    flex: 0 0 auto;
 }
 
 .btn-logout:hover {
@@ -1182,13 +1317,16 @@ textarea {
     background: #f1f5f9;
     border: 1.5px solid #cbd5e1;
     border-radius: 8px;
-    padding: 5px 9px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
     font-size: 15px;
     cursor: pointer;
     transition: all 0.25s ease;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .theme-toggle-btn:hover {
@@ -1306,3 +1444,227 @@ textarea {
     border: 1px solid #1e293b;
     color: #f8fafc;
 }
+
+/* ENVANTER ANALİZ ARACI BUTONU (SARI VURGULU) */
+.map-tool-icon-btn.analysis-tool-btn {
+    color: #f59e0b;
+}
+
+.map-tool-icon-btn.analysis-tool-btn:hover,
+.map-tool-icon-btn.analysis-tool-btn.active {
+    background: #f59e0b;
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
+}
+
+/* YÜZEN ENVANTER ANALİZ SONUÇ KARTI (SAĞ ALT) */
+.analysis-result-card-floating {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    width: 340px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    overflow: hidden;
+    animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.map-container.dark-theme .analysis-result-card-floating {
+    background: #0f172a;
+    border-color: #1e293b;
+    color: #f8fafc;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+
+.analysis-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: rgba(245, 158, 11, 0.1);
+    border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.analysis-header-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.analysis-header-title h3 {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0;
+    color: #d97706;
+}
+
+.map-container.dark-theme .analysis-header-title h3 {
+    color: #fbbf24;
+}
+
+.btn-close-analysis {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: #64748b;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.btn-close-analysis:hover {
+    color: #ef4444;
+}
+
+.analysis-card-body {
+    padding: 16px 18px;
+}
+
+.analysis-total-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    background: #fef3c7;
+    border-radius: 10px;
+    margin-bottom: 14px;
+}
+
+.map-container.dark-theme .analysis-total-badge {
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.total-number {
+    font-size: 32px;
+    font-weight: 800;
+    color: #b45309;
+    line-height: 1;
+}
+
+.map-container.dark-theme .total-number {
+    color: #fbbf24;
+}
+
+.total-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #92400e;
+    margin-top: 4px;
+}
+
+.map-container.dark-theme .total-label {
+    color: #fcd34d;
+}
+
+.analysis-breakdown-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.breakdown-item {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.map-container.dark-theme .breakdown-item {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.item-count {
+    font-size: 16px;
+    font-weight: 700;
+    color: #2563eb;
+}
+
+.map-container.dark-theme .item-count {
+    color: #60a5fa;
+}
+
+.item-type {
+    font-size: 11px;
+    color: #64748b;
+}
+
+.map-container.dark-theme .item-type {
+    color: #94a3b8;
+}
+
+.analysis-details-list {
+    max-height: 100px;
+    overflow-y: auto;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 8px;
+    margin-top: 8px;
+}
+
+.map-container.dark-theme .analysis-details-list {
+    border-top-color: #334155;
+}
+
+.analysis-details-list h4 {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 4px;
+}
+
+.analysis-details-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.analysis-details-list li {
+    font-size: 11px;
+    padding: 2px 0;
+    color: #475569;
+}
+
+.map-container.dark-theme .analysis-details-list li {
+    color: #cbd5e1;
+}
+
+.analysis-card-footer {
+    padding: 10px 18px 14px;
+}
+
+.btn-clear-analysis-action {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background: #ef4444;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-clear-analysis-action:hover {
+    background: #dc2626;
+}
+
+@keyframes slideUpFade {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}

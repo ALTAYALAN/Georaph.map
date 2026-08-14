@@ -6,6 +6,7 @@ import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
+import Polygon from 'ol/geom/Polygon';
 import { Style, Icon, Stroke, Fill, Circle as CircleStyle } from 'ol/style';
 import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
@@ -15,51 +16,122 @@ import WKT from 'ol/format/WKT';
 
 // PrimeReact Bileşenleri
 import { Toast } from 'primereact/toast';
-import { Dialog } from 'primereact/dialog';
-import { Button } from 'primereact/button';
 
+import { translations } from './translations';
 import './App.css';
+
+// Hex rengi RGBA stringe çevirme yardımcısı
+function hexToRgba(hex, alpha = 0.35) {
+    if (!hex) return `rgba(59, 130, 246, ${alpha})`;
+    let c = hex.replace('#', '');
+    if (c.length === 3) {
+        c = c.split('').map(x => x + x).join('');
+    }
+    const num = parseInt(c, 16);
+    if (isNaN(num)) return `rgba(59, 130, 246, ${alpha})`;
+    const r = (num >> 16) & 255;
+    const g = (num >> 8) & 255;
+    const b = num & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+const PRESET_COLORS = [
+    { label: 'Mavi', hex: '#3b82f6' },
+    { label: 'Yeşil', hex: '#10b981' },
+    { label: 'Kırmızı', hex: '#ef4444' },
+    { label: 'Turuncu', hex: '#f59e0b' },
+    { label: 'Mor', hex: '#8b5cf6' },
+    { label: 'Pembe', hex: '#ec4899' },
+    { label: 'Koyu', hex: '#1f2937' }
+];
+
+// Vektörel Yüksek Kaliteli Bayrak İkonları (Tüm Tarayıcılarda Kusursuz Görünüm)
+const TurkeyFlag = () => (
+    <svg width="18" height="13" viewBox="0 0 1200 800" style={{ borderRadius: '2px', display: 'inline-block', verticalAlign: 'middle', boxShadow: '0 0 2px rgba(0,0,0,0.3)' }}>
+        <rect width="1200" height="800" fill="#E30A17" />
+        <circle cx="425" cy="400" r="200" fill="#ffffff" />
+        <circle cx="475" cy="400" r="160" fill="#E30A17" />
+        <polygon points="583.3,400 684.8,433 622,346.5 622,453.5 684.8,367" fill="#ffffff" />
+    </svg>
+);
+
+const UKFlag = () => (
+    <svg width="18" height="13" viewBox="0 0 60 30" style={{ borderRadius: '2px', display: 'inline-block', verticalAlign: 'middle', boxShadow: '0 0 2px rgba(0,0,0,0.3)' }}>
+        <clipPath id="uk-clip"><rect width="60" height="30" /></clipPath>
+        <g clipPath="url(#uk-clip)">
+            <rect width="60" height="30" fill="#012169" />
+            <path d="M0,0 L60,30 M60,0 L0,30" stroke="#ffffff" strokeWidth="6" />
+            <path d="M0,0 L60,30 M60,0 L0,30" stroke="#C8102E" strokeWidth="2" />
+            <path d="M30,0 V30 M0,15 H60" stroke="#ffffff" strokeWidth="10" />
+            <path d="M30,0 V30 M0,15 H60" stroke="#C8102E" strokeWidth="6" />
+        </g>
+    </svg>
+);
 
 function App() {
     // PrimeReact Toast Referansı
     const toastRef = useRef(null);
+    const placeColorInputRef = useRef(null);
+    const drawColorInputRef = useRef(null);
+
+    // Dil (Türkçe / İngilizce) Durumu
+    const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'tr');
+    const t = translations[lang] || translations.tr;
+
+    const toggleLang = () => {
+        setLang(prev => {
+            const next = prev === 'tr' ? 'en' : 'tr';
+            localStorage.setItem('lang', next);
+            return next;
+        });
+    };
 
     // Tema (Karanlık / Aydınlık Mod) Durumu
     const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+
+    // Sol Sidebar Açık/Kapalı Durumu
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     // Kullanıcı ve Token Durumları (State)
     const [token, setToken] = useState(localStorage.getItem('jwt_token') || '');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const [isLoggingIn, setIsLoggingIn] = useState(false); // Giriş Başarılı Geçiş Animasyonu Durumu
+    const [isLoggingIn, setIsLoggingIn] = useState(false);
 
     // Oturum Kalan Süresi (Saniye Cinsinden)
     const [timeLeft, setTimeLeft] = useState(0);
 
     // Harita Formu Durumları (Tekil Mekan Ekleme)
     const [placeName, setPlaceName] = useState('');
+    const [placeColor, setPlaceColor] = useState('#16a34a');
     const [coords, setCoords] = useState({ lon: 33.2433, lat: 38.9637 }); // Varsayılan Türkiye
     const [infoMessage, setInfoMessage] = useState('');
     const [savedPlaces, setSavedPlaces] = useState([]); // Veritabanından gelen kayıtlı mekanlar
 
-    // OpenLayers Çizim İşlemleri (Interactions - Point, Line, Polygon)
-    const [drawType, setDrawType] = useState('None'); // 'None', 'Point', 'LineString', 'Polygon'
-    const [savedDrawings, setSavedDrawings] = useState([]); // tbl_point, tbl_line, tbl_polygon verileri
-    const [activeTab, setActiveTab] = useState('places'); // 'places' veya 'drawings'
-    const [deleteTarget, setDeleteTarget] = useState(null); // Error Prevention Modal için silinecek hedef öğe
+    // OpenLayers Çizim İşlemleri (Point, LineString, Polygon, Analysis)
+    const [drawType, setDrawType] = useState('None');
+    const [savedDrawings, setSavedDrawings] = useState([]);
+    const [deleteTarget, setDeleteTarget] = useState(null);
 
-    // Yüzen Alt Kutu & Taslak Çizim Durumları
+    // YÜZER MENÜ / ÖZNİTELİK FORM DURUMLARI (İsim, Renk ve Taslak WKT)
     const [drawingName, setDrawingName] = useState('');
+    const [drawingColor, setDrawingColor] = useState('#3b82f6');
     const [draftWkt, setDraftWkt] = useState('');
-    const draftFeatureRef = useRef(null);
 
-    // OpenLayers harita ve vektör katmanı referansları
+    // GEÇİCİ ENVANTER ANALİZİ DURUMLARI
+    const [analysisResult, setAnalysisResult] = useState(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+    // OpenLayers harita ve katman referansları
     const mapRef = useRef(null);
     const vectorSourceRef = useRef(null);
     const savedPlacesSourceRef = useRef(null);
     const drawingsSourceRef = useRef(null);
+    const analysisSourceRef = useRef(new VectorSource());
     const drawInteractionRef = useRef(null);
+    const draftFeatureRef = useRef(null);
+    const tileLayerRef = useRef(null);
 
     // OTURUM SÜRESİ KONTROLÜ VE GERİ SAYIM ZAMANLAYICISI (10 Dakika)
     useEffect(() => {
@@ -90,7 +162,7 @@ function App() {
         return () => clearInterval(interval);
     }, [token]);
 
-    // PrimeReact Toast Bildirimi Tetikleme
+    // Toast Bildirimi Tetikleme
     useEffect(() => {
         if (infoMessage && toastRef.current) {
             const isError = infoMessage.toLowerCase().includes('hata') || infoMessage.toLowerCase().includes('başarısız');
@@ -143,7 +215,7 @@ function App() {
         }
     }, [token]);
 
-    // MANÜEL LOGIN İŞLEMİ (ÇIKIŞ ANİMASYONLU)
+    // LOGIN İŞLEMİ
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
@@ -164,7 +236,6 @@ function App() {
                 localStorage.setItem('jwt_token', data.token);
                 localStorage.setItem('session_expiration', expirationTimestamp.toString());
 
-                // Yarım saniyelik (500ms) sembolik noktaların dışarı çıkış animasyonunu başlat
                 setIsLoggingIn(true);
 
                 setTimeout(() => {
@@ -190,16 +261,13 @@ function App() {
         }
     };
 
-    // Dakika:Saniye Formatlama
     const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const tileLayerRef = useRef(null);
-
-    // TEMA DEĞİŞTİĞİNDE HARİTA ALTLIK KATMANINI VE LOCALSTORAGE'I GÜNCELLE
+    // TEMA DEĞİŞTİĞİNDE HARİTA ALTLIK KATMANINI GÜNCELLE
     useEffect(() => {
         localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
         if (tileLayerRef.current) {
@@ -231,23 +299,31 @@ function App() {
         });
         tileLayerRef.current = baseTileLayer;
 
+        const analysisLayer = new VectorLayer({
+            source: analysisSourceRef.current,
+            style: new Style({
+                stroke: new Stroke({
+                    color: '#f59e0b',
+                    width: 3,
+                    lineDash: [8, 8]
+                }),
+                fill: new Fill({
+                    color: 'rgba(245, 158, 11, 0.25)'
+                })
+            })
+        });
+
         const map = new Map({
             target: 'map',
             layers: [
                 baseTileLayer,
                 new VectorLayer({
-                    source: savedPlacesSource,
-                    style: new Style({
-                        image: new Icon({
-                            src: 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg width="34" height="46" viewBox="0 0 34 46" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="#16a34a" stroke="#ffffff" stroke-width="2.5"/><circle cx="17" cy="17" r="6.5" fill="#ffffff"/></svg>`),
-                            scale: 0.75,
-                            anchor: [0.5, 1]
-                        })
-                    })
+                    source: savedPlacesSource
                 }),
                 new VectorLayer({
                     source: drawingsSource
                 }),
+                analysisLayer,
                 new VectorLayer({
                     source: activeMarkerSource
                 })
@@ -260,7 +336,6 @@ function App() {
 
         mapRef.current = map;
 
-        // Haritaya tıklanınca koordinat alma (Çizim modu etkin değilse)
         map.on('click', function (evt) {
             const lonLat = toLonLat(evt.coordinate);
             setCoords({
@@ -272,7 +347,7 @@ function App() {
         return () => map.setTarget(null);
     }, [token]);
 
-    // SEÇİLİ MAVİ PIN İŞARETÇİSİNİ GÜNCELLE
+    // SEÇİLİ MAVİ PIN İŞARETÇİSİ
     useEffect(() => {
         if (!vectorSourceRef.current) return;
         vectorSourceRef.current.clear();
@@ -286,7 +361,7 @@ function App() {
             });
 
             const pinSvg = `<svg width="34" height="46" viewBox="0 0 34 46" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="#2563eb" stroke="#ffffff" stroke-width="2.5"/>
+              <path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="${placeColor}" stroke="#ffffff" stroke-width="2.5"/>
               <circle cx="17" cy="17" r="6.5" fill="#ffffff"/>
             </svg>`;
 
@@ -300,19 +375,20 @@ function App() {
 
             vectorSourceRef.current.addFeature(marker);
         }
-    }, [coords, token]);
+    }, [coords, token, placeColor]);
 
-    // KAYITLI MEKANLARI (PLACES) HARİTADA GÖSTER
+    // KAYITLI MEKANLARI HARİTADA GÖSTER
     useEffect(() => {
         if (!savedPlacesSourceRef.current) return;
         savedPlacesSourceRef.current.clear();
 
-        const greenPinSvg = `<svg width="34" height="46" viewBox="0 0 34 46" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="#16a34a" stroke="#ffffff" stroke-width="2.5"/>
-          <circle cx="17" cy="17" r="6.5" fill="#ffffff"/>
-        </svg>`;
-
         savedPlaces.forEach((place) => {
+            const pinColor = place.color || '#16a34a';
+            const pinSvg = `<svg width="34" height="46" viewBox="0 0 34 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="${pinColor}" stroke="#ffffff" stroke-width="2.5"/>
+              <circle cx="17" cy="17" r="6.5" fill="#ffffff"/>
+            </svg>`;
+
             const feature = new Feature({
                 geometry: new Point(fromLonLat([place.longitude, place.latitude])),
                 name: place.name
@@ -320,7 +396,7 @@ function App() {
 
             feature.setStyle(new Style({
                 image: new Icon({
-                    src: 'data:image/svg+xml;utf8,' + encodeURIComponent(greenPinSvg),
+                    src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
                     scale: 0.75,
                     anchor: [0.5, 1]
                 })
@@ -330,7 +406,7 @@ function App() {
         });
     }, [savedPlaces]);
 
-    // KAYITLI ÇİZİMLERİ (Point, Line, Polygon - WKT) HARİTADA GÖSTER & DÖNÜŞTÜR (EPSG:4326 -> EPSG:3857)
+    // KAYITLI ÇİZİMLERİ (Point, Line, Polygon - WKT & Color) HARİTADA GÖSTER
     useEffect(() => {
         if (!drawingsSourceRef.current) return;
         drawingsSourceRef.current.clear();
@@ -350,29 +426,37 @@ function App() {
                 feature.set('name', item.name);
                 feature.set('type', item.type);
 
+                const itemColor = item.color || '#3b82f6';
+
                 if (item.type === 'Point') {
+                    const pinColor = itemColor;
+                    const pinSvg = `<svg width="34" height="46" viewBox="0 0 34 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="${pinColor}" stroke="#ffffff" stroke-width="2.5"/>
+                      <circle cx="17" cy="17" r="6.5" fill="#ffffff"/>
+                    </svg>`;
+
                     feature.setStyle(new Style({
-                        image: new CircleStyle({
-                            radius: 8,
-                            fill: new Fill({ color: '#ef4444' }),
-                            stroke: new Stroke({ color: '#ffffff', width: 2.5 })
+                        image: new Icon({
+                            src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
+                            scale: 0.75,
+                            anchor: [0.5, 1]
                         })
                     }));
                 } else if (item.type === 'Line') {
                     feature.setStyle(new Style({
                         stroke: new Stroke({
-                            color: '#3b82f6',
+                            color: itemColor,
                             width: 4
                         })
                     }));
                 } else if (item.type === 'Polygon') {
                     feature.setStyle(new Style({
                         stroke: new Stroke({
-                            color: '#10b981',
+                            color: itemColor,
                             width: 3
                         }),
                         fill: new Fill({
-                            color: 'rgba(16, 185, 129, 0.35)'
+                            color: hexToRgba(itemColor, 0.35)
                         })
                     }));
                 }
@@ -384,14 +468,12 @@ function App() {
         });
     }, [savedDrawings]);
 
-    // ÇİZİMİ TAMAMEN İPTAL ETME VE TEMİZLEME FONKSİYONU
+    // ÇİZİME İPTAL ETME VE TEMİZLEME
     const handleCancelDraw = () => {
         if (drawInteractionRef.current) {
             try {
                 drawInteractionRef.current.abortDrawing();
-            } catch (e) {
-                console.log('Abort draw exception suppressed:', e);
-            }
+            } catch (e) { }
             if (mapRef.current) {
                 mapRef.current.removeInteraction(drawInteractionRef.current);
             }
@@ -405,15 +487,24 @@ function App() {
 
         setDraftWkt('');
         setDrawingName('');
+        setDrawingColor('#3b82f6');
         setDrawType('None');
-        setInfoMessage('Çizim modu iptal edildi.');
     };
 
-    // OPENLAYERS INTERACTION YÖNETİMİ
+    // GEÇİCİ ANALİZİ TEMİZLEME
+    const handleClearAnalysis = () => {
+        if (analysisSourceRef.current) {
+            analysisSourceRef.current.clear();
+        }
+        setAnalysisResult(null);
+        setDrawType('None');
+        setInfoMessage('Geçici envanter analizi temizlendi.');
+    };
+
+    // OPENLAYERS INTERACTION YÖNETİMİ (drawend Tetikleyicisi)
     useEffect(() => {
         if (!mapRef.current || !drawingsSourceRef.current) return;
 
-        // Mevcut aktif çizim etkileşimini kaldır ve iptal et
         if (drawInteractionRef.current) {
             try {
                 drawInteractionRef.current.abortDrawing();
@@ -428,12 +519,61 @@ function App() {
             return;
         }
 
-        // Çizim modu değiştikçe yeni isim önerisi hazırlar
-        const typeLabel = drawType === 'Point' ? 'Nokta' : drawType === 'LineString' ? 'Çizgi' : 'Poligon';
+        // Seçilen moda göre varsayılan başlık önerisi
+        const typeLabel = drawType === 'Point' ? 'Nokta' : drawType === 'LineString' ? 'Çizgi' : drawType === 'Polygon' ? 'Poligon' : 'Analiz';
         setDrawingName(`${typeLabel} Çizimi - ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`);
+        setDrawingColor('#3b82f6');
         setDraftWkt('');
 
-        // Seçilen türe göre Draw Etkileşimi Başlat
+        // GEÇİCİ ENVANTER ANALİZİ ÇİZİM MODU
+        if (drawType === 'Analysis') {
+            const drawInteraction = new Draw({
+                source: analysisSourceRef.current,
+                type: 'Polygon'
+            });
+
+            drawInteraction.on('drawend', async (event) => {
+                const geometry = event.feature.getGeometry();
+                const wktFormat = new WKT();
+                const wktString = wktFormat.writeGeometry(geometry, {
+                    dataProjection: 'EPSG:4326',
+                    featureProjection: 'EPSG:3857'
+                });
+
+                setDrawType('None');
+                setIsAnalyzing(true);
+                setInfoMessage('Kesişim analizi hesaplanıyor...');
+
+                try {
+                    const response = await fetch('http://localhost:5041/api/analysis/inventory', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ wkt: wktString })
+                    });
+
+                    const data = await response.json();
+                    if (response.ok) {
+                        setAnalysisResult(data);
+                        setInfoMessage(`Analiz tamamlandı: Toplam ${data.totalIntersectedCount} envanter kesişiyor.`);
+                    } else {
+                        setInfoMessage('Analiz hatası: ' + (data.message || 'Bilinmeyen hata'));
+                    }
+                } catch (err) {
+                    setInfoMessage('Analiz isteği gönderilirken hata oluştu.');
+                } finally {
+                    setIsAnalyzing(false);
+                }
+            });
+
+            mapRef.current.addInteraction(drawInteraction);
+            drawInteractionRef.current = drawInteraction;
+            return;
+        }
+
+        // STANDART ÇİZİM MODLARI (Point, LineString, Polygon)
         const drawInteraction = new Draw({
             source: drawingsSourceRef.current,
             type: drawType
@@ -443,12 +583,12 @@ function App() {
             draftFeatureRef.current = event.feature;
         });
 
-        // Çizim Tamamlandığında (drawend) WKT Alır ve Alt Yüzen Kutuya Yazar
+        // 2. MADDE: Haritada çizim tamamlandığı anda (drawend) WKT Alır ve Yüzer Menüye Aktarır
         drawInteraction.on('drawend', (event) => {
             const geometry = event.feature.getGeometry();
             draftFeatureRef.current = event.feature;
-            const wktFormat = new WKT();
 
+            const wktFormat = new WKT();
             const wktString = wktFormat.writeGeometry(geometry, {
                 dataProjection: 'EPSG:4326',
                 featureProjection: 'EPSG:3857'
@@ -467,11 +607,10 @@ function App() {
         };
     }, [drawType, token]);
 
-    // YÜZEN KUTUDAN VERİTABANINA KAYDETME (POST /api/drawings)
+    // YÜZER ÇİZİM BARI ÜZERİNDEN VERİTABANINA KAYDETME
     const handleSaveDrawingFromFloatingBox = async () => {
         if (!drawType || drawType === 'None') return;
 
-        // Çizim etkileşimi henüz bitmediyse aktif çizimi resmi olarak sonlandır (fare imleci uzantısını temizler)
         if (drawInteractionRef.current) {
             try {
                 drawInteractionRef.current.finishDrawing();
@@ -480,7 +619,6 @@ function App() {
 
         let wktToSend = draftWkt;
 
-        // Eğer henüz drawend tetiklenmediyse fakat taslak çizim varsa WKT oluştur
         if (!wktToSend && draftFeatureRef.current) {
             const wktFormat = new WKT();
             wktToSend = wktFormat.writeGeometry(draftFeatureRef.current.getGeometry(), {
@@ -511,16 +649,18 @@ function App() {
                 },
                 body: JSON.stringify({
                     name: finalName,
+                    color: drawingColor,
                     wkt: wktToSend
                 })
             });
 
             const data = await response.json();
             if (response.ok) {
-                setInfoMessage(`${typeLabel} veritabanına (${drawType === 'Point' ? 'tbl_point' : drawType === 'LineString' ? 'tbl_line' : 'tbl_polygon'}) başarıyla kaydedildi!`);
+                setInfoMessage(`${typeLabel} veritabanına (${drawingColor} rengiyle) başarıyla kaydedildi!`);
                 draftFeatureRef.current = null;
                 setDraftWkt('');
                 setDrawingName('');
+                setDrawingColor('#3b82f6');
                 setDrawType('None');
                 fetchDrawings();
             } else {
@@ -556,12 +696,41 @@ function App() {
             });
             const extent = feature.getGeometry().getExtent();
             mapRef.current.getView().fit(extent, { duration: 1000, maxZoom: 15, padding: [50, 50, 50, 50] });
+
+            if (drawing.type === 'Polygon') {
+                runSavedPolygonAnalysis(drawing);
+            }
         } catch (err) {
             console.error('Odaklanma hatası:', err);
         }
     };
 
-    // SİLME UYARISI (ERROR PREVENTION MODAL - TRIGGER)
+    // KAYITLI POLİGON İÇİN KESİŞİM ANALİZİ ÇALIŞTIRMA (Gereksinim 3.1)
+    const runSavedPolygonAnalysis = async (drawing) => {
+        try {
+            setIsAnalyzing(true);
+            const response = await fetch('http://localhost:5041/api/analysis/inventory', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ wkt: drawing.wkt })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                setAnalysisResult(data);
+                setInfoMessage(`"${drawing.name}" analizi: Toplam ${data.totalIntersectedCount} envanter kesişiyor.`);
+            }
+        } catch (err) {
+            console.error('Kayıtlı poligon analizi hatası:', err);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    // SİLME UYARISI
     const triggerDeletePlace = (place, e) => {
         e.stopPropagation();
         setDeleteTarget({
@@ -581,7 +750,7 @@ function App() {
         });
     };
 
-    // SİLME İŞLEMİNİ ONAYLAMA VE GERÇEKLEŞTİRME
+    // SİLME İŞLEMİNİ ONAYLAMA
     const confirmDelete = async () => {
         if (!deleteTarget) return;
         const { kind, id, drawingType, name } = deleteTarget;
@@ -618,7 +787,7 @@ function App() {
         }
     };
 
-    // NOKTA VE MEKAN KAYDETME (POST /api/places)
+    // NOKTA MEKAN VE KOORDİNAT KAYDETME (tbl_point BİRLEŞİK MİMARİSİ)
     const handleSavePlace = async (e) => {
         e.preventDefault();
         setInfoMessage('');
@@ -628,26 +797,25 @@ function App() {
             const lat = parseFloat(coords.lat);
             const wktString = `POINT(${lon} ${lat})`;
 
-            const responsePlaces = await fetch('http://localhost:5041/api/places', {
+            const responsePoint = await fetch('http://localhost:5041/api/drawings/point', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    name: placeName,
-                    wkt: wktString,
-                    longitude: lon,
-                    latitude: lat
+                    name: placeName.trim() || 'Nokta Mekan Kaydı',
+                    color: placeColor,
+                    wkt: wktString
                 })
             });
 
-            const data = await responsePlaces.json();
+            const data = await responsePoint.json();
 
-            if (responsePlaces.ok) {
-                setInfoMessage(data.message || 'Nokta konumu veritabanına başarıyla kaydedildi!');
+            if (responsePoint.ok) {
+                setInfoMessage(data.message || 'Nokta veritabanına (tbl_point) başarıyla kaydedildi!');
                 setPlaceName('');
-                fetchPlaces();
+                fetchDrawings();
             } else {
                 setInfoMessage(data.message || 'Kayıt başarısız oldu.');
             }
@@ -656,33 +824,59 @@ function App() {
         }
     };
 
-    // 1. DURUM: KULLANICI GİRİŞ YAPMAMIŞSA VEYA GEÇİŞ ANİMASYONUNDAYSA (LOGIN EKRANI)
+    // LOGIN EKRANI
     if (!token || isLoggingIn) {
         return (
             <div className={`login-wrapper ${isLoggingIn ? 'is-logging-in' : ''}`}>
                 <Toast ref={toastRef} />
+
+                {/* Giriş Ekranı Sağ Alt Köşe Dil Seçim Butonu (Sadece Vektörel Bayrak) */}
+                <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 999 }}>
+                    <button
+                        type="button"
+                        onClick={toggleLang}
+                        title={t.languageSelect}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '44px',
+                            height: '44px',
+                            borderRadius: '50%',
+                            cursor: 'pointer',
+                            backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                            border: '1.5px solid rgba(255, 255, 255, 0.3)',
+                            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
+                            backdropFilter: 'blur(8px)',
+                            transition: 'transform 0.2s ease'
+                        }}
+                    >
+                        {lang === 'tr' ? <TurkeyFlag /> : <UKFlag />}
+                    </button>
+                </div>
+
                 <div className="login-sidebar">
                     <div className="login-brand">
                         <h1 className="brand-title">Georaph.map</h1>
-                        <p className="brand-subtitle">Coğrafi Konum ve Mekan Yönetim Platformu</p>
+                        <p className="brand-subtitle">{t.loginSubtitle}</p>
                     </div>
 
                     <div className="login-card">
-                        <h2>Giriş Yap</h2>
+                        <h2>{t.loginTitle}</h2>
                         {error && <div className="error-msg">{error}</div>}
                         <form onSubmit={handleLogin}>
                             <div className="input-group">
-                                <label className="input-label">Kullanıcı Adı</label>
+                                <label className="input-label">{t.usernameLabel}</label>
                                 <input
                                     type="text"
-                                    placeholder="Kullanıcı adınızı girin"
+                                    placeholder={t.usernamePlaceholder}
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
                                     required
                                 />
                             </div>
                             <div className="input-group">
-                                <label className="input-label">Şifre</label>
+                                <label className="input-label">{t.passwordLabel}</label>
                                 <input
                                     type="password"
                                     placeholder="••••••••"
@@ -691,12 +885,12 @@ function App() {
                                     required
                                 />
                             </div>
-                            <button type="submit" className="login-btn">Sisteme Giriş Yap</button>
+                            <button type="submit" className="login-btn">{isLoggingIn ? t.loggingIn : t.loginButton}</button>
                         </form>
                     </div>
 
                     <div className="login-footer">
-                        <span>&copy; {new Date().getFullYear()} Georaph.map. Tüm hakları saklıdır.</span>
+                        <span>&copy; {new Date().getFullYear()} Georaph.map. {lang === 'tr' ? 'Tüm hakları saklıdır.' : 'All rights reserved.'}</span>
                     </div>
                 </div>
 
@@ -762,10 +956,6 @@ function App() {
                             <circle cx="300" cy="450" r="22" fill="url(#pulseGlow)" className="pulse-ring delay-3" />
                             <circle cx="300" cy="450" r="5" fill="#93c5fd" />
                         </g>
-
-                        <text x="520" y="295" fill="rgba(147, 197, 253, 0.9)" fontSize="11" fontFamily="monospace" fontWeight="600">39.9207° N, 32.8541° E</text>
-                        <text x="620" y="145" fill="rgba(147, 197, 253, 0.8)" fontSize="10" fontFamily="monospace">41.0082° N, 28.9784° E</text>
-                        <text x="770" y="395" fill="rgba(147, 197, 253, 0.8)" fontSize="10" fontFamily="monospace">38.4237° N, 27.1428° E</text>
                     </svg>
 
                     <div className="map-overlay-vignette"></div>
@@ -774,92 +964,195 @@ function App() {
         );
     }
 
-    // 2. DURUM: GİRİŞ BAŞARILIYSA (HARİTA EKRANI)
+    // HARİTA VE ANA UYGULAMA EKRANI
     return (
         <div className={`map-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
             <Toast ref={toastRef} />
+
             {/* Sol Panel */}
-            <div className="map-sidebar">
+            <div className={`map-sidebar ${isSidebarOpen ? '' : 'collapsed'}`}>
+                {/* Sekmenin Dış Tarafına Monte Edilmiş Küçültme/Açma Tuşu */}
+                <button
+                    className="sidebar-close-btn-outside"
+                    onClick={() => {
+                        setIsSidebarOpen(!isSidebarOpen);
+                        setTimeout(() => mapRef.current?.updateSize(), 300);
+                    }}
+                    title={isSidebarOpen ? t.closeSidebar : t.openSidebar}
+                >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        {isSidebarOpen ? (
+                            <polyline points="15 18 9 12 15 6" />
+                        ) : (
+                            <polyline points="9 18 15 12 9 6" />
+                        )}
+                    </svg>
+                </button>
+
                 <div className="map-sidebar-top">
-                    {/* Marka Header & Tema Değiştirme Butonu */}
+                    {/* Marka Header */}
                     <div className="map-brand-header">
                         <h2 className="map-brand-title">Georaph.map</h2>
-                        <button
-                            className="theme-toggle-btn"
-                            onClick={() => setIsDarkMode(!isDarkMode)}
-                            title={isDarkMode ? "Aydınlık Moduna Geç" : "Karanlık Moduna Geç"}
-                        >
-                            {isDarkMode ? (
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                    <circle cx="12" cy="12" r="5" />
-                                    <line x1="12" y1="1" x2="12" y2="3" />
-                                    <line x1="12" y1="21" x2="12" y2="23" />
-                                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                                    <line x1="1" y1="12" x2="3" y2="12" />
-                                    <line x1="21" y1="12" x2="23" y2="12" />
-                                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                                </svg>
-                            ) : (
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                                </svg>
-                            )}
-                        </button>
+                        <div className="header-action-buttons">
+                            {/* Tema (Karanlık / Aydınlık Mod) Butonu */}
+                            <button
+                                className="theme-toggle-btn"
+                                onClick={() => setIsDarkMode(!isDarkMode)}
+                                title={isDarkMode ? t.lightMode : t.darkMode}
+                            >
+                                {isDarkMode ? (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <circle cx="12" cy="12" r="5" />
+                                        <line x1="12" y1="1" x2="12" y2="3" />
+                                        <line x1="12" y1="21" x2="12" y2="23" />
+                                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                                        <line x1="1" y1="12" x2="3" y2="12" />
+                                        <line x1="21" y1="12" x2="23" y2="12" />
+                                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                                    </svg>
+                                ) : (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                                    </svg>
+                                )}
+                            </button>
+
+                            {/* Dil Seçim Butonu (Sadece Vektörel Bayrak) */}
+                            <button
+                                className="theme-toggle-btn lang-toggle-btn"
+                                onClick={toggleLang}
+                                title={t.languageSelect}
+                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', padding: 0, borderRadius: '8px', cursor: 'pointer', backgroundColor: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)' }}
+                            >
+                                {lang === 'tr' ? <TurkeyFlag /> : <UKFlag />}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Oturum Süresi Geri Sayım Rozeti */}
                     <div className="session-timer-badge">
                         <div className="timer-label">
                             <span className="live-dot"></span>
-                            <span>Oturum Süresi:</span>
+                            <span>{t.sessionTime}</span>
                         </div>
                         <strong>{formatTime(timeLeft)}</strong>
                     </div>
 
                     <div className="sidebar-divider"></div>
 
+                    {/* Mekan Ekleme Formu */}
                     <div className="add-place-section">
-                        <h3 className="section-title">Nokta Mekan Kaydı</h3>
+                        <h3 className="section-title">{t.addPlaceTitle}</h3>
                         <p className="section-subtitle">
-                            Haritada bir noktaya tıklayarak enlem/boylam seçebilirsiniz.
+                            {t.addPlaceSubtitle}
                         </p>
 
                         <form onSubmit={handleSavePlace}>
                             <div className="input-group">
-                                <label className="input-label">Mekan Adı</label>
+                                <label className="input-label">{t.placeNameLabel}</label>
                                 <input
                                     type="text"
                                     value={placeName}
                                     onChange={(e) => setPlaceName(e.target.value)}
-                                    placeholder="Örn: Anıtkabir, Kızılay"
+                                    placeholder={t.placeNamePlaceholder}
                                     required
                                 />
                             </div>
 
                             <div className="input-group">
-                                <label className="input-label">Boylam (Longitude)</label>
+                                <label className="input-label">{t.longitudeLabel}</label>
                                 <input
                                     type="number"
                                     step="any"
                                     value={coords.lon}
                                     onChange={(e) => setCoords(prev => ({ ...prev, lon: e.target.value }))}
-                                    placeholder="Örn: 33.2433"
+                                    placeholder={t.longitudePlaceholder}
                                     required
                                 />
                             </div>
 
                             <div className="input-group">
-                                <label className="input-label">Enlem (Latitude)</label>
+                                <label className="input-label">{t.latitudeLabel}</label>
                                 <input
                                     type="number"
                                     step="any"
                                     value={coords.lat}
                                     onChange={(e) => setCoords(prev => ({ ...prev, lat: e.target.value }))}
-                                    placeholder="Örn: 38.9637"
+                                    placeholder={t.latitudePlaceholder}
                                     required
                                 />
+                            </div>
+
+                            <div className="input-group">
+                                <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    Nokta Renk Paleti
+                                </label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : '#f1f5f9', padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <button
+                                        type="button"
+                                        className="palette-icon-btn"
+                                        onClick={() => {
+                                            if (placeColorInputRef.current?.showPicker) {
+                                                placeColorInputRef.current.showPicker();
+                                            } else {
+                                                placeColorInputRef.current?.click();
+                                            }
+                                        }}
+                                        title="Renk Paletini Aç (Color Picker)"
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '38px',
+                                            height: '34px',
+                                            backgroundColor: '#2563eb',
+                                            border: '1.5px solid #ffffff',
+                                            borderRadius: '7px',
+                                            cursor: 'pointer',
+                                            color: '#ffffff',
+                                            boxShadow: '0 2px 8px rgba(37, 99, 235, 0.4)',
+                                            transition: 'transform 0.15s ease'
+                                        }}
+                                    >
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M12 2C6.5 2 2 6.5 2 12c0 3.5 2.5 6.5 6 6.5 1 0 1.5-.5 1.5-1 0-.5-.2-1-.5-1.5-.3-.5-.5-1-.5-1.5 0-1.1.9-2 2-2h1.5c3.6 0 6.5-2.9 6.5-6.5C18.5 5.5 15.6 2 12 2z" />
+                                            <circle cx="13.5" cy="6.5" r="1.1" fill="#fbbf24" />
+                                            <circle cx="17.5" cy="10.5" r="1.1" fill="#34d399" />
+                                            <circle cx="8.5" cy="7.5" r="1.1" fill="#f43f5e" />
+                                            <circle cx="6.5" cy="12.5" r="1.1" fill="#60a5fa" />
+                                        </svg>
+                                    </button>
+
+                                    <input
+                                        ref={placeColorInputRef}
+                                        type="color"
+                                        value={placeColor}
+                                        onChange={(e) => setPlaceColor(e.target.value)}
+                                        style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+                                    />
+
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        {PRESET_COLORS.map(c => (
+                                            <button
+                                                type="button"
+                                                key={c.hex}
+                                                onClick={() => setPlaceColor(c.hex)}
+                                                style={{
+                                                    width: '20px',
+                                                    height: '20px',
+                                                    borderRadius: '50%',
+                                                    backgroundColor: c.hex,
+                                                    border: placeColor === c.hex ? '2px solid #ffffff' : '1px solid rgba(255,255,255,0.2)',
+                                                    boxShadow: placeColor === c.hex ? `0 0 6px ${c.hex}` : 'none',
+                                                    cursor: 'pointer'
+                                                }}
+                                                title={`${c.label} (${c.hex})`}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
 
                             <button type="submit" className="map-btn btn-save">
@@ -868,57 +1161,26 @@ function App() {
                                     <polyline points="17 21 17 13 7 13 7 21" />
                                     <polyline points="7 3 7 8 15 8" />
                                 </svg>
-                                Konumu Kaydet
+                                {t.saveLocationBtn}
                             </button>
                         </form>
                     </div>
 
                     <div className="sidebar-divider"></div>
 
-                    {/* BİRLEŞİK KAYITLI KONUMLAR VE ÇİZİMLER LİSTESİ */}
+                    {/* KAYITLI KONUMLAR VE ÇİZİMLER LİSTESİ */}
                     <div className="saved-places-section">
                         <div className="section-header">
-                            <h3 className="section-title">Kayıtlı Konumlar</h3>
-                            <span className="places-count-badge">{savedPlaces.length + savedDrawings.length} Kayıt</span>
+                            <h3 className="section-title">{t.savedPlacesTitle}</h3>
+                            <span className="places-count-badge">{savedDrawings.length} {t.recordsBadge}</span>
                         </div>
 
-                        {savedPlaces.length === 0 && savedDrawings.length === 0 ? (
-                            <p className="no-places-msg">Henüz kayıtlı konum bulunmuyor.</p>
+                        {savedDrawings.length === 0 ? (
+                            <p className="no-places-msg">{t.noRecordsMsg}</p>
                         ) : (
                             <div className="saved-places-list">
-                                {/* Kayıtlı Mekanlar */}
-                                {savedPlaces.map((place) => (
-                                    <div
-                                        key={`place-${place.id}`}
-                                        className="saved-place-item"
-                                        onClick={() => handleSelectSavedPlace(place)}
-                                    >
-                                        <div className="place-item-icon">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z" />
-                                                <circle cx="12" cy="10" r="3" />
-                                            </svg>
-                                        </div>
-                                        <div className="place-item-info" style={{ flex: 1 }}>
-                                            <span className="place-item-name">{place.name}</span>
-                                            <span className="place-item-coords">
-                                                {place.latitude.toFixed(4)}°, {place.longitude.toFixed(4)}°
-                                            </span>
-                                        </div>
-                                        <button
-                                            className="btn-delete-drawing"
-                                            onClick={(e) => triggerDeletePlace(place, e)}
-                                            title="Konumu Sil"
-                                        >
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                <polyline points="3 6 5 6 21 6"></polyline>
-                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                ))}
 
-                                {/* Kayıtlı Çizimler (Line, Polygon) - Kayıtlı Konumlar Tasarımında */}
+                                {/* Kayıtlı Çizimler */}
                                 {savedDrawings.map((drawing) => (
                                     <div
                                         key={`drawing-${drawing.type}-${drawing.id}`}
@@ -926,20 +1188,24 @@ function App() {
                                         onClick={() => handleSelectDrawing(drawing)}
                                     >
                                         <div className="place-item-icon">
-                                            {drawing.type === 'Line' ? (
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                            {drawing.type === 'Point' ? (
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#ef4444"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                    <circle cx="12" cy="12" r="8" fill={drawing.color || "#ef4444"} />
+                                                </svg>
+                                            ) : drawing.type === 'Line' ? (
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#3b82f6"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                                     <path d="M4 20L20 4" />
                                                 </svg>
                                             ) : (
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                    <polygon points="12 2 22 8.5 18 19 6 19 2 8.5" />
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#10b981"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                    <polygon points="12 2 22 8.5 18 19 6 19 2 8.5" fill={hexToRgba(drawing.color || '#10b981', 0.4)} />
                                                 </svg>
                                             )}
                                         </div>
                                         <div className="place-item-info" style={{ flex: 1 }}>
                                             <span className="place-item-name">{drawing.name}</span>
                                             <span className="place-item-coords">
-                                                {drawing.type === 'Line' ? 'Çizgi Çizimi (WKT)' : 'Poligon Çizimi (WKT)'}
+                                                {drawing.type === 'Line' ? t.lineTypeLabel : drawing.type === 'Polygon' ? t.polygonTypeLabel : t.pointTypeLabel}
                                             </span>
                                         </div>
                                         <button
@@ -966,20 +1232,34 @@ function App() {
                             <polyline points="16 17 21 12 16 7" />
                             <line x1="21" y1="12" x2="9" y2="12" />
                         </svg>
-                        Çıkış Yap
+                        {t.logout}
                     </button>
                 </div>
             </div>
 
-            {/* HARİTA ÜZERİNDEKİ YÜZEN ÇİZİM BUTONLARI (SAĞ ÜST) */}
+            {/* HARİTA ÜZERİNDEKİ ÇİZİM & ANALİZ ARAÇ ÇUBUĞU (SAĞ ÜST) */}
             <div className="map-draw-toolbar-floating">
+                <button
+                    className={`map-tool-icon-btn ${drawType === 'Point' ? 'active' : ''}`}
+                    onClick={() => {
+                        if (drawType === 'Point') handleCancelDraw();
+                        else setDrawType('Point');
+                    }}
+                    title={t.toolPointTitle}
+                >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="8" />
+                        <circle cx="12" cy="12" r="3" fill="currentColor" />
+                    </svg>
+                </button>
+
                 <button
                     className={`map-tool-icon-btn ${drawType === 'LineString' ? 'active' : ''}`}
                     onClick={() => {
                         if (drawType === 'LineString') handleCancelDraw();
                         else setDrawType('LineString');
                     }}
-                    title="Çizgi Çizimi (tbl_line)"
+                    title={t.toolLineTitle}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M4 20L20 4" />
@@ -987,22 +1267,40 @@ function App() {
                         <circle cx="20" cy="4" r="2.5" fill="currentColor" />
                     </svg>
                 </button>
+
                 <button
                     className={`map-tool-icon-btn ${drawType === 'Polygon' ? 'active' : ''}`}
                     onClick={() => {
                         if (drawType === 'Polygon') handleCancelDraw();
                         else setDrawType('Polygon');
                     }}
-                    title="Poligon Çizimi (tbl_polygon)"
+                    title={t.toolPolygonTitle}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <polygon points="12 2 22 7.5 18 19 6 19 2 8.5" />
                     </svg>
                 </button>
+
+                {/* GEÇİCİ ENVANTER ANALİZİ ARACI */}
+                <button
+                    className={`map-tool-icon-btn analysis-tool-btn ${drawType === 'Analysis' ? 'active' : ''}`}
+                    onClick={() => {
+                        if (drawType === 'Analysis') handleCancelDraw();
+                        else {
+                            setDrawType('Analysis');
+                        }
+                    }}
+                    title={t.toolAnalysisTitle}
+                >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        <polygon points="10 8 13 11 11 14 8 12" />
+                    </svg>
+                </button>
             </div>
 
-            {/* ÇİZİM MODU AÇILDIĞINDA ALT KISIMDA GÖRÜNEN YÜZEN KAYIT VE İPTAL KUTUSU */}
-            {drawType !== 'None' && (
+            {/* SADE VE NET YÜZER ÇİZİM BARI */}
+            {drawType !== 'None' && drawType !== 'Analysis' && (
                 <div
                     className="floating-draw-bottom-bar"
                     onPointerDown={(e) => e.stopPropagation()}
@@ -1010,61 +1308,203 @@ function App() {
                     onMouseUp={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                     onDblClick={(e) => e.stopPropagation()}
+                    style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px 18px', minWidth: '400px' }}
                 >
-                    <div className="floating-draw-header">
+                    <div className="floating-draw-header" style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className="drawing-mode-badge">
-                            {drawType === 'Point' && 'Nokta Çizim Modu'}
-                            {drawType === 'LineString' && 'Çizgi Çizim Modu'}
-                            {drawType === 'Polygon' && 'Poligon Çizim Modu'}
+                            {drawType === 'Point' && t.drawingPointMode}
+                            {drawType === 'LineString' && t.drawingLineMode}
+                            {drawType === 'Polygon' && t.drawingPolygonMode}
                         </span>
                         <span className="floating-hint">
                             {draftWkt ? (
-                                <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
-                                        <polyline points="20 6 9 17 4 12" />
-                                    </svg>
-                                    Çizim yapıldı, kaydedebilirsiniz.
-                                </span>
-                            ) : 'Haritada tıklayarak çizimi yapın.'}
+                                <span style={{ color: '#22c55e', fontWeight: 600 }}>{t.drawingCompleted}</span>
+                            ) : t.drawingInProgress}
                         </span>
                     </div>
 
-                    <div className="floating-draw-form">
-                        <input
-                            type="text"
-                            className="floating-input"
-                            value={drawingName}
-                            onChange={(e) => setDrawingName(e.target.value)}
-                            placeholder="Çizim Adı Girin..."
-                        />
-                        <div className="floating-btn-group">
+                    <div className="floating-draw-form" style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <input
+                                type="text"
+                                className="floating-input"
+                                style={{ flex: 1 }}
+                                value={drawingName}
+                                onChange={(e) => setDrawingName(e.target.value)}
+                                placeholder={t.drawingNamePlaceholder}
+                            />
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(15, 23, 42, 0.5)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)' }}>
+                                <button
+                                    type="button"
+                                    className="palette-icon-btn"
+                                    onClick={() => {
+                                        if (drawColorInputRef.current?.showPicker) {
+                                            drawColorInputRef.current.showPicker();
+                                        } else {
+                                            drawColorInputRef.current?.click();
+                                        }
+                                    }}
+                                    title="Color Picker"
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        width: '38px',
+                                        height: '34px',
+                                        backgroundColor: '#2563eb',
+                                        border: '1.5px solid #ffffff',
+                                        borderRadius: '7px',
+                                        cursor: 'pointer',
+                                        color: '#ffffff',
+                                        boxShadow: '0 2px 8px rgba(37, 99, 235, 0.4)',
+                                        transition: 'transform 0.15s ease'
+                                    }}
+                                >
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M12 2C6.5 2 2 6.5 2 12c0 3.5 2.5 6.5 6 6.5 1 0 1.5-.5 1.5-1 0-.5-.2-1-.5-1.5-.3-.5-.5-1-.5-1.5 0-1.1.9-2 2-2h1.5c3.6 0 6.5-2.9 6.5-6.5C18.5 5.5 15.6 2 12 2z" />
+                                        <circle cx="13.5" cy="6.5" r="1.1" fill="#fbbf24" />
+                                        <circle cx="17.5" cy="10.5" r="1.1" fill="#34d399" />
+                                        <circle cx="8.5" cy="7.5" r="1.1" fill="#f43f5e" />
+                                        <circle cx="6.5" cy="12.5" r="1.1" fill="#60a5fa" />
+                                    </svg>
+                                </button>
+
+                                <input
+                                    ref={drawColorInputRef}
+                                    type="color"
+                                    value={drawingColor}
+                                    onChange={(e) => setDrawingColor(e.target.value)}
+                                    style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+                                />
+                                <div style={{ display: 'flex', gap: '5px' }}>
+                                    {PRESET_COLORS.map(c => (
+                                        <button
+                                            type="button"
+                                            key={c.hex}
+                                            onClick={() => setDrawingColor(c.hex)}
+                                            style={{
+                                                width: '18px',
+                                                height: '18px',
+                                                borderRadius: '50%',
+                                                backgroundColor: c.hex,
+                                                border: drawingColor === c.hex ? '2px solid #ffffff' : '1px solid rgba(255,255,255,0.2)',
+                                                boxShadow: drawingColor === c.hex ? `0 0 6px ${c.hex}` : 'none',
+                                                cursor: 'pointer'
+                                            }}
+                                            title={`${c.label} (${c.hex})`}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="floating-btn-group" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                             <button
                                 className="floating-action-btn btn-save-draw"
                                 onClick={handleSaveDrawingFromFloatingBox}
+                                style={{ backgroundColor: drawingColor, borderColor: drawingColor }}
                             >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
-                                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                                    <polyline points="17 21 17 13 7 13 7 21" />
-                                    <polyline points="7 3 7 8 15 8" />
-                                </svg>
-                                Veritabanına Kaydet
+                                {t.btnSaveToDb}
                             </button>
                             <button
                                 className="floating-action-btn btn-cancel-draw-bar"
                                 onClick={handleCancelDraw}
                             >
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
-                                    <line x1="18" y1="6" x2="6" y2="18" />
-                                    <line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
-                                İptal Et
+                                {t.btnCancelDraw}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ERROR PREVENTION MODAL (SİLME ONAYI PENCERESİ) */}
+            {/* ŞIK VE BEYAZ METİNLİ KESİŞME KONTROLÜ BARI */}
+            {drawType === 'Analysis' && (
+                <div
+                    className="floating-draw-bottom-bar"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 14px', borderRadius: '10px' }}
+                >
+                    <span className="drawing-mode-badge" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#ffffff', fontWeight: 700, fontSize: '12px', padding: '6px 12px', borderRadius: '6px', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.45)' }}>
+                        {t.intersectionCheckBadge}
+                    </span>
+                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#ffffff' }}>
+                        {isAnalyzing ? t.intersectionCheckAnalyzing : t.intersectionCheckHint}
+                    </span>
+                    <button
+                        className="floating-action-btn btn-cancel-draw-bar"
+                        onClick={handleCancelDraw}
+                        style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px' }}
+                    >
+                        {t.btnCancelDraw}
+                    </button>
+                </div>
+            )}
+
+            {/* KESİŞİM VE ENVANTER ANALİZ SONUÇ PANELLERİ */}
+            {analysisResult && (
+                <div className="analysis-result-card-floating">
+                    <div className="analysis-card-header">
+                        <div className="analysis-header-title">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                                <polyline points="2 17 12 22 22 17" />
+                                <polyline points="2 12 12 17 22 12" />
+                            </svg>
+                            <h3>{t.analysisReportTitle}</h3>
+                        </div>
+                        <button className="btn-close-analysis" onClick={handleClearAnalysis} title={t.clearAnalysisBtn}>
+                            &times;
+                        </button>
+                    </div>
+
+                    <div className="analysis-card-body">
+                        <div className="analysis-total-badge">
+                            <span className="total-number">{analysisResult.totalIntersectedCount}</span>
+                            <span className="total-label">{t.totalIntersectedLabel}</span>
+                        </div>
+
+                        <div className="analysis-breakdown-grid">
+                            <div className="breakdown-item">
+                                <span className="item-count">{analysisResult.pointsCount + (analysisResult.placesCount || 0)}</span>
+                                <span className="item-type">{t.pointLayerLabel}</span>
+                            </div>
+                            <div className="breakdown-item">
+                                <span className="item-count">{analysisResult.linesCount}</span>
+                                <span className="item-type">{t.lineLayerLabel}</span>
+                            </div>
+                            <div className="breakdown-item">
+                                <span className="item-count">{analysisResult.polygonsCount}</span>
+                                <span className="item-type">{t.polygonLayerLabel}</span>
+                            </div>
+                        </div>
+
+                        {analysisResult.details && analysisResult.details.length > 0 && (
+                            <div className="analysis-details-list">
+                                <h4>Kesişen Nesne Detayları:</h4>
+                                <ul>
+                                    {analysisResult.details.map((item, idx) => (
+                                        <li key={idx}>{item}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="analysis-card-footer">
+                        <button className="btn-clear-analysis-action" onClick={handleClearAnalysis}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                            Analizi ve Haritayı Temizle
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ERROR PREVENTION MODAL (SİLME ONAYI) */}
             {deleteTarget && (
                 <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
                     <div className="error-prevention-modal" onClick={(e) => e.stopPropagation()}>
@@ -1093,7 +1533,7 @@ function App() {
                 </div>
             )}
 
-            {/* OpenLayers Haritası */}
+            {/* OpenLayers Harita Container */}
             <div id="map"></div>
         </div>
     );
