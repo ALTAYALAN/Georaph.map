@@ -3,14 +3,26 @@ export const translations = {
         // Oturum ve Giriş
         loginTitle: "Sisteme Giriş Yapın",
         loginSubtitle: "Coğrafi Harita Yönetim Paneli",
+        registerTitle: "Yeni Hesap Oluşturun",
+        registerSubtitle: "GeoMap Harita Platformuna Kaydolun",
         usernameLabel: "Kullanıcı Adı",
+        emailLabel: "E-Posta Adresi",
+        phoneLabel: "Telefon Numarası",
         passwordLabel: "Şifre",
         usernamePlaceholder: "Kullanıcı adınızı girin",
+        emailPlaceholder: "ornek@domain.com",
+        phonePlaceholder: "0555 123 45 67",
         passwordPlaceholder: "Şifrenizi girin",
         loginButton: "Sisteme Giriş Yap",
+        registerButton: "Hesap Oluştur ve Kaydol",
         loggingIn: "Giriş Yapılıyor...",
+        registering: "Kaydolunuyor...",
         loginSuccess: "Giriş başarılı! Oturum başlatıldı.",
+        registerSuccess: "Kullanıcı hesabınız başarıyla oluşturuldu! Şimdi giriş yapabilirsiniz.",
         loginFailed: "Giriş başarısız: ",
+        registerFailed: "Kayıt başarısız: ",
+        haveAccount: "Zaten bir hesabınız var mı? Giriş Yapın",
+        needAccount: "Hesabınız yok mu? Yeni Hesap Oluşturun",
 
         // Üst Bar ve Sidebar
         appTitle: "GeoMap Harita Paneli",
@@ -50,10 +62,15 @@ export const translations = {
         itemDeletedMsg: "başarıyla silindi.",
 
         // Harita Çizim Araçları (Toolbar)
+        drawToolsTitle: "Çizim Araçları",
         toolPointTitle: "Nokta Çizimi (tbl_point)",
         toolLineTitle: "Çizgi Çizimi (tbl_line)",
         toolPolygonTitle: "Poligon Çizimi (tbl_polygon)",
         toolAnalysisTitle: "Geçici Envanter Analizi Aracı (Kesişim Hesabı)",
+        toolPointLabel: "Nokta",
+        toolLineLabel: "Çizgi",
+        toolPolygonLabel: "Poligon",
+        toolAnalysisLabel: "Analiz",
 
         // Yüzer Çizim Menüsü (Floating Draw Bottom Bar)
         drawingPointMode: "Nokta Çizimi",
@@ -76,20 +93,52 @@ export const translations = {
         lineLayerLabel: "Çizgi Katmanı",
         polygonLayerLabel: "Poligon Katmanı",
         intersectedDetailsHeader: "Kesişen Nesne Detayları:",
-        clearAnalysisBtn: "Analizi Temizle"
+        clearAnalysisBtn: "Analizi Temizle",
+
+        // Nokta Bilgi Paneli (Info Panel)
+        pointInfoTitle: "Nokta Bilgi Paneli",
+        selectedPointBadge: "Seçili Konum",
+        savedPlaceBadge: "Kayıtlı Mekan",
+        pointDrawingBadge: "Nokta Çizimi",
+        featureInfoBadge: "Harita Nesnesi",
+        latitudeLabelShort: "Enlem (Lat):",
+        longitudeLabelShort: "Boylam (Lon):",
+        projectionLabel: "Projeksiyon:",
+        wktLabel: "WKT:",
+        btnCopyCoords: "Koordinatları Kopyala",
+        btnTransferToForm: "Forma Aktar",
+        btnCenterMap: "Haritada Odaklan",
+        btnCloseInfoPanel: "Kapat",
+        coordsCopiedToast: "Koordinat bilgisi panoya kopyalandı!",
+        totalLengthLabel: "Toplam Uzunluk:",
+        totalAreaLabel: "Toplam Alan:",
+        centerCoordsLabel: "Merkez Koordinat:",
+        btnInfoTooltip: "Bilgisini Göster"
     },
     en: {
         // Auth & Login
         loginTitle: "System Login",
         loginSubtitle: "Geographic Map Management Panel",
+        registerTitle: "Create New Account",
+        registerSubtitle: "Register for GeoMap GIS Platform",
         usernameLabel: "Username",
+        emailLabel: "Email Address",
+        phoneLabel: "Phone Number",
         passwordLabel: "Password",
         usernamePlaceholder: "Enter your username",
+        emailPlaceholder: "example@domain.com",
+        phonePlaceholder: "+1 555 123 4567",
         passwordPlaceholder: "Enter your password",
         loginButton: "Sign In",
+        registerButton: "Create Account & Sign Up",
         loggingIn: "Signing In...",
+        registering: "Registering...",
         loginSuccess: "Login successful! Session started.",
+        registerSuccess: "Account created successfully! You can now log in.",
         loginFailed: "Login failed: ",
+        registerFailed: "Registration failed: ",
+        haveAccount: "Already have an account? Sign In",
+        needAccount: "Don't have an account? Register",
 
         // Header & Sidebar
         appTitle: "GeoMap GIS Panel",
@@ -129,10 +178,15 @@ export const translations = {
         itemDeletedMsg: "successfully deleted.",
 
         // Map Drawing Toolbar
+        drawToolsTitle: "Drawing Tools",
         toolPointTitle: "Point Draw Tool (tbl_point)",
         toolLineTitle: "Line Draw Tool (tbl_line)",
         toolPolygonTitle: "Polygon Draw Tool (tbl_polygon)",
         toolAnalysisTitle: "Temporary Inventory Analysis Tool (Intersection)",
+        toolPointLabel: "Point",
+        toolLineLabel: "Line",
+        toolPolygonLabel: "Polygon",
+        toolAnalysisLabel: "Analysis",
 
         // Floating Draw Bottom Bar
         drawingPointMode: "Point Drawing Mode",
@@ -155,6 +209,26 @@ export const translations = {
         lineLayerLabel: "Line Layer",
         polygonLayerLabel: "Polygon Layer",
         intersectedDetailsHeader: "Intersected Feature Details:",
-        clearAnalysisBtn: "Clear Analysis"
+        clearAnalysisBtn: "Clear Analysis",
+
+        // Point Info Panel
+        pointInfoTitle: "Point Info Panel",
+        selectedPointBadge: "Selected Location",
+        savedPlaceBadge: "Saved Location",
+        pointDrawingBadge: "Point Feature",
+        featureInfoBadge: "Map Object",
+        latitudeLabelShort: "Latitude:",
+        longitudeLabelShort: "Longitude:",
+        projectionLabel: "Projection:",
+        wktLabel: "WKT:",
+        btnCopyCoords: "Copy Coordinates",
+        btnTransferToForm: "Send to Form",
+        btnCenterMap: "Center on Map",
+        btnCloseInfoPanel: "Close",
+        coordsCopiedToast: "Coordinate info copied to clipboard!",
+        totalLengthLabel: "Total Length:",
+        totalAreaLabel: "Total Area:",
+        centerCoordsLabel: "Center Coordinate:",
+        btnInfoTooltip: "Show Info"
     }
 };

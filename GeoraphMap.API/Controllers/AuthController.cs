@@ -1,6 +1,7 @@
 using GeoraphMap.Core.DTOs;
 using GeoraphMap.Core.Services;
 using Microsoft.AspNetCore.Mvc;
+using System;
 using System.Threading.Tasks;
 
 namespace GeoraphMap.API.Controllers
@@ -19,13 +20,45 @@ namespace GeoraphMap.API.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
-            var result = await _authService.LoginAsync(dto);
-            if (result == null)
+            try
             {
-                return BadRequest(new { Message = "Kullanıcı adı ve şifre gereklidir." });
+                var result = await _authService.LoginAsync(dto);
+                if (result == null)
+                {
+                    return BadRequest(new { Message = "Kullanıcı adı ve şifre gereklidir." });
+                }
+                return Ok(result);
             }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
+            }
+        }
 
-            return Ok(result);
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterDto dto)
+        {
+            try
+            {
+                await _authService.RegisterAsync(dto);
+                return Ok(new { Message = "Kullanıcı hesabı başarıyla oluşturuldu! Şimdi giriş yapabilirsiniz." });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
+            }
         }
     }
 }

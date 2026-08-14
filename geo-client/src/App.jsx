@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
@@ -13,6 +14,9 @@ import XYZ from 'ol/source/XYZ';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import Draw from 'ol/interaction/Draw';
 import WKT from 'ol/format/WKT';
+import Overlay from 'ol/Overlay';
+import { getLength, getArea } from 'ol/sphere';
+import { getCenter } from 'ol/extent';
 
 // PrimeReact Bileşenleri
 import { Toast } from 'primereact/toast';
@@ -95,9 +99,14 @@ function App() {
     // Kullanıcı ve Token Durumları (State)
     const [token, setToken] = useState(localStorage.getItem('jwt_token') || '');
     const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
+    const [phone, setPhone] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoggingIn, setIsLoggingIn] = useState(false);
+    const [isRegisterMode, setIsRegisterMode] = useState(false);
+    const [registerSuccessMsg, setRegisterSuccessMsg] = useState('');
+    const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
 
     // Oturum Kalan Süresi (Saniye Cinsinden)
     const [timeLeft, setTimeLeft] = useState(0);
@@ -123,6 +132,9 @@ function App() {
     const [analysisResult, setAnalysisResult] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+    // SEÇİLİ NOKTA BİLGİ PANELİ DURUMU (Info Panel / Popup Overlay)
+    const [selectedPointInfo, setSelectedPointInfo] = useState(null);
+
     // OpenLayers harita ve katman referansları
     const mapRef = useRef(null);
     const vectorSourceRef = useRef(null);
@@ -132,6 +144,18 @@ function App() {
     const drawInteractionRef = useRef(null);
     const draftFeatureRef = useRef(null);
     const tileLayerRef = useRef(null);
+    const overlayContainerRef = useRef(null);
+    const overlayRef = useRef(null);
+    const drawTypeRef = useRef(drawType);
+    const placeColorRef = useRef(placeColor);
+
+    useEffect(() => {
+        drawTypeRef.current = drawType;
+    }, [drawType]);
+
+    useEffect(() => {
+        placeColorRef.current = placeColor;
+    }, [placeColor]);
 
     // OTURUM SÜRESİ KONTROLÜ VE GERİ SAYIM ZAMANLAYICISI (10 Dakika)
     useEffect(() => {
@@ -273,7 +297,8 @@ function App() {
         if (tileLayerRef.current) {
             if (isDarkMode) {
                 tileLayerRef.current.setSource(new XYZ({
-                    url: 'https://{a-c}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+                    url: 'https://{a-c}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                    maxZoom: 20
                 }));
             } else {
                 tileLayerRef.current.setSource(new OSM());
@@ -334,18 +359,151 @@ function App() {
             })
         });
 
+        if (!overlayContainerRef.current) {
+            const popupDiv = document.createElement('div');
+            popupDiv.className = 'ol-popup-overlay-container';
+            overlayContainerRef.current = popupDiv;
+        }
+
+        const overlay = new Overlay({
+            element: overlayContainerRef.current,
+            autoPan: {
+                animation: {
+                    duration: 250,
+                },
+            },
+            positioning: 'bottom-center',
+            offset: [0, 0],
+            stopEvent: true
+        });
+        map.addOverlay(overlay);
+        overlayRef.current = overlay;
+
         mapRef.current = map;
 
-        map.on('click', function (evt) {
+        map.on('singleclick', function (evt) {
+            if (drawTypeRef.current && drawTypeRef.current !== 'None') return;
+
             const lonLat = toLonLat(evt.coordinate);
-            setCoords({
-                lon: parseFloat(lonLat[0].toFixed(6)),
-                lat: parseFloat(lonLat[1].toFixed(6))
+            const lon = parseFloat(lonLat[0].toFixed(6));
+            const lat = parseFloat(lonLat[1].toFixed(6));
+
+            setCoords({ lon, lat });
+
+            let clickedFeature = null;
+            map.forEachFeatureAtPixel(evt.pixel, function (feature) {
+                if (!clickedFeature && feature.get('name')) {
+                    clickedFeature = feature;
+                }
             });
+
+            if (clickedFeature) {
+                const fName = clickedFeature.get('name') || 'Harita Nesnesi';
+                const fType = clickedFeature.get('type') || 'SavedPlace';
+                const fColor = clickedFeature.get('color') || '#16a34a';
+                const geom = clickedFeature.getGeometry();
+                const geomType = geom ? geom.getType() : 'Point';
+
+                if (geomType === 'Point') {
+                    const coordsDeg = toLonLat(geom.getCoordinates());
+                    const fLon = parseFloat(coordsDeg[0].toFixed(6));
+                    const fLat = parseFloat(coordsDeg[1].toFixed(6));
+
+                    setCoords({ lon: fLon, lat: fLat });
+                    if (fColor) setPlaceColor(fColor);
+
+                    setSelectedPointInfo({
+                        name: fName,
+                        type: fType === 'Point' ? 'PointDrawing' : fType,
+                        lon: fLon,
+                        lat: fLat,
+                        color: fColor,
+                        wkt: `POINT(${fLon} ${fLat})`
+                    });
+                } else if (geomType === 'LineString' || geomType === 'Line') {
+                    const extent = geom.getExtent();
+                    const centerCoord = getCenter(extent);
+                    const coordsDeg = toLonLat(centerCoord);
+                    const cLon = parseFloat(coordsDeg[0].toFixed(6));
+                    const cLat = parseFloat(coordsDeg[1].toFixed(6));
+                    const lengthMeters = getLength(geom);
+                    const lengthText = lengthMeters >= 1000 ? (lengthMeters / 1000).toFixed(2) + ' km' : Math.round(lengthMeters) + ' m';
+
+                    setSelectedPointInfo({
+                        name: fName,
+                        type: 'LineDrawing',
+                        lon: cLon,
+                        lat: cLat,
+                        lengthText: lengthText,
+                        color: fColor,
+                        wkt: ''
+                    });
+                } else if (geomType === 'Polygon') {
+                    let centerCoord;
+                    if (geom.getInteriorPoint) {
+                        centerCoord = geom.getInteriorPoint().getCoordinates();
+                    } else {
+                        centerCoord = getCenter(geom.getExtent());
+                    }
+                    const coordsDeg = toLonLat(centerCoord);
+                    const cLon = parseFloat(coordsDeg[0].toFixed(6));
+                    const cLat = parseFloat(coordsDeg[1].toFixed(6));
+                    const areaMeters = getArea(geom);
+                    const areaText = areaMeters >= 1000000 ? (areaMeters / 1000000).toFixed(2) + ' km²' : Math.round(areaMeters).toLocaleString() + ' m²';
+
+                    setSelectedPointInfo({
+                        name: fName,
+                        type: 'PolygonDrawing',
+                        lon: cLon,
+                        lat: cLat,
+                        areaText: areaText,
+                        color: fColor,
+                        wkt: ''
+                    });
+                }
+            } else {
+                setSelectedPointInfo(null);
+            }
         });
 
         return () => map.setTarget(null);
     }, [token]);
+
+    // NOKTA BİLGİ PANELİ POPUP OVERLAY KONUMLANDIRMA
+    useEffect(() => {
+        if (overlayRef.current) {
+            if (selectedPointInfo && selectedPointInfo.lon != null && selectedPointInfo.lat != null) {
+                if (selectedPointInfo.type === 'LineDrawing' || selectedPointInfo.type === 'PolygonDrawing' || selectedPointInfo.type === 'Line' || selectedPointInfo.type === 'Polygon') {
+                    overlayRef.current.setOffset([0, -10]);
+                } else {
+                    overlayRef.current.setOffset([-115, -180]);
+                }
+                overlayRef.current.setPosition(fromLonLat([selectedPointInfo.lon, selectedPointInfo.lat]));
+            } else {
+                overlayRef.current.setPosition(undefined);
+            }
+        }
+    }, [selectedPointInfo]);
+
+    // NOKTA BİLGİ PANELİ EYLEMLERİ
+    const handleCopyCoords = () => {
+        if (!selectedPointInfo) return;
+        const textToCopy = `${selectedPointInfo.lat}, ${selectedPointInfo.lon}`;
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            if (toastRef.current) {
+                toastRef.current.show({
+                    severity: 'info',
+                    summary: t.pointInfoTitle,
+                    detail: t.coordsCopiedToast,
+                    life: 3000
+                });
+            }
+        });
+    };
+
+    const handleClosePointInfo = () => {
+        setSelectedPointInfo(null);
+    };
 
     // SEÇİLİ MAVİ PIN İŞARETÇİSİ
     useEffect(() => {
@@ -540,7 +698,11 @@ function App() {
                     featureProjection: 'EPSG:3857'
                 });
 
-                setDrawType('None');
+                // OpenLayers olay döngüsünü bozmamak için çizim modunu asynchronous zamanlayıcı ile sıfırla
+                setTimeout(() => {
+                    setDrawType('None');
+                }, 50);
+
                 setIsAnalyzing(true);
                 setInfoMessage('Kesişim analizi hesaplanıyor...');
 
@@ -555,11 +717,11 @@ function App() {
                     });
 
                     const data = await response.json();
-                    if (response.ok) {
+                    if (response.ok && data) {
                         setAnalysisResult(data);
-                        setInfoMessage(`Analiz tamamlandı: Toplam ${data.totalIntersectedCount} envanter kesişiyor.`);
+                        setInfoMessage(`Analiz tamamlandı: Toplam ${data.totalIntersectedCount ?? 0} envanter kesişiyor.`);
                     } else {
-                        setInfoMessage('Analiz hatası: ' + (data.message || 'Bilinmeyen hata'));
+                        setInfoMessage('Analiz hatası: ' + (data?.message || 'Bilinmeyen hata'));
                     }
                 } catch (err) {
                     setInfoMessage('Analiz isteği gönderilirken hata oluştu.');
@@ -675,6 +837,16 @@ function App() {
     const handleSelectSavedPlace = (place) => {
         setCoords({ lon: place.longitude, lat: place.latitude });
         setPlaceName(place.name);
+        if (place.color) setPlaceColor(place.color);
+
+        setSelectedPointInfo({
+            name: place.name,
+            type: 'SavedPlace',
+            lon: place.longitude,
+            lat: place.latitude,
+            color: place.color || '#16a34a',
+            wkt: `POINT(${place.longitude} ${place.latitude})`
+        });
 
         if (mapRef.current) {
             mapRef.current.getView().animate({
@@ -697,7 +869,64 @@ function App() {
             const extent = feature.getGeometry().getExtent();
             mapRef.current.getView().fit(extent, { duration: 1000, maxZoom: 15, padding: [50, 50, 50, 50] });
 
-            if (drawing.type === 'Polygon') {
+            const geom = feature.getGeometry();
+
+            if (drawing.type === 'Point') {
+                const coordsDeg = toLonLat(geom.getCoordinates());
+                const pLon = parseFloat(coordsDeg[0].toFixed(6));
+                const pLat = parseFloat(coordsDeg[1].toFixed(6));
+
+                setCoords({ lon: pLon, lat: pLat });
+                if (drawing.color) setPlaceColor(drawing.color);
+
+                setSelectedPointInfo({
+                    name: drawing.name,
+                    type: 'PointDrawing',
+                    lon: pLon,
+                    lat: pLat,
+                    color: drawing.color || '#ef4444',
+                    wkt: drawing.wkt
+                });
+            } else if (drawing.type === 'Line') {
+                const centerCoord = getCenter(extent);
+                const coordsDeg = toLonLat(centerCoord);
+                const cLon = parseFloat(coordsDeg[0].toFixed(6));
+                const cLat = parseFloat(coordsDeg[1].toFixed(6));
+                const lengthMeters = getLength(geom);
+                const lengthText = lengthMeters >= 1000 ? (lengthMeters / 1000).toFixed(2) + ' km' : Math.round(lengthMeters) + ' m';
+
+                setSelectedPointInfo({
+                    name: drawing.name,
+                    type: 'LineDrawing',
+                    lon: cLon,
+                    lat: cLat,
+                    lengthText: lengthText,
+                    color: drawing.color || '#3b82f6',
+                    wkt: drawing.wkt
+                });
+            } else if (drawing.type === 'Polygon') {
+                let centerCoord;
+                if (geom.getInteriorPoint) {
+                    centerCoord = geom.getInteriorPoint().getCoordinates();
+                } else {
+                    centerCoord = getCenter(extent);
+                }
+                const coordsDeg = toLonLat(centerCoord);
+                const cLon = parseFloat(coordsDeg[0].toFixed(6));
+                const cLat = parseFloat(coordsDeg[1].toFixed(6));
+                const areaMeters = getArea(geom);
+                const areaText = areaMeters >= 1000000 ? (areaMeters / 1000000).toFixed(2) + ' km²' : Math.round(areaMeters).toLocaleString() + ' m²';
+
+                setSelectedPointInfo({
+                    name: drawing.name,
+                    type: 'PolygonDrawing',
+                    lon: cLon,
+                    lat: cLat,
+                    areaText: areaText,
+                    color: drawing.color || '#10b981',
+                    wkt: drawing.wkt
+                });
+
                 runSavedPolygonAnalysis(drawing);
             }
         } catch (err) {
@@ -706,9 +935,11 @@ function App() {
     };
 
     // KAYITLI POLİGON İÇİN KESİŞİM ANALİZİ ÇALIŞTIRMA (Gereksinim 3.1)
+    // KAYITLI POLİGON İÇİN KESİŞİM ANALİZİ ÇALIŞTIRMA
     const runSavedPolygonAnalysis = async (drawing) => {
         try {
             setIsAnalyzing(true);
+            setInfoMessage(`"${drawing.name}" analizi hesaplanıyor...`);
             const response = await fetch('http://localhost:5041/api/analysis/inventory', {
                 method: 'POST',
                 headers: {
@@ -719,12 +950,15 @@ function App() {
             });
 
             const data = await response.json();
-            if (response.ok) {
+            if (response.ok && data) {
                 setAnalysisResult(data);
-                setInfoMessage(`"${drawing.name}" analizi: Toplam ${data.totalIntersectedCount} envanter kesişiyor.`);
+                setInfoMessage(`"${drawing.name}" analizi: Toplam ${data.totalIntersectedCount ?? 0} envanter kesişiyor.`);
+            } else {
+                setInfoMessage('Analiz hatası: ' + (data?.message || 'Bilinmeyen sunucu hatası'));
             }
         } catch (err) {
             console.error('Kayıtlı poligon analizi hatası:', err);
+            setInfoMessage('Poligon analizi sırasında bir hata oluştu.');
         } finally {
             setIsAnalyzing(false);
         }
@@ -824,6 +1058,46 @@ function App() {
         }
     };
 
+    // KULLANICI KAYIT İŞLEMİ (REGISTER)
+    const handleRegister = async (e) => {
+        e.preventDefault();
+        setError('');
+        setRegisterSuccessMsg('');
+        setIsSubmittingRegister(true);
+
+        try {
+            const response = await fetch('http://localhost:5041/api/auth/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, email, phone, password })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                toastRef.current?.show({
+                    severity: 'success',
+                    summary: 'Kayıt Başarılı',
+                    detail: data.message || t.registerSuccess,
+                    life: 4000
+                });
+                setRegisterSuccessMsg(data.message || t.registerSuccess);
+                setIsRegisterMode(false);
+                setEmail('');
+                setPhone('');
+                setPassword('');
+            } else {
+                setError(data.message || t.registerFailed);
+            }
+        } catch (err) {
+            setError('Kayıt oluşturulurken bağlantı hatası: ' + err.message);
+        } finally {
+            setIsSubmittingRegister(false);
+        }
+    };
+
     // LOGIN EKRANI
     if (!token || isLoggingIn) {
         return (
@@ -840,31 +1114,39 @@ function App() {
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            width: '44px',
-                            height: '44px',
-                            borderRadius: '50%',
+                            gap: '6px',
+                            padding: '8px 14px',
+                            borderRadius: '24px',
                             cursor: 'pointer',
                             backgroundColor: 'rgba(15, 23, 42, 0.85)',
                             border: '1.5px solid rgba(255, 255, 255, 0.3)',
+                            color: '#ffffff',
+                            fontSize: '12px',
+                            fontWeight: '700',
                             boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
                             backdropFilter: 'blur(8px)',
                             transition: 'transform 0.2s ease'
                         }}
                     >
-                        {lang === 'tr' ? <TurkeyFlag /> : <UKFlag />}
+                        {lang === 'tr' ? <><TurkeyFlag /> <span>TR</span></> : <><UKFlag /> <span>EN</span></>}
                     </button>
                 </div>
 
                 <div className="login-sidebar">
-                    <div className="login-brand">
-                        <h1 className="brand-title">Georaph.map</h1>
-                        <p className="brand-subtitle">{t.loginSubtitle}</p>
+                    <div className="login-brand" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <img src="/logo.png" alt="GeoMap Logo" className="login-brand-logo-img" />
+                        <div>
+                            <h1 className="brand-title">Georaph.map</h1>
+                            <p className="brand-subtitle">{isRegisterMode ? t.registerSubtitle : t.loginSubtitle}</p>
+                        </div>
                     </div>
 
                     <div className="login-card">
-                        <h2>{t.loginTitle}</h2>
+                        <h2>{isRegisterMode ? t.registerTitle : t.loginTitle}</h2>
+                        {registerSuccessMsg && <div className="success-msg">{registerSuccessMsg}</div>}
                         {error && <div className="error-msg">{error}</div>}
-                        <form onSubmit={handleLogin}>
+
+                        <form onSubmit={isRegisterMode ? handleRegister : handleLogin}>
                             <div className="input-group">
                                 <label className="input-label">{t.usernameLabel}</label>
                                 <input
@@ -875,6 +1157,31 @@ function App() {
                                     required
                                 />
                             </div>
+
+                            {isRegisterMode && (
+                                <>
+                                    <div className="input-group">
+                                        <label className="input-label">{t.emailLabel}</label>
+                                        <input
+                                            type="email"
+                                            placeholder={t.emailPlaceholder}
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div className="input-group">
+                                        <label className="input-label">{t.phoneLabel}</label>
+                                        <input
+                                            type="tel"
+                                            placeholder={t.phonePlaceholder}
+                                            value={phone}
+                                            onChange={(e) => setPhone(e.target.value)}
+                                        />
+                                    </div>
+                                </>
+                            )}
+
                             <div className="input-group">
                                 <label className="input-label">{t.passwordLabel}</label>
                                 <input
@@ -885,8 +1192,27 @@ function App() {
                                     required
                                 />
                             </div>
-                            <button type="submit" className="login-btn">{isLoggingIn ? t.loggingIn : t.loginButton}</button>
+
+                            <button type="submit" className="login-btn">
+                                {isRegisterMode
+                                    ? (isSubmittingRegister ? t.registering : t.registerButton)
+                                    : (isLoggingIn ? t.loggingIn : t.loginButton)}
+                            </button>
                         </form>
+
+                        <div className="auth-toggle-wrapper" style={{ textAlign: 'center' }}>
+                            <button
+                                type="button"
+                                className="btn-toggle-auth"
+                                onClick={() => {
+                                    setIsRegisterMode(!isRegisterMode);
+                                    setError('');
+                                    setRegisterSuccessMsg('');
+                                }}
+                            >
+                                {isRegisterMode ? t.haveAccount : t.needAccount}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="login-footer">
@@ -980,7 +1306,7 @@ function App() {
                     }}
                     title={isSidebarOpen ? t.closeSidebar : t.openSidebar}
                 >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         {isSidebarOpen ? (
                             <polyline points="15 18 9 12 15 6" />
                         ) : (
@@ -992,7 +1318,10 @@ function App() {
                 <div className="map-sidebar-top">
                     {/* Marka Header */}
                     <div className="map-brand-header">
-                        <h2 className="map-brand-title">Georaph.map</h2>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <img src="/logo.png" alt="GeoMap Logo" className="brand-logo-img" />
+                            <h2 className="map-brand-title">Georaph.map</h2>
+                        </div>
                         <div className="header-action-buttons">
                             {/* Tema (Karanlık / Aydınlık Mod) Butonu */}
                             <button
@@ -1017,16 +1346,6 @@ function App() {
                                         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                                     </svg>
                                 )}
-                            </button>
-
-                            {/* Dil Seçim Butonu (Sadece Vektörel Bayrak) */}
-                            <button
-                                className="theme-toggle-btn lang-toggle-btn"
-                                onClick={toggleLang}
-                                title={t.languageSelect}
-                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', padding: 0, borderRadius: '8px', cursor: 'pointer', backgroundColor: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)' }}
-                            >
-                                {lang === 'tr' ? <TurkeyFlag /> : <UKFlag />}
                             </button>
                         </div>
                     </div>
@@ -1112,7 +1431,7 @@ function App() {
                                             borderRadius: '7px',
                                             cursor: 'pointer',
                                             color: '#ffffff',
-                                            boxShadow: '0 2px 8px rgba(37, 99, 235, 0.4)',
+                                            boxShadow: 'none',
                                             transition: 'transform 0.15s ease'
                                         }}
                                     >
@@ -1208,6 +1527,23 @@ function App() {
                                                 {drawing.type === 'Line' ? t.lineTypeLabel : drawing.type === 'Polygon' ? t.polygonTypeLabel : t.pointTypeLabel}
                                             </span>
                                         </div>
+
+                                        <button
+                                            type="button"
+                                            className="btn-info-drawing"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSelectDrawing(drawing);
+                                            }}
+                                            title={t.btnInfoTooltip || "Bilgisini Göster"}
+                                        >
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                                                <circle cx="12" cy="12" r="10" />
+                                                <line x1="12" y1="16" x2="12" y2="12" />
+                                                <line x1="12" y1="8" x2="12.01" y2="8" />
+                                            </svg>
+                                        </button>
+
                                         <button
                                             className="btn-delete-drawing"
                                             onClick={(e) => triggerDeleteDrawing(drawing, e)}
@@ -1234,24 +1570,40 @@ function App() {
                         </svg>
                         {t.logout}
                     </button>
+
+                    {/* Dil Seçim Butonu (Çıkış Yap Yanında) */}
+                    <button
+                        className="theme-toggle-btn lang-toggle-btn"
+                        onClick={toggleLang}
+                        title={t.languageSelect}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '40px',
+                            height: '40px',
+                            padding: 0,
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                            flexShrink: 0
+                        }}
+                    >
+                        {lang === 'tr' ? <TurkeyFlag /> : <UKFlag />}
+                    </button>
                 </div>
             </div>
 
             {/* HARİTA ÜZERİNDEKİ ÇİZİM & ANALİZ ARAÇ ÇUBUĞU (SAĞ ÜST) */}
             <div className="map-draw-toolbar-floating">
-                <button
-                    className={`map-tool-icon-btn ${drawType === 'Point' ? 'active' : ''}`}
-                    onClick={() => {
-                        if (drawType === 'Point') handleCancelDraw();
-                        else setDrawType('Point');
-                    }}
-                    title={t.toolPointTitle}
-                >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="8" />
-                        <circle cx="12" cy="12" r="3" fill="currentColor" />
+                <div className="map-draw-toolbar-header-compact" title={t.drawToolsTitle} data-tooltip={t.drawToolsTitle}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
                     </svg>
-                </button>
+                </div>
+                <div className="map-draw-toolbar-divider" />
 
                 <button
                     className={`map-tool-icon-btn ${drawType === 'LineString' ? 'active' : ''}`}
@@ -1260,6 +1612,7 @@ function App() {
                         else setDrawType('LineString');
                     }}
                     title={t.toolLineTitle}
+                    data-tooltip={t.drawingLineMode}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M4 20L20 4" />
@@ -1275,6 +1628,7 @@ function App() {
                         else setDrawType('Polygon');
                     }}
                     title={t.toolPolygonTitle}
+                    data-tooltip={t.drawingPolygonMode}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <polygon points="12 2 22 7.5 18 19 6 19 2 8.5" />
@@ -1291,6 +1645,7 @@ function App() {
                         }
                     }}
                     title={t.toolAnalysisTitle}
+                    data-tooltip={t.toolAnalysisTitle}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1461,31 +1816,31 @@ function App() {
 
                     <div className="analysis-card-body">
                         <div className="analysis-total-badge">
-                            <span className="total-number">{analysisResult.totalIntersectedCount}</span>
+                            <span className="total-number">{analysisResult.totalIntersectedCount ?? 0}</span>
                             <span className="total-label">{t.totalIntersectedLabel}</span>
                         </div>
 
                         <div className="analysis-breakdown-grid">
                             <div className="breakdown-item">
-                                <span className="item-count">{analysisResult.pointsCount + (analysisResult.placesCount || 0)}</span>
+                                <span className="item-count">{(analysisResult.pointsCount || 0) + (analysisResult.placesCount || 0)}</span>
                                 <span className="item-type">{t.pointLayerLabel}</span>
                             </div>
                             <div className="breakdown-item">
-                                <span className="item-count">{analysisResult.linesCount}</span>
+                                <span className="item-count">{analysisResult.linesCount ?? 0}</span>
                                 <span className="item-type">{t.lineLayerLabel}</span>
                             </div>
                             <div className="breakdown-item">
-                                <span className="item-count">{analysisResult.polygonsCount}</span>
+                                <span className="item-count">{analysisResult.polygonsCount ?? 0}</span>
                                 <span className="item-type">{t.polygonLayerLabel}</span>
                             </div>
                         </div>
 
-                        {analysisResult.details && analysisResult.details.length > 0 && (
+                        {Array.isArray(analysisResult.details) && analysisResult.details.length > 0 && (
                             <div className="analysis-details-list">
                                 <h4>Kesişen Nesne Detayları:</h4>
                                 <ul>
                                     {analysisResult.details.map((item, idx) => (
-                                        <li key={idx}>{item}</li>
+                                        <li key={idx}>{typeof item === 'object' ? JSON.stringify(item) : String(item)}</li>
                                     ))}
                                 </ul>
                             </div>
@@ -1531,6 +1886,99 @@ function App() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* OPENLAYERS OVERLAY: NOKTA BİLGİ PANELİ (REACT PORTAL İLE DOM SABİTLEME) */}
+            {selectedPointInfo && overlayContainerRef.current && createPortal(
+                <div className="ol-popup-card">
+                    <div className="ol-popup-header">
+                        <div className="ol-popup-title-wrapper">
+                            <span
+                                className="ol-popup-color-dot"
+                                style={{ backgroundColor: selectedPointInfo.color || '#3b82f6' }}
+                            />
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <h4 className="ol-popup-title">{selectedPointInfo.name}</h4>
+                                <span className="ol-popup-badge">
+                                    {selectedPointInfo.type === 'SavedPlace' && t.savedPlaceBadge}
+                                    {(selectedPointInfo.type === 'PointDrawing' || selectedPointInfo.type === 'Point') && t.pointDrawingBadge}
+                                    {(selectedPointInfo.type === 'LineDrawing' || selectedPointInfo.type === 'Line') && t.lineTypeLabel}
+                                    {(selectedPointInfo.type === 'PolygonDrawing' || selectedPointInfo.type === 'Polygon') && t.polygonTypeLabel}
+                                    {selectedPointInfo.type === 'SelectedPoint' && t.selectedPointBadge}
+                                </span>
+                            </div>
+                        </div>
+                        <button className="ol-popup-close-btn" onClick={handleClosePointInfo} title={t.btnCloseInfoPanel}>
+                            &times;
+                        </button>
+                    </div>
+
+                    <div className="ol-popup-body">
+                        {selectedPointInfo.lengthText ? (
+                            <>
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.totalLengthLabel}</span>
+                                    <strong className="coord-value" style={{ color: '#3b82f6' }}>{selectedPointInfo.lengthText}</strong>
+                                </div>
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.latitudeLabelShort}</span>
+                                    <strong className="coord-value">{selectedPointInfo.lat}° N</strong>
+                                </div>
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.longitudeLabelShort}</span>
+                                    <strong className="coord-value">{selectedPointInfo.lon}° E</strong>
+                                </div>
+                            </>
+                        ) : selectedPointInfo.areaText ? (
+                            <>
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.totalAreaLabel}</span>
+                                    <strong className="coord-value" style={{ color: '#10b981' }}>{selectedPointInfo.areaText}</strong>
+                                </div>
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.latitudeLabelShort}</span>
+                                    <strong className="coord-value">{selectedPointInfo.lat}° N</strong>
+                                </div>
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.longitudeLabelShort}</span>
+                                    <strong className="coord-value">{selectedPointInfo.lon}° E</strong>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.latitudeLabelShort}</span>
+                                    <strong className="coord-value">{selectedPointInfo.lat}° N</strong>
+                                </div>
+
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.longitudeLabelShort}</span>
+                                    <strong className="coord-value">{selectedPointInfo.lon}° E</strong>
+                                </div>
+                            </>
+                        )}
+
+                        <div className="ol-popup-coord-row">
+                            <span className="coord-label">{t.projectionLabel}</span>
+                            <span className="coord-subtext">EPSG:4326</span>
+                        </div>
+                    </div>
+
+                    <div className="ol-popup-footer">
+                        <button
+                            className="ol-popup-btn btn-copy"
+                            onClick={handleCopyCoords}
+                            title={t.btnCopyCoords}
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            {t.btnCopyCoords}
+                        </button>
+                    </div>
+                </div>,
+                overlayContainerRef.current
             )}
 
             {/* OpenLayers Harita Container */}
