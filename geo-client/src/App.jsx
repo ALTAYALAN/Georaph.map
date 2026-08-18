@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import Map from 'ol/Map';
 import View from 'ol/View';
@@ -13,6 +13,8 @@ import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import Draw from 'ol/interaction/Draw';
+import Modify from 'ol/interaction/Modify';
+import Collection from 'ol/Collection';
 import WKT from 'ol/format/WKT';
 import Overlay from 'ol/Overlay';
 import { getLength, getArea } from 'ol/sphere';
@@ -22,6 +24,7 @@ import { getCenter } from 'ol/extent';
 import { Toast } from 'primereact/toast';
 
 import { translations } from './translations';
+import { AdminDashboard } from './components/admin/AdminDashboard';
 import './App.css';
 
 // Hex rengi RGBA stringe çevirme yardımcısı
@@ -49,6 +52,18 @@ const PRESET_COLORS = [
     { label: 'Koyu', hex: '#1f2937' }
 ];
 
+// Yüksek Detaylı Vektörel Sanatçı Renk Paleti İkonu
+const DetailedPaletteIcon = ({ size = 18, color = "#ffffff" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C13.2033 22 14.18 21.0233 14.18 19.82C14.18 19.26 13.95 18.75 13.58 18.38C13.22 18.01 13 17.51 13 16.96C13 15.86 13.9 14.96 15 14.96H16.82C19.68 14.96 22 12.64 22 9.78C22 5.48 17.52 2 12 2Z" fill="rgba(255,255,255,0.25)" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        <circle cx="7.5" cy="11.5" r="1.4" fill="#f59e0b" />
+        <circle cx="10.5" cy="7.5" r="1.4" fill="#10b981" />
+        <circle cx="15.5" cy="7.5" r="1.4" fill="#ec4899" />
+        <circle cx="18.5" cy="11.5" r="1.4" fill="#3b82f6" />
+        <circle cx="9.5" cy="17.5" r="1.4" stroke={color} strokeWidth="1.2" />
+    </svg>
+);
+
 // Vektörel Yüksek Kaliteli Bayrak İkonları (Tüm Tarayıcılarda Kusursuz Görünüm)
 const TurkeyFlag = () => (
     <svg width="18" height="13" viewBox="0 0 1200 800" style={{ borderRadius: '2px', display: 'inline-block', verticalAlign: 'middle', boxShadow: '0 0 2px rgba(0,0,0,0.3)' }}>
@@ -72,7 +87,24 @@ const UKFlag = () => (
     </svg>
 );
 
+function parseJwt(token) {
+    try {
+        if (!token) return null;
+        const base64Url = token.split('.')[1];
+        if (!base64Url) return null;
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        return JSON.parse(jsonPayload);
+    } catch (e) {
+        return null;
+    }
+}
+
 function App() {
+    // Görünüm Modu ('map' | 'admin')
+    const [currentView, setCurrentView] = useState('map');
     // PrimeReact Toast Referansı
     const toastRef = useRef(null);
     const placeColorInputRef = useRef(null);
@@ -98,6 +130,24 @@ function App() {
 
     // Kullanıcı ve Token Durumları (State)
     const [token, setToken] = useState(localStorage.getItem('jwt_token') || '');
+    const [loggedInUsername, setLoggedInUsername] = useState(localStorage.getItem('logged_in_username') || '');
+
+    const [userRole, setUserRole] = useState(() => {
+        const storedRole = localStorage.getItem('user_role');
+        if (storedRole) return storedRole;
+        const payload = parseJwt(localStorage.getItem('jwt_token'));
+        if (payload) {
+            const r = payload.userRole || payload["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
+            if (r) return r;
+        }
+        return 'Viewer';
+    });
+
+    const [isAdmin, setIsAdmin] = useState(() => {
+        const role = localStorage.getItem('user_role') || (parseJwt(localStorage.getItem('jwt_token'))?.userRole);
+        return role === 'Admin';
+    });
+    
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
@@ -123,6 +173,11 @@ function App() {
     const [savedDrawings, setSavedDrawings] = useState([]);
     const [deleteTarget, setDeleteTarget] = useState(null);
 
+    // HARİTA FİLTRELEME DURUMLARI (Şekil Türü ve Editör/Kullanıcı Filtresi)
+    const [selectedTypeFilter, setSelectedTypeFilter] = useState('ALL');
+    const [selectedEditorFilter, setSelectedEditorFilter] = useState('ALL');
+    const [showFilterPanel, setShowFilterPanel] = useState(false);
+
     // YÜZER MENÜ / ÖZNİTELİK FORM DURUMLARI (İsim, Renk ve Taslak WKT)
     const [drawingName, setDrawingName] = useState('');
     const [drawingColor, setDrawingColor] = useState('#3b82f6');
@@ -132,11 +187,161 @@ function App() {
     const [analysisResult, setAnalysisResult] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-    // SEÇİLİ NOKTA BİLGİ PANELİ DURUMU (Info Panel / Popup Overlay)
+    // SEÇİLİ NOKTA BİLGİ PANELİ VE DÜZENLEME DURUMU (Info Panel / Popup Overlay)
     const [selectedPointInfo, setSelectedPointInfo] = useState(null);
+    const [editName, setEditName] = useState('');
+    const [editColor, setEditColor] = useState('#3b82f6');
+    const [editWkt, setEditWkt] = useState('');
+
+    // KIRILMA NOKTALARINI FARE İLE HARİTADA DÜZENLEME (Modify Interaction + Undo/Redo + Cancel Modal)
+    const [isModifyingVertex, setIsModifyingVertex] = useState(false);
+    const [isPopupCollapsed, setIsPopupCollapsed] = useState(false);
+    const modifyInteractionRef = useRef(null);
+    const originalWktRef = useRef('');
+    const geometryHistoryRef = useRef([]);
+    const [historyIndex, setHistoryIndex] = useState(-1);
+    const [cancelEditConfirm, setCancelEditConfirm] = useState(false);
+
+    // Editör İşbirliği Mekanizması State'leri
+    const [showCollaborationModal, setShowCollaborationModal] = useState(false);
+    const [availableEditors, setAvailableEditors] = useState([]);
+    const [collaborationRequests, setCollaborationRequests] = useState([]);
+    const [selectedEditorId, setSelectedEditorId] = useState('');
+    const [collabLoading, setCollabLoading] = useState(false);
+
+    const loggedInUserId = useMemo(() => {
+        if (!token) return 0;
+        const payload = parseJwt(token);
+        return payload ? parseInt(payload.userId || payload.id || payload.nameid || payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"] || 0) : 0;
+    }, [token]);
+
+    const fetchCollaborations = async () => {
+        if (!token || userRole === 'Viewer') return;
+        try {
+            const [editorsRes, requestsRes] = await Promise.all([
+                fetch('http://localhost:5041/api/collaborations/available-editors', {
+                    headers: { Authorization: `Bearer ${token}` }
+                }),
+                fetch('http://localhost:5041/api/collaborations/my-requests', {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+            ]);
+            if (editorsRes.ok) {
+                const editorsData = await editorsRes.json();
+                setAvailableEditors(editorsData);
+            }
+            if (requestsRes.ok) {
+                const requestsData = await requestsRes.json();
+                setCollaborationRequests(requestsData);
+            }
+        } catch (err) {
+            console.error('İşbirliği verileri alınamadı:', err);
+        }
+    };
+
+    const handleSendCollaborationRequest = async (e) => {
+        e.preventDefault();
+        if (!selectedEditorId) return;
+        setCollabLoading(true);
+        try {
+            const res = await fetch('http://localhost:5041/api/collaborations/request', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ receiverUserId: parseInt(selectedEditorId) })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'İstek gönderilemedi.');
+
+            toastRef.current?.show({ severity: 'success', summary: 'Başarılı', detail: 'İşbirliği isteği gönderildi!', life: 3000 });
+            setSelectedEditorId('');
+            fetchCollaborations();
+        } catch (err) {
+            toastRef.current?.show({ severity: 'error', summary: 'Hata', detail: err.message, life: 4000 });
+        } finally {
+            setCollabLoading(false);
+        }
+    };
+
+    const handleRespondCollaborationRequest = async (requestId, approve) => {
+        setCollabLoading(true);
+        try {
+            const res = await fetch('http://localhost:5041/api/collaborations/respond', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ requestId, approve })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'İşlem başarısız.');
+
+            toastRef.current?.show({
+                severity: approve ? 'success' : 'info',
+                summary: approve ? 'Kabul Edildi' : 'Reddedildi',
+                detail: data.message,
+                life: 3000
+            });
+            fetchCollaborations();
+            fetchDrawings();
+        } catch (err) {
+            toastRef.current?.show({ severity: 'error', summary: 'Hata', detail: err.message, life: 4000 });
+        } finally {
+            setCollabLoading(false);
+        }
+    };
+
+    const handleCancelCollaboration = async (requestId) => {
+        setCollabLoading(true);
+        try {
+            const res = await fetch(`http://localhost:5041/api/collaborations/${requestId}`, {
+                method: 'DELETE',
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'İşbirliği iptal edilemedi.');
+
+            toastRef.current?.show({
+                severity: 'info',
+                summary: lang === 'tr' ? 'İptal Edildi' : 'Cancelled',
+                detail: data.message,
+                life: 3000
+            });
+            fetchCollaborations();
+            fetchDrawings();
+        } catch (err) {
+            toastRef.current?.show({ severity: 'error', summary: 'Hata', detail: err.message, life: 4000 });
+        } finally {
+            setCollabLoading(false);
+        }
+    };
+
+    const pendingIncoming = useMemo(() => {
+        return collaborationRequests.filter(r => r.receiverUserId === loggedInUserId && r.status === 'Pending');
+    }, [collaborationRequests, loggedInUserId]);
+
+    useEffect(() => {
+        if (token) {
+            fetchCollaborations();
+        }
+    }, [token]);
+
+    useEffect(() => {
+        if (selectedPointInfo) {
+            setEditName(selectedPointInfo.name || '');
+            setEditColor(selectedPointInfo.color || '#3b82f6');
+            setEditWkt(selectedPointInfo.wkt || '');
+        }
+    }, [selectedPointInfo]);
 
     // OpenLayers harita ve katman referansları
     const mapRef = useRef(null);
+    const mapContainerRef = useRef(null);
     const vectorSourceRef = useRef(null);
     const savedPlacesSourceRef = useRef(null);
     const drawingsSourceRef = useRef(null);
@@ -173,8 +378,11 @@ function App() {
 
             if (remainingSeconds <= 0) {
                 localStorage.removeItem('jwt_token');
+                localStorage.removeItem('logged_in_username');
                 localStorage.removeItem('session_expiration');
                 setToken('');
+                setLoggedInUsername('');
+                setCurrentView('map');
                 setError('Oturum süreniz sona erdi.');
             } else {
                 setTimeLeft(remainingSeconds);
@@ -199,22 +407,6 @@ function App() {
         }
     }, [infoMessage]);
 
-    // KAYITLI MEKANLARI BACKEND'DEN ÇEKME (GET /api/places)
-    const fetchPlaces = async () => {
-        if (!token) return;
-        try {
-            const response = await fetch('http://localhost:5041/api/places', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                setSavedPlaces(data);
-            }
-        } catch (err) {
-            console.error('Kayıtlı mekanlar getirilirken hata oluştu:', err);
-        }
-    };
-
     // KAYITLI TÜM ÇİZİMLERİ BACKEND'DEN ÇEKME (GET /api/drawings)
     const fetchDrawings = async () => {
         if (!token) return;
@@ -231,11 +423,31 @@ function App() {
         }
     };
 
-    // Giriş yapıldığında tüm mekan ve çizimleri yükle
+    const clearUserData = () => {
+        stopVertexEditing();
+        setSavedPlaces([]);
+        setSavedDrawings([]);
+        setSelectedPointInfo(null);
+        setSelectedTypeFilter('ALL');
+        setSelectedEditorFilter('ALL');
+        if (savedPlacesSourceRef.current) savedPlacesSourceRef.current.clear();
+        if (drawingsSourceRef.current) drawingsSourceRef.current.clear();
+        if (vectorSourceRef.current) vectorSourceRef.current.clear();
+        if (mapRef.current) {
+            try {
+                mapRef.current.setTarget(null);
+            } catch (e) { }
+            mapRef.current = null;
+        }
+    };
+
+    // Giriş yapıldığında tüm çizimleri yükle
     useEffect(() => {
         if (token) {
-            fetchPlaces();
+            clearUserData();
             fetchDrawings();
+        } else {
+            clearUserData();
         }
     }, [token]);
 
@@ -257,15 +469,30 @@ function App() {
                 const TEN_MINUTES_MS = 10 * 60 * 1000;
                 const expirationTimestamp = Date.now() + TEN_MINUTES_MS;
 
-                localStorage.setItem('jwt_token', data.token);
-                localStorage.setItem('session_expiration', expirationTimestamp.toString());
+                const returnedRole = data.role || (data.isAdmin ? 'Admin' : 'Editor');
+                const userIsAdmin = data.isAdmin === true && returnedRole === 'Admin';
 
+                localStorage.setItem('jwt_token', data.token);
+                localStorage.setItem('logged_in_username', data.username || username);
+                localStorage.setItem('session_expiration', expirationTimestamp.toString());
+                localStorage.setItem('user_role', returnedRole);
+                localStorage.setItem('is_admin', userIsAdmin ? 'true' : 'false');
+
+                setLoggedInUsername(data.username || username);
+                setUserRole(returnedRole);
+                setIsAdmin(userIsAdmin);
+                clearUserData();
                 setIsLoggingIn(true);
 
                 setTimeout(() => {
                     setToken(data.token);
                     setTimeLeft(600);
                     setIsLoggingIn(false);
+                    setTimeout(() => {
+                        if (mapRef.current) {
+                            mapRef.current.updateSize();
+                        }
+                    }, 100);
                 }, 500);
             } else {
                 setError(data.message || 'Giriş başarısız.');
@@ -275,11 +502,63 @@ function App() {
         }
     };
 
+    // MİSAFİR GİRİŞ İŞLEMİ (VIEWER MODU)
+    const handleGuestLogin = async () => {
+        setError('');
+        try {
+            const response = await fetch('http://localhost:5041/api/auth/guest-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+
+            if (response.ok) {
+                const TEN_MINUTES_MS = 10 * 60 * 1000;
+                const expirationTimestamp = Date.now() + TEN_MINUTES_MS;
+
+                localStorage.setItem('jwt_token', data.token);
+                localStorage.setItem('logged_in_username', 'Misafir (İzleyici)');
+                localStorage.setItem('session_expiration', expirationTimestamp.toString());
+                localStorage.setItem('user_role', 'Viewer');
+                localStorage.setItem('is_admin', 'false');
+
+                setLoggedInUsername('Misafir (İzleyici)');
+                setUserRole('Viewer');
+                setIsAdmin(false);
+                clearUserData();
+                setIsLoggingIn(true);
+
+                setTimeout(() => {
+                    setToken(data.token);
+                    setTimeLeft(600);
+                    setIsLoggingIn(false);
+                    setTimeout(() => {
+                        if (mapRef.current) {
+                            mapRef.current.updateSize();
+                        }
+                    }, 100);
+                }, 500);
+            } else {
+                setError(data.message || 'Misafir girişi başarısız.');
+            }
+        } catch (err) {
+            setError('Backend sunucusuna bağlanılamadı.');
+        }
+    };
+
     // ÇIKIŞ İŞLEMİ
     const handleLogout = (customMessage = '') => {
         localStorage.removeItem('jwt_token');
+        localStorage.removeItem('logged_in_username');
         localStorage.removeItem('session_expiration');
+        localStorage.removeItem('is_admin');
+        localStorage.removeItem('user_role');
+        clearUserData();
         setToken('');
+        setLoggedInUsername('');
+        setUserRole('Viewer');
+        setIsAdmin(false);
+        setCurrentView('map');
         if (customMessage) {
             setError(customMessage);
         }
@@ -294,196 +573,179 @@ function App() {
     // TEMA DEĞİŞTİĞİNDE HARİTA ALTLIK KATMANINI GÜNCELLE
     useEffect(() => {
         localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
-        if (tileLayerRef.current) {
-            if (isDarkMode) {
-                tileLayerRef.current.setSource(new XYZ({
-                    url: 'https://{a-c}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                    maxZoom: 20
-                }));
-            } else {
-                tileLayerRef.current.setSource(new OSM());
-            }
+        if (mapRef.current) {
+            mapRef.current.updateSize();
+            mapRef.current.render();
         }
     }, [isDarkMode]);
 
-    // OPENLAYERS HARİTA KURULUMU
+    // OPENLAYERS HARİTA KURULUMU (SABİT HARİTA MİMARİSİ)
     useEffect(() => {
         if (!token) return;
+        const container = mapContainerRef.current || document.getElementById('map');
+        if (!container) return;
 
-        const activeMarkerSource = new VectorSource();
-        vectorSourceRef.current = activeMarkerSource;
+        if (!mapRef.current) {
+            const activeMarkerSource = new VectorSource();
+            vectorSourceRef.current = activeMarkerSource;
 
-        const savedPlacesSource = new VectorSource();
-        savedPlacesSourceRef.current = savedPlacesSource;
+            const savedPlacesSource = new VectorSource();
+            savedPlacesSourceRef.current = savedPlacesSource;
 
-        const drawingsSource = new VectorSource();
-        drawingsSourceRef.current = drawingsSource;
+            const drawingsSource = new VectorSource();
+            drawingsSourceRef.current = drawingsSource;
 
-        const baseTileLayer = new TileLayer({
-            source: isDarkMode ? new XYZ({ url: 'https://{a-c}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' }) : new OSM()
-        });
-        tileLayerRef.current = baseTileLayer;
-
-        const analysisLayer = new VectorLayer({
-            source: analysisSourceRef.current,
-            style: new Style({
-                stroke: new Stroke({
-                    color: '#f59e0b',
-                    width: 3,
-                    lineDash: [8, 8]
-                }),
-                fill: new Fill({
-                    color: 'rgba(245, 158, 11, 0.25)'
+            const baseTileLayer = new TileLayer({
+                source: new OSM({
+                    crossOrigin: 'anonymous'
                 })
-            })
-        });
+            });
+            tileLayerRef.current = baseTileLayer;
 
-        const map = new Map({
-            target: 'map',
-            layers: [
-                baseTileLayer,
-                new VectorLayer({
-                    source: savedPlacesSource
-                }),
-                new VectorLayer({
-                    source: drawingsSource
-                }),
-                analysisLayer,
-                new VectorLayer({
-                    source: activeMarkerSource
+            const analysisLayer = new VectorLayer({
+                source: analysisSourceRef.current,
+                style: new Style({
+                    stroke: new Stroke({
+                        color: '#f59e0b',
+                        width: 3,
+                        lineDash: [8, 8]
+                    }),
+                    fill: new Fill({
+                        color: 'rgba(245, 158, 11, 0.25)'
+                    })
                 })
-            ],
-            view: new View({
-                center: fromLonLat([33.2433, 38.9637]),
-                zoom: 6.5
-            })
-        });
-
-        if (!overlayContainerRef.current) {
-            const popupDiv = document.createElement('div');
-            popupDiv.className = 'ol-popup-overlay-container';
-            overlayContainerRef.current = popupDiv;
-        }
-
-        const overlay = new Overlay({
-            element: overlayContainerRef.current,
-            autoPan: {
-                animation: {
-                    duration: 250,
-                },
-            },
-            positioning: 'bottom-center',
-            offset: [0, 0],
-            stopEvent: true
-        });
-        map.addOverlay(overlay);
-        overlayRef.current = overlay;
-
-        mapRef.current = map;
-
-        map.on('singleclick', function (evt) {
-            if (drawTypeRef.current && drawTypeRef.current !== 'None') return;
-
-            const lonLat = toLonLat(evt.coordinate);
-            const lon = parseFloat(lonLat[0].toFixed(6));
-            const lat = parseFloat(lonLat[1].toFixed(6));
-
-            setCoords({ lon, lat });
-
-            let clickedFeature = null;
-            map.forEachFeatureAtPixel(evt.pixel, function (feature) {
-                if (!clickedFeature && feature.get('name')) {
-                    clickedFeature = feature;
-                }
             });
 
-            if (clickedFeature) {
-                const fName = clickedFeature.get('name') || 'Harita Nesnesi';
-                const fType = clickedFeature.get('type') || 'SavedPlace';
-                const fColor = clickedFeature.get('color') || '#16a34a';
-                const geom = clickedFeature.getGeometry();
-                const geomType = geom ? geom.getType() : 'Point';
+            const map = new Map({
+                target: container,
+                layers: [
+                    baseTileLayer,
+                    new VectorLayer({
+                        source: savedPlacesSource
+                    }),
+                    new VectorLayer({
+                        source: drawingsSource
+                    }),
+                    analysisLayer,
+                    new VectorLayer({
+                        source: activeMarkerSource
+                    })
+                ],
+                view: new View({
+                    center: fromLonLat([33.2433, 38.9637]),
+                    zoom: 6.5
+                })
+            });
 
-                if (geomType === 'Point') {
-                    const coordsDeg = toLonLat(geom.getCoordinates());
-                    const fLon = parseFloat(coordsDeg[0].toFixed(6));
-                    const fLat = parseFloat(coordsDeg[1].toFixed(6));
-
-                    setCoords({ lon: fLon, lat: fLat });
-                    if (fColor) setPlaceColor(fColor);
-
-                    setSelectedPointInfo({
-                        name: fName,
-                        type: fType === 'Point' ? 'PointDrawing' : fType,
-                        lon: fLon,
-                        lat: fLat,
-                        color: fColor,
-                        wkt: `POINT(${fLon} ${fLat})`
-                    });
-                } else if (geomType === 'LineString' || geomType === 'Line') {
-                    const extent = geom.getExtent();
-                    const centerCoord = getCenter(extent);
-                    const coordsDeg = toLonLat(centerCoord);
-                    const cLon = parseFloat(coordsDeg[0].toFixed(6));
-                    const cLat = parseFloat(coordsDeg[1].toFixed(6));
-                    const lengthMeters = getLength(geom);
-                    const lengthText = lengthMeters >= 1000 ? (lengthMeters / 1000).toFixed(2) + ' km' : Math.round(lengthMeters) + ' m';
-
-                    setSelectedPointInfo({
-                        name: fName,
-                        type: 'LineDrawing',
-                        lon: cLon,
-                        lat: cLat,
-                        lengthText: lengthText,
-                        color: fColor,
-                        wkt: ''
-                    });
-                } else if (geomType === 'Polygon') {
-                    let centerCoord;
-                    if (geom.getInteriorPoint) {
-                        centerCoord = geom.getInteriorPoint().getCoordinates();
-                    } else {
-                        centerCoord = getCenter(geom.getExtent());
-                    }
-                    const coordsDeg = toLonLat(centerCoord);
-                    const cLon = parseFloat(coordsDeg[0].toFixed(6));
-                    const cLat = parseFloat(coordsDeg[1].toFixed(6));
-                    const areaMeters = getArea(geom);
-                    const areaText = areaMeters >= 1000000 ? (areaMeters / 1000000).toFixed(2) + ' km²' : Math.round(areaMeters).toLocaleString() + ' m²';
-
-                    setSelectedPointInfo({
-                        name: fName,
-                        type: 'PolygonDrawing',
-                        lon: cLon,
-                        lat: cLat,
-                        areaText: areaText,
-                        color: fColor,
-                        wkt: ''
-                    });
-                }
-            } else {
-                setSelectedPointInfo(null);
+            if (!overlayContainerRef.current) {
+                const popupDiv = document.createElement('div');
+                popupDiv.className = 'ol-popup-overlay-container';
+                overlayContainerRef.current = popupDiv;
             }
-        });
 
-        return () => map.setTarget(null);
+            const overlay = new Overlay({
+                element: overlayContainerRef.current,
+                autoPan: {
+                    animation: {
+                        duration: 250,
+                    },
+                },
+                positioning: 'bottom-center',
+                offset: [0, 0],
+                stopEvent: true
+            });
+            map.addOverlay(overlay);
+            overlayRef.current = overlay;
+
+            map.on('singleclick', function (evt) {
+                if (drawTypeRef.current && drawTypeRef.current !== 'None') return;
+
+                const lonLat = toLonLat(evt.coordinate);
+                const lon = parseFloat(lonLat[0].toFixed(6));
+                const lat = parseFloat(lonLat[1].toFixed(6));
+
+                setCoords({ lon, lat });
+            });
+
+            mapRef.current = map;
+        } else {
+            mapRef.current.setTarget(container);
+        }
+
+        const updateMapSize = () => {
+            if (mapRef.current) {
+                mapRef.current.updateSize();
+                mapRef.current.render();
+            }
+        };
+
+        updateMapSize();
+        const animFrame1 = requestAnimationFrame(updateMapSize);
+        const animFrame2 = requestAnimationFrame(() => requestAnimationFrame(updateMapSize));
+        const timer1 = setTimeout(updateMapSize, 50);
+        const timer2 = setTimeout(updateMapSize, 150);
+        const timer3 = setTimeout(updateMapSize, 300);
+        const timer4 = setTimeout(updateMapSize, 600);
+        const timer5 = setTimeout(updateMapSize, 1200);
+
+        let resizeObserver = null;
+        if (container && typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(() => {
+                updateMapSize();
+            });
+            resizeObserver.observe(container);
+        }
+
+        return () => {
+            cancelAnimationFrame(animFrame1);
+            cancelAnimationFrame(animFrame2);
+            clearTimeout(timer1);
+            clearTimeout(timer2);
+            clearTimeout(timer3);
+            clearTimeout(timer4);
+            clearTimeout(timer5);
+            if (resizeObserver && container) {
+                resizeObserver.unobserve(container);
+            }
+        };
     }, [token]);
+
+    // HARİTA GÖRÜNÜMÜNE GEÇİLDİĞİNDE VEYA OTURUM AÇILDIĞINDA HARİTA BOYUTUNU DÜZELT
+    useEffect(() => {
+        if (currentView === 'map' && mapRef.current) {
+            const update = () => {
+                mapRef.current?.updateSize();
+                mapRef.current?.render();
+            };
+            update();
+            const t1 = setTimeout(update, 50);
+            const t2 = setTimeout(update, 200);
+            const t3 = setTimeout(update, 500);
+            return () => {
+                clearTimeout(t1);
+                clearTimeout(t2);
+                clearTimeout(t3);
+            };
+        }
+    }, [currentView, token]);
 
     // NOKTA BİLGİ PANELİ POPUP OVERLAY KONUMLANDIRMA
     useEffect(() => {
         if (overlayRef.current) {
             if (selectedPointInfo && selectedPointInfo.lon != null && selectedPointInfo.lat != null) {
-                if (selectedPointInfo.type === 'LineDrawing' || selectedPointInfo.type === 'PolygonDrawing' || selectedPointInfo.type === 'Line' || selectedPointInfo.type === 'Polygon') {
-                    overlayRef.current.setOffset([0, -10]);
+                if (isModifyingVertex) {
+                    overlayRef.current.setOffset([260, -220]);
+                } else if (selectedPointInfo.type === 'LineDrawing' || selectedPointInfo.type === 'PolygonDrawing' || selectedPointInfo.type === 'Line' || selectedPointInfo.type === 'Polygon') {
+                    overlayRef.current.setOffset([0, -200]);
                 } else {
-                    overlayRef.current.setOffset([-115, -180]);
+                    overlayRef.current.setOffset([0, -350]);
                 }
                 overlayRef.current.setPosition(fromLonLat([selectedPointInfo.lon, selectedPointInfo.lat]));
             } else {
                 overlayRef.current.setPosition(undefined);
             }
         }
-    }, [selectedPointInfo]);
+    }, [selectedPointInfo, isModifyingVertex]);
 
     // NOKTA BİLGİ PANELİ EYLEMLERİ
     const handleCopyCoords = () => {
@@ -501,7 +763,162 @@ function App() {
         });
     };
 
+    // KIRILMA NOKTALARINI FARE İLE HARİTADA DÜZENLEME (Modify Interaction + Undo/Redo + Cancel Modal)
+    const stopVertexEditing = () => {
+        if (modifyInteractionRef.current && mapRef.current) {
+            try {
+                mapRef.current.removeInteraction(modifyInteractionRef.current);
+            } catch (e) { }
+            modifyInteractionRef.current = null;
+        }
+        setIsModifyingVertex(false);
+        setIsPopupCollapsed(false);
+        geometryHistoryRef.current = [];
+        setHistoryIndex(-1);
+    };
+
+    const updateGeometryInfoFromGeom = (targetFeature, geom) => {
+        const wktFormat = new WKT();
+        const newWkt = wktFormat.writeGeometry(geom, {
+            dataProjection: 'EPSG:4326',
+            featureProjection: 'EPSG:3857'
+        });
+
+        setEditWkt(newWkt);
+
+        let updatedLengthText = selectedPointInfo.lengthText;
+        let updatedAreaText = selectedPointInfo.areaText;
+
+        if (selectedPointInfo.type.includes('Line')) {
+            const lengthMeters = getLength(geom);
+            updatedLengthText = lengthMeters >= 1000 ? (lengthMeters / 1000).toFixed(2) + ' km' : Math.round(lengthMeters) + ' m';
+        } else if (selectedPointInfo.type.includes('Polygon')) {
+            const areaMeters = getArea(geom);
+            updatedAreaText = areaMeters >= 1000000 ? (areaMeters / 1000000).toFixed(2) + ' km²' : Math.round(areaMeters).toLocaleString() + ' m²';
+        }
+
+        setSelectedPointInfo(prev => prev ? {
+            ...prev,
+            wkt: newWkt,
+            lengthText: updatedLengthText,
+            areaText: updatedAreaText
+        } : null);
+    };
+
+    const startVertexEditing = () => {
+        if (!selectedPointInfo || !selectedPointInfo.id || !drawingsSourceRef.current || !mapRef.current) return;
+
+        stopVertexEditing();
+
+        const features = drawingsSourceRef.current.getFeatures();
+        const targetFeature = features.find(f => f.get('id') === selectedPointInfo.id && (f.get('type') === selectedPointInfo.type || selectedPointInfo.type.includes(f.get('type'))));
+
+        if (!targetFeature) {
+            setInfoMessage('Harita üzerinde düzenlenecek çizim objesi bulunamadı.');
+            return;
+        }
+
+        originalWktRef.current = selectedPointInfo.wkt;
+        const initialGeomClone = targetFeature.getGeometry().clone();
+        geometryHistoryRef.current = [initialGeomClone];
+        setHistoryIndex(0);
+
+        const modify = new Modify({
+            features: new Collection([targetFeature])
+        });
+
+        modify.on('modifyend', () => {
+            try {
+                const geom = targetFeature.getGeometry();
+                const geomClone = geom.clone();
+
+                setHistoryIndex(prevIndex => {
+                    const newHistory = geometryHistoryRef.current.slice(0, prevIndex + 1);
+                    newHistory.push(geomClone);
+                    geometryHistoryRef.current = newHistory;
+                    return newHistory.length - 1;
+                });
+
+                updateGeometryInfoFromGeom(targetFeature, geom);
+                setInfoMessage('Kırılma noktaları haritada güncellendi. "Kaydet" butonuna basarak kaydedebilir veya "Geri Al" butonunu kullanabilirsiniz.');
+            } catch (err) {
+                console.error('Modify end hatası:', err);
+            }
+        });
+
+        mapRef.current.addInteraction(modify);
+        modifyInteractionRef.current = modify;
+        setIsModifyingVertex(true);
+        setIsPopupCollapsed(true);
+        setInfoMessage('Kırılma noktalarını fare ile harita üzerinde sürükleyebilirsiniz.');
+    };
+
+    // GERİ AL (UNDO)
+    const handleUndoGeometry = () => {
+        if (historyIndex <= 0 || !drawingsSourceRef.current) return;
+        const targetFeature = drawingsSourceRef.current.getFeatures().find(f => f.get('id') === selectedPointInfo.id);
+        if (!targetFeature) return;
+
+        const newIndex = historyIndex - 1;
+        const targetGeom = geometryHistoryRef.current[newIndex].clone();
+        targetFeature.setGeometry(targetGeom);
+        setHistoryIndex(newIndex);
+        updateGeometryInfoFromGeom(targetFeature, targetGeom);
+        setInfoMessage('Değişiklik geri alındı (Geri Al).');
+    };
+
+    // İLERİ AL (REDO)
+    const handleRedoGeometry = () => {
+        if (historyIndex < 0 || historyIndex >= geometryHistoryRef.current.length - 1 || !drawingsSourceRef.current) return;
+        const targetFeature = drawingsSourceRef.current.getFeatures().find(f => f.get('id') === selectedPointInfo.id);
+        if (!targetFeature) return;
+
+        const newIndex = historyIndex + 1;
+        const targetGeom = geometryHistoryRef.current[newIndex].clone();
+        targetFeature.setGeometry(targetGeom);
+        setHistoryIndex(newIndex);
+        updateGeometryInfoFromGeom(targetFeature, targetGeom);
+        setInfoMessage('Değişiklik ileri alındı (İleri Al).');
+    };
+
+    // VAZGEÇ / İPTAL TALEBİ VE ESKİ GEOMETRİYE DÖNÜŞ (ERROR PREVENTION MODAL)
+    const handleTriggerCancelVertexEditing = () => {
+        if (historyIndex <= 0) {
+            stopVertexEditing();
+            return;
+        }
+        setCancelEditConfirm(true);
+    };
+
+    const confirmCancelVertexEditing = () => {
+        setCancelEditConfirm(false);
+        if (selectedPointInfo && selectedPointInfo.id && drawingsSourceRef.current && originalWktRef.current) {
+            try {
+                const targetFeature = drawingsSourceRef.current.getFeatures().find(f => f.get('id') === selectedPointInfo.id);
+                if (targetFeature) {
+                    const wktFormat = new WKT();
+                    const origGeom = wktFormat.readGeometry(originalWktRef.current, {
+                        dataProjection: 'EPSG:4326',
+                        featureProjection: 'EPSG:3857'
+                    });
+                    targetFeature.setGeometry(origGeom.getGeometry());
+                    setEditWkt(originalWktRef.current);
+                    setSelectedPointInfo(prev => prev ? { ...prev, wkt: originalWktRef.current } : null);
+                }
+            } catch (e) {
+                console.error('Eski geometriye dönüş hatası:', e);
+            }
+        }
+        stopVertexEditing();
+        setInfoMessage('Kırılma noktası değişiklikleri iptal edildi ve eski haline dönüldü.');
+    };
+
     const handleClosePointInfo = () => {
+        if (isModifyingVertex && historyIndex > 0) {
+            setCancelEditConfirm(true);
+            return;
+        }
+        stopVertexEditing();
         setSelectedPointInfo(null);
     };
 
@@ -564,6 +981,25 @@ function App() {
         });
     }, [savedPlaces]);
 
+    // SEÇİLİ FİLTRELERE GÖRE ÇİZİMLERİ SÜZ
+    const filteredDrawings = useMemo(() => {
+        return savedDrawings.filter((item) => {
+            const matchesType = selectedTypeFilter === 'ALL' || item.type === selectedTypeFilter;
+            const creatorName = item.insertedUsername || (item.insertedUserId === 1 ? 'asdf.admin' : `Kullanıcı #${item.insertedUserId}`);
+            const matchesEditor = selectedEditorFilter === 'ALL' || creatorName === selectedEditorFilter || item.insertedUserId.toString() === selectedEditorFilter;
+            return matchesType && matchesEditor;
+        });
+    }, [savedDrawings, selectedTypeFilter, selectedEditorFilter]);
+
+    const editorOptions = useMemo(() => {
+        const names = new Set();
+        savedDrawings.forEach(d => {
+            const name = d.insertedUsername || (d.insertedUserId === 1 ? 'asdf.admin' : `Kullanıcı #${d.insertedUserId}`);
+            if (name) names.add(name);
+        });
+        return Array.from(names);
+    }, [savedDrawings]);
+
     // KAYITLI ÇİZİMLERİ (Point, Line, Polygon - WKT & Color) HARİTADA GÖSTER
     useEffect(() => {
         if (!drawingsSourceRef.current) return;
@@ -571,7 +1007,7 @@ function App() {
 
         const wktFormat = new WKT();
 
-        savedDrawings.forEach((item) => {
+        filteredDrawings.forEach((item) => {
             try {
                 if (!item.wkt) return;
 
@@ -580,11 +1016,13 @@ function App() {
                     featureProjection: 'EPSG:3857'
                 });
 
+                const itemColor = item.color || '#3b82f6';
+
                 feature.set('id', item.id);
                 feature.set('name', item.name);
                 feature.set('type', item.type);
-
-                const itemColor = item.color || '#3b82f6';
+                feature.set('color', itemColor);
+                feature.set('wkt', item.wkt);
 
                 if (item.type === 'Point') {
                     const pinColor = itemColor;
@@ -624,7 +1062,7 @@ function App() {
                 console.error(`WKT okuma hatası (${item.id}):`, err);
             }
         });
-    }, [savedDrawings]);
+    }, [filteredDrawings]);
 
     // ÇİZİME İPTAL ETME VE TEMİZLEME
     const handleCancelDraw = () => {
@@ -833,20 +1271,22 @@ function App() {
         }
     };
 
-    // MEKANA ODAKLANMA
-    const handleSelectSavedPlace = (place) => {
+    // MEKANA ODAKLANMA (showInfo = false varsayılan)
+    const handleSelectSavedPlace = (place, showInfo = false) => {
         setCoords({ lon: place.longitude, lat: place.latitude });
         setPlaceName(place.name);
         if (place.color) setPlaceColor(place.color);
 
-        setSelectedPointInfo({
-            name: place.name,
-            type: 'SavedPlace',
-            lon: place.longitude,
-            lat: place.latitude,
-            color: place.color || '#16a34a',
-            wkt: `POINT(${place.longitude} ${place.latitude})`
-        });
+        if (showInfo) {
+            setSelectedPointInfo({
+                name: place.name,
+                type: 'SavedPlace',
+                lon: place.longitude,
+                lat: place.latitude,
+                color: place.color || '#16a34a',
+                wkt: `POINT(${place.longitude} ${place.latitude})`
+            });
+        }
 
         if (mapRef.current) {
             mapRef.current.getView().animate({
@@ -857,8 +1297,8 @@ function App() {
         }
     };
 
-    // ÇİZİME ODAKLANMA
-    const handleSelectDrawing = (drawing) => {
+    // ÇİZİME ODAKLANMA (showInfo = false varsayılan)
+    const handleSelectDrawing = (drawing, showInfo = false) => {
         if (!mapRef.current || !drawing.wkt) return;
         try {
             const wktFormat = new WKT();
@@ -869,65 +1309,70 @@ function App() {
             const extent = feature.getGeometry().getExtent();
             mapRef.current.getView().fit(extent, { duration: 1000, maxZoom: 15, padding: [50, 50, 50, 50] });
 
-            const geom = feature.getGeometry();
+            if (showInfo) {
+                const geom = feature.getGeometry();
 
-            if (drawing.type === 'Point') {
-                const coordsDeg = toLonLat(geom.getCoordinates());
-                const pLon = parseFloat(coordsDeg[0].toFixed(6));
-                const pLat = parseFloat(coordsDeg[1].toFixed(6));
+                if (drawing.type === 'Point') {
+                    const coordsDeg = toLonLat(geom.getCoordinates());
+                    const pLon = parseFloat(coordsDeg[0].toFixed(6));
+                    const pLat = parseFloat(coordsDeg[1].toFixed(6));
 
-                setCoords({ lon: pLon, lat: pLat });
-                if (drawing.color) setPlaceColor(drawing.color);
+                    setCoords({ lon: pLon, lat: pLat });
+                    if (drawing.color) setPlaceColor(drawing.color);
 
-                setSelectedPointInfo({
-                    name: drawing.name,
-                    type: 'PointDrawing',
-                    lon: pLon,
-                    lat: pLat,
-                    color: drawing.color || '#ef4444',
-                    wkt: drawing.wkt
-                });
-            } else if (drawing.type === 'Line') {
-                const centerCoord = getCenter(extent);
-                const coordsDeg = toLonLat(centerCoord);
-                const cLon = parseFloat(coordsDeg[0].toFixed(6));
-                const cLat = parseFloat(coordsDeg[1].toFixed(6));
-                const lengthMeters = getLength(geom);
-                const lengthText = lengthMeters >= 1000 ? (lengthMeters / 1000).toFixed(2) + ' km' : Math.round(lengthMeters) + ' m';
+                    setSelectedPointInfo({
+                        id: drawing.id,
+                        name: drawing.name,
+                        type: 'PointDrawing',
+                        lon: pLon,
+                        lat: pLat,
+                        color: drawing.color || '#ef4444',
+                        wkt: drawing.wkt
+                    });
+                } else if (drawing.type === 'Line') {
+                    const centerCoord = getCenter(extent);
+                    const coordsDeg = toLonLat(centerCoord);
+                    const cLon = parseFloat(coordsDeg[0].toFixed(6));
+                    const cLat = parseFloat(coordsDeg[1].toFixed(6));
+                    const lengthMeters = getLength(geom);
+                    const lengthText = lengthMeters >= 1000 ? (lengthMeters / 1000).toFixed(2) + ' km' : Math.round(lengthMeters) + ' m';
 
-                setSelectedPointInfo({
-                    name: drawing.name,
-                    type: 'LineDrawing',
-                    lon: cLon,
-                    lat: cLat,
-                    lengthText: lengthText,
-                    color: drawing.color || '#3b82f6',
-                    wkt: drawing.wkt
-                });
-            } else if (drawing.type === 'Polygon') {
-                let centerCoord;
-                if (geom.getInteriorPoint) {
-                    centerCoord = geom.getInteriorPoint().getCoordinates();
-                } else {
-                    centerCoord = getCenter(extent);
+                    setSelectedPointInfo({
+                        id: drawing.id,
+                        name: drawing.name,
+                        type: 'LineDrawing',
+                        lon: cLon,
+                        lat: cLat,
+                        lengthText: lengthText,
+                        color: drawing.color || '#3b82f6',
+                        wkt: drawing.wkt
+                    });
+                } else if (drawing.type === 'Polygon') {
+                    let centerCoord;
+                    if (geom.getInteriorPoint) {
+                        centerCoord = geom.getInteriorPoint().getCoordinates();
+                    } else {
+                        centerCoord = getCenter(extent);
+                    }
+                    const coordsDeg = toLonLat(centerCoord);
+                    const cLon = parseFloat(coordsDeg[0].toFixed(6));
+                    const cLat = parseFloat(coordsDeg[1].toFixed(6));
+                    const areaMeters = getArea(geom);
+                    const areaText = areaMeters >= 1000000 ? (areaMeters / 1000000).toFixed(2) + ' km²' : Math.round(areaMeters).toLocaleString() + ' m²';
+
+                    setSelectedPointInfo({
+                        id: drawing.id,
+                        name: drawing.name,
+                        type: 'PolygonDrawing',
+                        lon: cLon,
+                        lat: cLat,
+                        areaText: areaText,
+                        color: drawing.color || '#10b981',
+                        wkt: drawing.wkt
+                    });
+
+                    runSavedPolygonAnalysis(drawing);
                 }
-                const coordsDeg = toLonLat(centerCoord);
-                const cLon = parseFloat(coordsDeg[0].toFixed(6));
-                const cLat = parseFloat(coordsDeg[1].toFixed(6));
-                const areaMeters = getArea(geom);
-                const areaText = areaMeters >= 1000000 ? (areaMeters / 1000000).toFixed(2) + ' km²' : Math.round(areaMeters).toLocaleString() + ' m²';
-
-                setSelectedPointInfo({
-                    name: drawing.name,
-                    type: 'PolygonDrawing',
-                    lon: cLon,
-                    lat: cLat,
-                    areaText: areaText,
-                    color: drawing.color || '#10b981',
-                    wkt: drawing.wkt
-                });
-
-                runSavedPolygonAnalysis(drawing);
             }
         } catch (err) {
             console.error('Odaklanma hatası:', err);
@@ -939,7 +1384,6 @@ function App() {
     const runSavedPolygonAnalysis = async (drawing) => {
         try {
             setIsAnalyzing(true);
-            setInfoMessage(`"${drawing.name}" analizi hesaplanıyor...`);
             const response = await fetch('http://localhost:5041/api/analysis/inventory', {
                 method: 'POST',
                 headers: {
@@ -952,13 +1396,9 @@ function App() {
             const data = await response.json();
             if (response.ok && data) {
                 setAnalysisResult(data);
-                setInfoMessage(`"${drawing.name}" analizi: Toplam ${data.totalIntersectedCount ?? 0} envanter kesişiyor.`);
-            } else {
-                setInfoMessage('Analiz hatası: ' + (data?.message || 'Bilinmeyen sunucu hatası'));
             }
         } catch (err) {
             console.error('Kayıtlı poligon analizi hatası:', err);
-            setInfoMessage('Poligon analizi sırasında bir hata oluştu.');
         } finally {
             setIsAnalyzing(false);
         }
@@ -984,37 +1424,93 @@ function App() {
         });
     };
 
-    // SİLME İŞLEMİNİ ONAYLAMA
+    // HARİTADAKİ OBJE DETAY POPUP ÜZERİNDEN GÜNCELLEME İÇİN ONAY MODALI (ERROR PREVENTION)
+    const [updateConfirmTarget, setUpdateConfirmTarget] = useState(null);
+
+    const handleUpdateDrawingFromPopup = () => {
+        if (!selectedPointInfo || !selectedPointInfo.id) {
+            setInfoMessage('Güncellenecek çizim id bilgisi bulunamadı.');
+            return;
+        }
+
+        setUpdateConfirmTarget({
+            id: selectedPointInfo.id,
+            name: editName.trim() || selectedPointInfo.name,
+            type: selectedPointInfo.type
+        });
+    };
+
+    const executeDrawingUpdateConfirmed = async () => {
+        if (!selectedPointInfo || !selectedPointInfo.id) return;
+        setUpdateConfirmTarget(null);
+
+        let drawingType = selectedPointInfo.type;
+        if (drawingType === 'PointDrawing') drawingType = 'Point';
+        if (drawingType === 'LineDrawing') drawingType = 'Line';
+        if (drawingType === 'PolygonDrawing') drawingType = 'Polygon';
+
+        try {
+            const response = await fetch(`http://localhost:5041/api/drawings/${drawingType.toLowerCase()}/${selectedPointInfo.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    name: editName.trim() || selectedPointInfo.name,
+                    color: editColor,
+                    wkt: editWkt.trim() || selectedPointInfo.wkt
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                stopVertexEditing();
+                setInfoMessage(`"${editName.trim() || selectedPointInfo.name}" çizimi (İsim/Renk/Geometri) başarıyla güncellendi!`);
+                fetchDrawings();
+                setSelectedPointInfo(prev => prev ? { ...prev, name: editName, color: editColor, wkt: editWkt } : null);
+            } else {
+                setInfoMessage('Güncelleme başarısız: ' + (data.message || 'Hata oluştu'));
+            }
+        } catch (err) {
+            setInfoMessage('Güncelleme işleminde hata oluştu: ' + err.message);
+        }
+    };
+
+    const triggerDeleteDrawingFromPopup = () => {
+        if (!selectedPointInfo || !selectedPointInfo.id) return;
+        let drawingType = selectedPointInfo.type;
+        if (drawingType === 'PointDrawing') drawingType = 'Point';
+        if (drawingType === 'LineDrawing') drawingType = 'Line';
+        if (drawingType === 'PolygonDrawing') drawingType = 'Polygon';
+
+        setDeleteTarget({
+            kind: 'drawing',
+            drawingType: drawingType,
+            id: selectedPointInfo.id,
+            name: editName || selectedPointInfo.name
+        });
+    };
+
+    // SİLME İŞLEMİNİ ONAYLAMA (SOFT DELETE)
     const confirmDelete = async () => {
         if (!deleteTarget) return;
         const { kind, id, drawingType, name } = deleteTarget;
         setDeleteTarget(null);
 
         try {
-            if (kind === 'place') {
-                const response = await fetch(`http://localhost:5041/api/places/${id}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+            const endpointType = kind === 'place' ? 'point' : drawingType.toLowerCase();
+            const response = await fetch(`http://localhost:5041/api/drawings/${endpointType}/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
 
-                if (response.ok) {
-                    setInfoMessage(`"${name}" konumu başarıyla silindi.`);
-                    fetchPlaces();
-                } else {
-                    setInfoMessage('Silme işleminde hata oluştu.');
-                }
-            } else if (kind === 'drawing') {
-                const response = await fetch(`http://localhost:5041/api/drawings/${drawingType.toLowerCase()}/${id}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (response.ok) {
-                    setInfoMessage(`"${name}" çizimi başarıyla silindi.`);
-                    fetchDrawings();
-                } else {
-                    setInfoMessage('Silme işleminde hata oluştu.');
-                }
+            if (response.ok) {
+                setInfoMessage(`"${name}" kaydı başarıyla silindi.`);
+                handleClosePointInfo();
+                fetchDrawings();
+            } else {
+                setInfoMessage('Silme işleminde hata oluştu.');
             }
         } catch (err) {
             setInfoMessage('Silme işleminde hata oluştu: ' + err.message);
@@ -1200,6 +1696,31 @@ function App() {
                             </button>
                         </form>
 
+                        {!isRegisterMode && (
+                            <div style={{ textAlign: 'center', marginTop: '14px' }}>
+                                <button
+                                    type="button"
+                                    onClick={handleGuestLogin}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#38bdf8',
+                                        fontSize: '13.5px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        textDecoration: 'none',
+                                        opacity: 0.9,
+                                        transition: 'all 0.2s ease',
+                                        padding: '4px 8px'
+                                    }}
+                                    onMouseEnter={(e) => { e.target.style.opacity = '1'; e.target.style.textDecoration = 'underline'; }}
+                                    onMouseLeave={(e) => { e.target.style.opacity = '0.9'; e.target.style.textDecoration = 'none'; }}
+                                >
+                                    Misafir Girişi (Viewer Modu)
+                                </button>
+                            </div>
+                        )}
+
                         <div className="auth-toggle-wrapper" style={{ textAlign: 'center' }}>
                             <button
                                 type="button"
@@ -1295,6 +1816,18 @@ function App() {
         <div className={`map-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
             <Toast ref={toastRef} />
 
+            {/* ADMIN PANELİ TAM EKRAN KAPLAMA (OVERLAY) */}
+            {currentView === 'admin' && isAdmin && userRole === 'Admin' && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc', overflow: 'auto' }}>
+                    <AdminDashboard token={token} onBackToMap={() => {
+                        setCurrentView('map');
+                        setTimeout(() => {
+                            mapRef.current?.updateSize();
+                        }, 50);
+                    }} />
+                </div>
+            )}
+
             {/* Sol Panel */}
             <div className={`map-sidebar ${isSidebarOpen ? '' : 'collapsed'}`}>
                 {/* Sekmenin Dış Tarafına Monte Edilmiş Küçültme/Açma Tuşu */}
@@ -1362,128 +1895,168 @@ function App() {
                     <div className="sidebar-divider"></div>
 
                     {/* Mekan Ekleme Formu */}
-                    <div className="add-place-section">
-                        <h3 className="section-title">{t.addPlaceTitle}</h3>
-                        <p className="section-subtitle">
-                            {t.addPlaceSubtitle}
-                        </p>
-
-                        <form onSubmit={handleSavePlace}>
-                            <div className="input-group">
-                                <label className="input-label">{t.placeNameLabel}</label>
-                                <input
-                                    type="text"
-                                    value={placeName}
-                                    onChange={(e) => setPlaceName(e.target.value)}
-                                    placeholder={t.placeNamePlaceholder}
-                                    required
-                                />
+                    {userRole === 'Viewer' ? (
+                        <div className="add-place-section">
+                            <h3 className="section-title">İzleyici Modu</h3>
+                            <div style={{ padding: '12px', backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#f1f5f9', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', color: isDarkMode ? '#cbd5e1' : '#475569', fontSize: '12.5px', lineHeight: '1.5' }}>
+                                <strong style={{ color: '#3b82f6', display: 'block', marginBottom: '4px' }}>Salt-Okunur Erişim</strong>
+                                İzleyici rolündeyiz. Çizim yapma yetkisi bulunmamaktadır. Editörler tarafından çizilen nesneleri haritada inceleyebilirsiniz.
                             </div>
+                        </div>
+                    ) : (
+                        <div className="add-place-section">
+                            <h3 className="section-title">{t.addPlaceTitle}</h3>
+                            <p className="section-subtitle">
+                                {t.addPlaceSubtitle}
+                            </p>
 
-                            <div className="input-group">
-                                <label className="input-label">{t.longitudeLabel}</label>
-                                <input
-                                    type="number"
-                                    step="any"
-                                    value={coords.lon}
-                                    onChange={(e) => setCoords(prev => ({ ...prev, lon: e.target.value }))}
-                                    placeholder={t.longitudePlaceholder}
-                                    required
-                                />
-                            </div>
-
-                            <div className="input-group">
-                                <label className="input-label">{t.latitudeLabel}</label>
-                                <input
-                                    type="number"
-                                    step="any"
-                                    value={coords.lat}
-                                    onChange={(e) => setCoords(prev => ({ ...prev, lat: e.target.value }))}
-                                    placeholder={t.latitudePlaceholder}
-                                    required
-                                />
-                            </div>
-
-                            <div className="input-group">
-                                <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    Nokta Renk Paleti
-                                </label>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : '#f1f5f9', padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                                    <button
-                                        type="button"
-                                        className="palette-icon-btn"
-                                        onClick={() => {
-                                            if (placeColorInputRef.current?.showPicker) {
-                                                placeColorInputRef.current.showPicker();
-                                            } else {
-                                                placeColorInputRef.current?.click();
-                                            }
-                                        }}
-                                        title="Renk Paletini Aç (Color Picker)"
-                                        style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: '38px',
-                                            height: '34px',
-                                            backgroundColor: '#2563eb',
-                                            border: '1.5px solid #ffffff',
-                                            borderRadius: '7px',
-                                            cursor: 'pointer',
-                                            color: '#ffffff',
-                                            boxShadow: 'none',
-                                            transition: 'transform 0.15s ease'
-                                        }}
-                                    >
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M12 2C6.5 2 2 6.5 2 12c0 3.5 2.5 6.5 6 6.5 1 0 1.5-.5 1.5-1 0-.5-.2-1-.5-1.5-.3-.5-.5-1-.5-1.5 0-1.1.9-2 2-2h1.5c3.6 0 6.5-2.9 6.5-6.5C18.5 5.5 15.6 2 12 2z" />
-                                            <circle cx="13.5" cy="6.5" r="1.1" fill="#fbbf24" />
-                                            <circle cx="17.5" cy="10.5" r="1.1" fill="#34d399" />
-                                            <circle cx="8.5" cy="7.5" r="1.1" fill="#f43f5e" />
-                                            <circle cx="6.5" cy="12.5" r="1.1" fill="#60a5fa" />
-                                        </svg>
-                                    </button>
-
+                            <form onSubmit={handleSavePlace} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div className="input-group" style={{ marginBottom: 0 }}>
+                                    <label className="input-label">{t.placeNameLabel}</label>
                                     <input
-                                        ref={placeColorInputRef}
-                                        type="color"
-                                        value={placeColor}
-                                        onChange={(e) => setPlaceColor(e.target.value)}
-                                        style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+                                        type="text"
+                                        value={placeName}
+                                        onChange={(e) => setPlaceName(e.target.value)}
+                                        placeholder={t.placeNamePlaceholder}
+                                        required
                                     />
+                                </div>
 
-                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                        {PRESET_COLORS.map(c => (
-                                            <button
-                                                type="button"
-                                                key={c.hex}
-                                                onClick={() => setPlaceColor(c.hex)}
-                                                style={{
-                                                    width: '20px',
-                                                    height: '20px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: c.hex,
-                                                    border: placeColor === c.hex ? '2px solid #ffffff' : '1px solid rgba(255,255,255,0.2)',
-                                                    boxShadow: placeColor === c.hex ? `0 0 6px ${c.hex}` : 'none',
-                                                    cursor: 'pointer'
-                                                }}
-                                                title={`${c.label} (${c.hex})`}
-                                            />
-                                        ))}
+                                <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                                    <div className="input-group" style={{ flex: 1, marginBottom: 0 }}>
+                                        <label className="input-label">{t.longitudeLabel}</label>
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            value={coords.lon}
+                                            onChange={(e) => setCoords(prev => ({ ...prev, lon: e.target.value }))}
+                                            placeholder={t.longitudePlaceholder}
+                                            required
+                                        />
+                                    </div>
+
+                                    <div className="input-group" style={{ flex: 1, marginBottom: 0 }}>
+                                        <label className="input-label">{t.latitudeLabel}</label>
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            value={coords.lat}
+                                            onChange={(e) => setCoords(prev => ({ ...prev, lat: e.target.value }))}
+                                            placeholder={t.latitudePlaceholder}
+                                            required
+                                        />
                                     </div>
                                 </div>
-                            </div>
 
-                            <button type="submit" className="map-btn btn-save">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px' }}>
-                                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                                    <polyline points="17 21 17 13 7 13 7 21" />
-                                    <polyline points="7 3 7 8 15 8" />
-                                </svg>
-                                {t.saveLocationBtn}
-                            </button>
-                        </form>
-                    </div>
+                                <div className="input-group" style={{ marginBottom: 0 }}>
+                                    <label className="input-label">
+                                        {t.colorPaletteLabel}
+                                    </label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : '#ffffff', padding: '5px 7px', borderRadius: '8px', border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1', boxShadow: isDarkMode ? 'none' : '0 2px 6px rgba(0,0,0,0.04)', width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
+                                        <button
+                                            type="button"
+                                            className="palette-icon-btn"
+                                            onClick={() => {
+                                                if (placeColorInputRef.current?.showPicker) {
+                                                    placeColorInputRef.current.showPicker();
+                                                } else {
+                                                    placeColorInputRef.current?.click();
+                                                }
+                                            }}
+                                            title="Renk Paletini Aç (Color Picker)"
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '28px',
+                                                height: '26px',
+                                                backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc',
+                                                border: '1.5px solid #3b82f6',
+                                                borderRadius: '5px',
+                                                cursor: 'pointer',
+                                                color: '#3b82f6',
+                                                boxShadow: 'none',
+                                                transition: 'transform 0.15s ease',
+                                                flexShrink: 0
+                                            }}
+                                        >
+                                            <DetailedPaletteIcon size={16} />
+                                        </button>
+
+                                        <input
+                                            ref={placeColorInputRef}
+                                            type="color"
+                                            value={placeColor}
+                                            onChange={(e) => setPlaceColor(e.target.value)}
+                                            style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+                                        />
+
+                                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
+                                            {PRESET_COLORS.map(c => (
+                                                <button
+                                                    type="button"
+                                                    key={c.hex}
+                                                    onClick={() => setPlaceColor(c.hex)}
+                                                    style={{
+                                                        width: '15px',
+                                                        height: '15px',
+                                                        borderRadius: '50%',
+                                                        backgroundColor: c.hex,
+                                                        border: placeColor === c.hex ? (isDarkMode ? '2px solid #ffffff' : '2px solid #0f172a') : (isDarkMode ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(0,0,0,0.25)'),
+                                                        boxShadow: placeColor === c.hex ? `0 0 5px ${c.hex}` : 'none',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                    title={`${c.label} (${c.hex})`}
+                                                />
+                                            ))}
+                                        </div>
+
+                                        {/* SAĞ TARAFTA KÜÇÜK RENK GÖSTERGE PENCERESİ (TAŞMAZ UYUMLU) */}
+                                        <div
+                                            title={`Seçili Nokta Rengi: ${placeColor}`}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                padding: '2px 5px',
+                                                backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+                                                border: `1.5px solid ${placeColor}`,
+                                                borderRadius: '5px',
+                                                marginLeft: 'auto',
+                                                boxShadow: `0 0 6px ${hexToRgba(placeColor, 0.3)}`,
+                                                flexShrink: 0
+                                            }}
+                                        >
+                                            <span
+                                                style={{
+                                                    width: '10px',
+                                                    height: '10px',
+                                                    borderRadius: '50%',
+                                                    backgroundColor: placeColor,
+                                                    boxShadow: `0 0 3px ${placeColor}`,
+                                                    display: 'inline-block',
+                                                    flexShrink: 0
+                                                }}
+                                            />
+                                            <span style={{ fontSize: '10px', fontWeight: 700, color: isDarkMode ? '#f8fafc' : '#0f172a', fontFamily: 'monospace' }}>
+                                                {placeColor.toUpperCase()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button type="submit" className="map-btn btn-save" style={{ height: '36px', padding: '0 12px', fontSize: '13px', borderRadius: '7px' }}>
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                                        <polyline points="17 21 17 13 7 13 7 21" />
+                                        <polyline points="7 3 7 8 15 8" />
+                                    </svg>
+                                    {t.saveLocationBtn}
+                                </button>
+                            </form>
+                        </div>
+                    )}
 
                     <div className="sidebar-divider"></div>
 
@@ -1491,33 +2064,33 @@ function App() {
                     <div className="saved-places-section">
                         <div className="section-header">
                             <h3 className="section-title">{t.savedPlacesTitle}</h3>
-                            <span className="places-count-badge">{savedDrawings.length} {t.recordsBadge}</span>
+                            <span className="places-count-badge">{filteredDrawings.length} {t.recordsBadge}</span>
                         </div>
 
-                        {savedDrawings.length === 0 ? (
+                        {filteredDrawings.length === 0 ? (
                             <p className="no-places-msg">{t.noRecordsMsg}</p>
                         ) : (
                             <div className="saved-places-list">
 
                                 {/* Kayıtlı Çizimler */}
-                                {savedDrawings.map((drawing) => (
+                                {filteredDrawings.map((drawing) => (
                                     <div
                                         key={`drawing-${drawing.type}-${drawing.id}`}
                                         className="saved-place-item"
-                                        onClick={() => handleSelectDrawing(drawing)}
+                                        onClick={() => handleSelectDrawing(drawing, false)}
                                     >
                                         <div className="place-item-icon">
                                             {drawing.type === 'Point' ? (
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#ef4444"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                    <circle cx="12" cy="12" r="8" fill={drawing.color || "#ef4444"} />
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                    <circle cx="12" cy="12" r="7.5" fill={drawing.color || "#3b82f6"} stroke={drawing.color === '#ffffff' || drawing.color?.toLowerCase() === '#fff' ? '#94a3b8' : '#ffffff'} strokeWidth="1.5" />
                                                 </svg>
                                             ) : drawing.type === 'Line' ? (
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#3b82f6"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#3b82f6"} strokeWidth="3.5" strokeLinecap="round">
                                                     <path d="M4 20L20 4" />
                                                 </svg>
                                             ) : (
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#10b981"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                    <polygon points="12 2 22 8.5 18 19 6 19 2 8.5" fill={hexToRgba(drawing.color || '#10b981', 0.4)} />
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#10b981"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <polygon points="12 2 22 8.5 18 19 6 19 2 8.5" fill={hexToRgba(drawing.color || '#10b981', 0.6)} />
                                                 </svg>
                                             )}
                                         </div>
@@ -1533,7 +2106,7 @@ function App() {
                                             className="btn-info-drawing"
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                handleSelectDrawing(drawing);
+                                                handleSelectDrawing(drawing, true);
                                             }}
                                             title={t.btnInfoTooltip || "Bilgisini Göster"}
                                         >
@@ -1544,16 +2117,18 @@ function App() {
                                             </svg>
                                         </button>
 
-                                        <button
-                                            className="btn-delete-drawing"
-                                            onClick={(e) => triggerDeleteDrawing(drawing, e)}
-                                            title="Çizimi Sil"
-                                        >
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                <polyline points="3 6 5 6 21 6"></polyline>
-                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                            </svg>
-                                        </button>
+                                        {userRole !== 'Viewer' && (
+                                            <button
+                                                className="btn-delete-drawing"
+                                                onClick={(e) => triggerDeleteDrawing(drawing, e)}
+                                                title="Çizimi Sil"
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                </svg>
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -1562,16 +2137,79 @@ function App() {
                 </div>
 
                 <div className="map-sidebar-bottom">
-                    <button onClick={() => handleLogout()} className="map-btn btn-logout">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px' }}>
+                    {/* Küçültülmüş Çıkış Yap Butonu */}
+                    <button onClick={() => handleLogout()} className="btn-logout-compact" title={t.logout}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                             <polyline points="16 17 21 12 16 7" />
                             <line x1="21" y1="12" x2="9" y2="12" />
                         </svg>
-                        {t.logout}
+                        <span>{t.logout}</span>
                     </button>
 
-                    {/* Dil Seçim Butonu (Çıkış Yap Yanında) */}
+                    {/* Admin Paneli Butonu (Çıkış Yap ile Dil Seçeneği Arasında) */}
+                    {isAdmin && (
+                        <button
+                            className="btn-admin-sidebar-compact"
+                            onClick={() => setCurrentView('admin')}
+                            title="Admin Paneli"
+                        >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                            </svg>
+                            <span>Admin</span>
+                        </button>
+                    )}
+
+                    {/* Editör İşbirliği Butonu (Admin Butonunun Yerinde - Editörler İçin) */}
+                    {!isAdmin && userRole === 'Editor' && (
+                        <button
+                            className="btn-admin-sidebar-compact btn-collab-header"
+                            onClick={() => {
+                                fetchCollaborations();
+                                setShowCollaborationModal(true);
+                            }}
+                            title="Editör İşbirliği & İstekler"
+                            style={{
+                                position: 'relative',
+                                backgroundColor: '#2563eb',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 700
+                            }}
+                        >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                <circle cx="9" cy="7" r="4" />
+                                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                            </svg>
+                            <span>{t.collaborationShortBtn}</span>
+                            {pendingIncoming.length > 0 && (
+                                <span style={{
+                                    position: 'absolute',
+                                    top: '-4px',
+                                    right: '-4px',
+                                    backgroundColor: '#ef4444',
+                                    color: '#ffffff',
+                                    fontSize: '10px',
+                                    fontWeight: 800,
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    border: '2px solid #ffffff',
+                                    boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
+                                }}>
+                                    {pendingIncoming.length}
+                                </span>
+                            )}
+                        </button>
+                    )}
+
+                    {/* Dil Seçim Butonu */}
                     <button
                         className="theme-toggle-btn lang-toggle-btn"
                         onClick={toggleLang}
@@ -1580,8 +2218,8 @@ function App() {
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            width: '40px',
-                            height: '40px',
+                            width: '38px',
+                            height: '38px',
                             padding: 0,
                             borderRadius: '8px',
                             cursor: 'pointer',
@@ -1595,8 +2233,149 @@ function App() {
                 </div>
             </div>
 
+            {/* HARİTA KATMAN FİLTRELEME ARAÇ ÇUBUĞU (ZOOM BUTONLARININ SOLUNDA BİREBİR UYUMLU) */}
+            <div className="map-filter-toolbar-floating">
+                <button
+                    className={`map-filter-btn ${showFilterPanel ? 'active' : ''}`}
+                    onClick={() => setShowFilterPanel(!showFilterPanel)}
+                    title="Harita Katman Filtresi"
+                >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                    </svg>
+                    {(selectedTypeFilter !== 'ALL' || selectedEditorFilter !== 'ALL') && (
+                        <span style={{ position: 'absolute', top: '5px', right: '5px', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b', border: '1.5px solid #ffffff' }} />
+                    )}
+                </button>
+            </div>
+
+            {/* HARİTA FİLTRELEME YÜZER PANELİ */}
+            {showFilterPanel && (
+                <div
+                    className="map-filter-panel-floating"
+                    style={{
+                        position: 'absolute',
+                        top: '80px',
+                        right: '80px',
+                        width: '280px',
+                        backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+                        border: isDarkMode ? '1px solid #334155' : '1px solid #cbd5e1',
+                        borderRadius: '12px',
+                        padding: '16px',
+                        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.45)',
+                        zIndex: 1005,
+                        color: isDarkMode ? '#f8fafc' : '#0f172a',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                    }}
+                >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+                        <h4 style={{ margin: 0, fontSize: '13.5px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                            </svg>
+                            Harita Filtreleme
+                        </h4>
+                        <button
+                            type="button"
+                            onClick={() => setShowFilterPanel(false)}
+                            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}
+                        >
+                            ✕
+                        </button>
+                    </div>
+
+                    {/* 1. ŞEKİL TÜRÜ FİLTRESİ */}
+                    <div>
+                        <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
+                            Şekil Türüne Göre
+                        </label>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+                            {[
+                                { id: 'ALL', label: 'Tümü' },
+                                { id: 'Point', label: 'Nokta' },
+                                { id: 'Line', label: 'Çizgi' },
+                                { id: 'Polygon', label: 'Poligon' }
+                            ].map(item => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => setSelectedTypeFilter(item.id)}
+                                    style={{
+                                        padding: '5px 0',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        borderRadius: '6px',
+                                        border: selectedTypeFilter === item.id ? '1.5px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
+                                        backgroundColor: selectedTypeFilter === item.id ? '#2563eb' : (isDarkMode ? '#1e293b' : '#f1f5f9'),
+                                        color: selectedTypeFilter === item.id ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#475569'),
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* 2. EDİTÖR / KULLANICI FİLTRESİ */}
+                    <div>
+                        <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
+                            Editöre / Kullanıcıya Göre
+                        </label>
+                        <select
+                            value={selectedEditorFilter}
+                            onChange={(e) => setSelectedEditorFilter(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '7px 10px',
+                                fontSize: '12px',
+                                borderRadius: '6px',
+                                backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                border: isDarkMode ? '1px solid #334155' : '1px solid #cbd5e1',
+                                color: isDarkMode ? '#f8fafc' : '#0f172a',
+                                outline: 'none'
+                            }}
+                        >
+                            <option value="ALL">Tüm Editörler / Kullanıcılar</option>
+                            {Array.from(new Set(savedDrawings.map(d => d.insertedUsername || (d.insertedUserId === 1 ? 'asdf.admin' : `Kullanıcı #${d.insertedUserId}`))))
+                                .filter(Boolean)
+                                .map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))
+                            }
+                        </select>
+                    </div>
+
+                    {/* TEMİZLEME BUTONU */}
+                    {(selectedTypeFilter !== 'ALL' || selectedEditorFilter !== 'ALL') && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSelectedTypeFilter('ALL');
+                                setSelectedEditorFilter('ALL');
+                            }}
+                            style={{
+                                padding: '6px',
+                                fontSize: '11px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid #ef4444',
+                                color: '#f87171',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                marginTop: '4px'
+                            }}
+                        >
+                            Filtreleri Temizle
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* HARİTA ÜZERİNDEKİ ÇİZİM & ANALİZ ARAÇ ÇUBUĞU (SAĞ ÜST) */}
-            <div className="map-draw-toolbar-floating">
+            {userRole !== 'Viewer' && (
+                <div className="map-draw-toolbar-floating">
                 <div className="map-draw-toolbar-header-compact" title={t.drawToolsTitle} data-tooltip={t.drawToolsTitle}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M12 20h9" />
@@ -1653,6 +2432,7 @@ function App() {
                     </svg>
                 </button>
             </div>
+            )}
 
             {/* SADE VE NET YÜZER ÇİZİM BARI */}
             {drawType !== 'None' && drawType !== 'Analysis' && (
@@ -1689,7 +2469,7 @@ function App() {
                                 placeholder={t.drawingNamePlaceholder}
                             />
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(15, 23, 42, 0.5)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: 'rgba(15, 23, 42, 0.6)', padding: '4px 6px', borderRadius: '7px', border: '1px solid rgba(255,255,255,0.15)', flexWrap: 'nowrap' }}>
                                 <button
                                     type="button"
                                     className="palette-icon-btn"
@@ -1705,24 +2485,19 @@ function App() {
                                         display: 'inline-flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        width: '38px',
-                                        height: '34px',
-                                        backgroundColor: '#2563eb',
-                                        border: '1.5px solid #ffffff',
-                                        borderRadius: '7px',
+                                        width: '28px',
+                                        height: '26px',
+                                        backgroundColor: '#1e293b',
+                                        border: '1.5px solid #3b82f6',
+                                        borderRadius: '5px',
                                         cursor: 'pointer',
-                                        color: '#ffffff',
-                                        boxShadow: '0 2px 8px rgba(37, 99, 235, 0.4)',
-                                        transition: 'transform 0.15s ease'
+                                        color: '#3b82f6',
+                                        boxShadow: 'none',
+                                        transition: 'transform 0.15s ease',
+                                        flexShrink: 0
                                     }}
                                 >
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M12 2C6.5 2 2 6.5 2 12c0 3.5 2.5 6.5 6 6.5 1 0 1.5-.5 1.5-1 0-.5-.2-1-.5-1.5-.3-.5-.5-1-.5-1.5 0-1.1.9-2 2-2h1.5c3.6 0 6.5-2.9 6.5-6.5C18.5 5.5 15.6 2 12 2z" />
-                                        <circle cx="13.5" cy="6.5" r="1.1" fill="#fbbf24" />
-                                        <circle cx="17.5" cy="10.5" r="1.1" fill="#34d399" />
-                                        <circle cx="8.5" cy="7.5" r="1.1" fill="#f43f5e" />
-                                        <circle cx="6.5" cy="12.5" r="1.1" fill="#60a5fa" />
-                                    </svg>
+                                    <DetailedPaletteIcon size={16} />
                                 </button>
 
                                 <input
@@ -1732,24 +2507,56 @@ function App() {
                                     onChange={(e) => setDrawingColor(e.target.value)}
                                     style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
                                 />
-                                <div style={{ display: 'flex', gap: '5px' }}>
+                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
                                     {PRESET_COLORS.map(c => (
                                         <button
                                             type="button"
                                             key={c.hex}
                                             onClick={() => setDrawingColor(c.hex)}
                                             style={{
-                                                width: '18px',
-                                                height: '18px',
+                                                width: '15px',
+                                                height: '15px',
                                                 borderRadius: '50%',
                                                 backgroundColor: c.hex,
                                                 border: drawingColor === c.hex ? '2px solid #ffffff' : '1px solid rgba(255,255,255,0.2)',
-                                                boxShadow: drawingColor === c.hex ? `0 0 6px ${c.hex}` : 'none',
+                                                boxShadow: drawingColor === c.hex ? `0 0 5px ${c.hex}` : 'none',
                                                 cursor: 'pointer'
                                             }}
                                             title={`${c.label} (${c.hex})`}
                                         />
                                     ))}
+                                </div>
+
+                                {/* SAĞ TARAFTA KÜÇÜK RENK GÖSTERGE PENCERESİ */}
+                                <div
+                                    title={`Seçili Çizim Rengi: ${drawingColor}`}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        padding: '2px 5px',
+                                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                                        border: `1.5px solid ${drawingColor}`,
+                                        borderRadius: '5px',
+                                        marginLeft: 'auto',
+                                        boxShadow: `0 0 6px ${hexToRgba(drawingColor, 0.3)}`,
+                                        flexShrink: 0
+                                    }}
+                                >
+                                    <span
+                                        style={{
+                                            width: '10px',
+                                            height: '10px',
+                                            borderRadius: '50%',
+                                            backgroundColor: drawingColor,
+                                            boxShadow: `0 0 3px ${drawingColor}`,
+                                            display: 'inline-block',
+                                            flexShrink: 0
+                                        }}
+                                    />
+                                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#f8fafc', fontFamily: 'monospace' }}>
+                                        {drawingColor.toUpperCase()}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -1781,7 +2588,7 @@ function App() {
                     onClick={(e) => e.stopPropagation()}
                     style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 14px', borderRadius: '10px' }}
                 >
-                    <span className="drawing-mode-badge" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#ffffff', fontWeight: 700, fontSize: '12px', padding: '6px 12px', borderRadius: '6px', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.45)' }}>
+                    <span className="drawing-mode-badge" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#ffffff', fontWeight: 700, fontSize: '12px', padding: '6px 12px', borderRadius: '6px', boxShadow: 'none' }}>
                         {t.intersectionCheckBadge}
                     </span>
                     <span style={{ fontSize: '13px', fontWeight: 500, color: '#ffffff' }}>
@@ -1794,6 +2601,111 @@ function App() {
                     >
                         {t.btnCancelDraw}
                     </button>
+                </div>
+            )}
+
+            {/* ŞEKİL DÜZENLEME MODU ALT YÜZER EYLEM BARI */}
+            {isModifyingVertex && (
+                <div
+                    className="floating-draw-bottom-bar vertex-editing-bar"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                        position: 'absolute',
+                        bottom: '24px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 1010,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        backgroundColor: '#0f172a',
+                        border: '1.5px solid #22c55e',
+                        borderRadius: '12px',
+                        padding: '10px 18px',
+                        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
+                        color: '#ffffff'
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ backgroundColor: '#22c55e', color: '#ffffff', fontWeight: 700, fontSize: '11px', padding: '4px 10px', borderRadius: '6px' }}>
+                            DÜZENLEME MODU AKTİF
+                        </span>
+                        <span style={{ fontSize: '12.5px', color: '#cbd5e1', fontWeight: 500 }}>
+                            Haritadaki kırılma noktalarını fare ile sürükleyebilirsiniz.
+                        </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px' }}>
+                        <button
+                            type="button"
+                            onClick={handleUndoGeometry}
+                            disabled={historyIndex <= 0}
+                            title="Geri Al (Undo)"
+                            style={{
+                                padding: '6px 12px',
+                                fontSize: '12px',
+                                borderRadius: '6px',
+                                backgroundColor: historyIndex <= 0 ? 'rgba(255,255,255,0.05)' : '#1e293b',
+                                color: historyIndex <= 0 ? '#64748b' : '#38bdf8',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer'
+                            }}
+                        >
+                            ↩ Geri Al
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleRedoGeometry}
+                            disabled={historyIndex >= geometryHistoryRef.current.length - 1}
+                            title="İleri Al (Redo)"
+                            style={{
+                                padding: '6px 12px',
+                                fontSize: '12px',
+                                borderRadius: '6px',
+                                backgroundColor: historyIndex >= geometryHistoryRef.current.length - 1 ? 'rgba(255,255,255,0.05)' : '#1e293b',
+                                color: historyIndex >= geometryHistoryRef.current.length - 1 ? '#64748b' : '#38bdf8',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                cursor: historyIndex >= geometryHistoryRef.current.length - 1 ? 'not-allowed' : 'pointer'
+                            }}
+                        >
+                            ↪ İleri Al
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleUpdateDrawingFromPopup}
+                            style={{
+                                padding: '6px 14px',
+                                fontSize: '12.5px',
+                                fontWeight: 700,
+                                borderRadius: '6px',
+                                backgroundColor: '#16a34a',
+                                color: '#ffffff',
+                                border: 'none',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            ✓ Kaydet
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleTriggerCancelVertexEditing}
+                            style={{
+                                padding: '6px 12px',
+                                fontSize: '12px',
+                                borderRadius: '6px',
+                                backgroundColor: '#ef4444',
+                                color: '#ffffff',
+                                border: 'none',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            ✕ Vazgeç
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -1851,7 +2763,7 @@ function App() {
                         <button className="btn-clear-analysis-action" onClick={handleClearAnalysis}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
                                 <polyline points="3 6 5 6 21 6"></polyline>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2 2v2"></path>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                             </svg>
                             Analizi ve Haritayı Temizle
                         </button>
@@ -1888,17 +2800,292 @@ function App() {
                 </div>
             )}
 
-            {/* OPENLAYERS OVERLAY: NOKTA BİLGİ PANELİ (REACT PORTAL İLE DOM SABİTLEME) */}
+            {/* EDITÖR İŞBİRLİĞİ & İSTEKLER MODAL */}
+            {showCollaborationModal && (
+                <div className="modal-overlay" onClick={() => setShowCollaborationModal(false)}>
+                    <div
+                        className="collab-modal-content"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '90%',
+                            maxWidth: '560px',
+                            backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+                            color: isDarkMode ? '#f8fafc' : '#0f172a',
+                            borderRadius: '16px',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            padding: '24px',
+                            boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+                            position: 'relative'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                </svg>
+                                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700 }}>{t.collaborationTitle}</h3>
+                            </div>
+                            <button
+                                onClick={() => setShowCollaborationModal(false)}
+                                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '22px', cursor: 'pointer' }}
+                            >
+                                &times;
+                            </button>
+                        </div>
+
+                        {/* İŞBİRLİĞİ İSTEĞİ GÖNDER FORMU */}
+                        <div style={{ marginBottom: '20px', padding: '14px', backgroundColor: isDarkMode ? 'rgba(30,41,59,0.7)' : '#f8fafc', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <h4 style={{ margin: '0 0 8px 0', fontSize: '13.5px', color: '#3b82f6', fontWeight: 700 }}>➕ {t.sendRequestBtn}</h4>
+                            <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                {lang === 'tr'
+                                    ? 'İşbirliği kabul edildiğinde birbirinizin haritadaki şekillerini görüntüleyebilir ve kırılma noktalarını düzenleyebilirsiniz.'
+                                    : 'Once collaboration is approved, you can view each other\'s shapes on the map and edit their vertices.'}
+                            </p>
+
+                            <form onSubmit={handleSendCollaborationRequest} style={{ display: 'flex', gap: '8px' }}>
+                                <select
+                                    value={selectedEditorId}
+                                    onChange={(e) => setSelectedEditorId(e.target.value)}
+                                    style={{
+                                        flex: 1,
+                                        padding: '8px 12px',
+                                        borderRadius: '7px',
+                                        backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                        color: isDarkMode ? '#f8fafc' : '#0f172a',
+                                        border: '1px solid rgba(255,255,255,0.15)',
+                                        fontSize: '13px'
+                                    }}
+                                    required
+                                >
+                                    <option value="">-- {lang === 'tr' ? 'Editör Seçin' : 'Select Editor'} --</option>
+                                    {availableEditors.map((ed) => (
+                                        <option key={ed.id} value={ed.id}>
+                                            {ed.username} ({ed.email || 'Editor'})
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="submit"
+                                    disabled={collabLoading || !selectedEditorId}
+                                    style={{
+                                        padding: '8px 16px',
+                                        borderRadius: '7px',
+                                        backgroundColor: '#2563eb',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontWeight: 600,
+                                        fontSize: '12.5px',
+                                        cursor: collabLoading ? 'wait' : 'pointer'
+                                    }}
+                                >
+                                    {t.sendRequestBtn}
+                                </button>
+                            </form>
+                        </div>
+
+                        {/* GELEN İSTEKLER */}
+                        {pendingIncoming.length > 0 && (
+                            <div style={{ marginBottom: '18px' }}>
+                                <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#f59e0b', fontWeight: 700 }}>
+                                    📥 {lang === 'tr' ? 'Onay Bekleyen Gelen İstekler' : 'Pending Incoming Requests'} ({pendingIncoming.length})
+                                </h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '140px', overflowY: 'auto' }}>
+                                    {pendingIncoming.map((req) => (
+                                        <div
+                                            key={req.id}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: '10px 12px',
+                                                backgroundColor: isDarkMode ? 'rgba(245, 158, 11, 0.12)' : '#fffbeb',
+                                                border: '1px solid rgba(245, 158, 11, 0.3)',
+                                                borderRadius: '8px'
+                                            }}
+                                        >
+                                            <span style={{ fontSize: '13px', fontWeight: 600 }}>
+                                                <strong>{req.senderUsername}</strong> {lang === 'tr' ? 'sizden çizim işbirliği istiyor.' : 'wants to collaborate on map drawings.'}
+                                            </span>
+                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRespondCollaborationRequest(req.id, true)}
+                                                    style={{ padding: '5px 10px', fontSize: '12px', borderRadius: '5px', backgroundColor: '#16a34a', color: '#ffffff', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+                                                >
+                                                    {t.acceptBtn}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRespondCollaborationRequest(req.id, false)}
+                                                    style={{ padding: '5px 10px', fontSize: '12px', borderRadius: '5px', backgroundColor: '#ef4444', color: '#ffffff', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+                                                >
+                                                    {t.declineBtn}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TÜM İSTEKLER VE AKTİF İŞBİRLİKLERİ LİSTESİ */}
+                        <div>
+                            <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: isDarkMode ? '#cbd5e1' : '#475569', fontWeight: 700 }}>
+                                📋 {lang === 'tr' ? 'Tüm İşbirliği İstekleri ve Durumları' : 'All Collaboration Requests & Statuses'}
+                            </h4>
+                            {collaborationRequests.length === 0 ? (
+                                <p style={{ fontSize: '12.5px', color: '#94a3b8', fontStyle: 'italic', margin: 0 }}>
+                                    {lang === 'tr' ? 'Henüz gönderilmiş veya alınmış bir işbirliği isteği bulunmuyor.' : 'No sent or received collaboration requests yet.'}
+                                </p>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                                    {collaborationRequests.map((r) => {
+                                        const isSender = r.senderUserId === loggedInUserId;
+                                        const otherUser = isSender ? r.receiverUsername : r.senderUsername;
+                                        return (
+                                            <div
+                                                key={r.id}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    padding: '8px 12px',
+                                                    backgroundColor: isDarkMode ? 'rgba(30,41,59,0.5)' : '#f1f5f9',
+                                                    borderRadius: '7px',
+                                                    fontSize: '12.5px'
+                                                }}
+                                            >
+                                                <div>
+                                                    <strong>{otherUser}</strong> ({isSender ? (lang === 'tr' ? 'Gönderilen' : 'Sent') : (lang === 'tr' ? 'Gelen' : 'Received')})
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span
+                                                        style={{
+                                                            padding: '2px 8px',
+                                                            borderRadius: '4px',
+                                                            fontSize: '11px',
+                                                            fontWeight: 700,
+                                                            backgroundColor: r.status === 'Approved' ? '#16a34a' : r.status === 'Rejected' ? '#ef4444' : '#f59e0b',
+                                                            color: '#ffffff'
+                                                        }}
+                                                    >
+                                                        {r.status === 'Approved'
+                                                            ? (lang === 'tr' ? 'Aktif İşbirliği' : 'Active Collaboration')
+                                                            : r.status === 'Rejected'
+                                                                ? (lang === 'tr' ? 'Reddedildi' : 'Rejected')
+                                                                : (lang === 'tr' ? 'Onay Bekliyor' : 'Pending')}
+                                                    </span>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleCancelCollaboration(r.id)}
+                                                        title={lang === 'tr' ? 'İşbirliğini / İsteği İptal Et (Sil)' : 'Cancel / Remove Collaboration'}
+                                                        style={{
+                                                            padding: '3px 8px',
+                                                            fontSize: '11px',
+                                                            borderRadius: '5px',
+                                                            backgroundColor: 'rgba(239, 68, 68, 0.18)',
+                                                            color: '#ef4444',
+                                                            border: '1px solid rgba(239, 68, 68, 0.4)',
+                                                            fontWeight: 700,
+                                                            cursor: 'pointer',
+                                                            transition: 'all 0.15s ease'
+                                                        }}
+                                                    >
+                                                        ✕ {lang === 'tr' ? 'İptal Et' : 'Cancel'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ marginTop: '20px', textAlign: 'right' }}>
+                            <button
+                                type="button"
+                                onClick={() => setShowCollaborationModal(false)}
+                                style={{ padding: '8px 16px', borderRadius: '7px', backgroundColor: '#64748b', color: '#ffffff', border: 'none', cursor: 'pointer', fontSize: '12.5px' }}
+                            >
+                                {t.closeBtn}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ERROR PREVENTION MODAL (GÜNCELLEME / TAMAMLA ONAYI) */}
+            {updateConfirmTarget && (
+                <div className="modal-overlay" onClick={() => setUpdateConfirmTarget(null)}>
+                    <div className="error-prevention-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-icon-badge info" style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                        </div>
+
+                        <h3 className="modal-title">Çizim Güncellemesini Onaylayın</h3>
+                        <p className="modal-description">
+                            <strong>"{updateConfirmTarget.name}"</strong> nesnesinin yeni konumu (WKT), kırılma noktaları ve görsel özellikleri veritabanına kaydedilecektir. Devam etmek istiyor musunuz?
+                        </p>
+
+                        <div className="modal-actions">
+                            <button className="modal-btn btn-cancel" onClick={() => setUpdateConfirmTarget(null)}>
+                                Vazgeç (İptal)
+                            </button>
+                            <button className="modal-btn btn-primary-confirm" onClick={executeDrawingUpdateConfirmed} style={{ backgroundColor: '#2563eb', color: '#ffffff' }}>
+                                Evet, Kaydet ve Tamamla
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ERROR PREVENTION MODAL (DÜZENLEMELERİ İPTAL ET / ESKİ HALİNE DÖN) */}
+            {cancelEditConfirm && (
+                <div className="modal-overlay" onClick={() => setCancelEditConfirm(false)}>
+                    <div className="error-prevention-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-icon-badge warning">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                                <line x1="12" y1="9" x2="12" y2="13" />
+                                <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                        </div>
+
+                        <h3 className="modal-title">Değişiklikleri İptal Etmeyi Onaylayın</h3>
+                        <p className="modal-description">
+                            Haritada yaptığınız kırılma noktası değişiklikleri silinecek ve çizim orijinal haline geri dönecektir. Emin misiniz?
+                        </p>
+
+                        <div className="modal-actions">
+                            <button className="modal-btn btn-cancel" onClick={() => setCancelEditConfirm(false)}>
+                                Düzenlemeye Devam Et
+                            </button>
+                            <button className="modal-btn btn-danger-confirm" onClick={confirmCancelVertexEditing} style={{ backgroundColor: '#f59e0b', borderColor: '#d97706' }}>
+                                Evet, İptal Et (Eski Hali)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* OPENLAYERS OVERLAY: NOKTA VE ÇİZİM DETAY BİLGİ VE DÜZENLEME PANELİ */}
             {selectedPointInfo && overlayContainerRef.current && createPortal(
-                <div className="ol-popup-card">
+                <div className={`ol-popup-card ${isPopupCollapsed ? 'collapsed' : ''}`}>
                     <div className="ol-popup-header">
                         <div className="ol-popup-title-wrapper">
                             <span
                                 className="ol-popup-color-dot"
-                                style={{ backgroundColor: selectedPointInfo.color || '#3b82f6' }}
+                                style={{ backgroundColor: editColor || selectedPointInfo.color || '#3b82f6' }}
                             />
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <h4 className="ol-popup-title">{selectedPointInfo.name}</h4>
+                                <h4 className="ol-popup-title">{editName || selectedPointInfo.name}</h4>
                                 <span className="ol-popup-badge">
                                     {selectedPointInfo.type === 'SavedPlace' && t.savedPlaceBadge}
                                     {(selectedPointInfo.type === 'PointDrawing' || selectedPointInfo.type === 'Point') && t.pointDrawingBadge}
@@ -1908,81 +3095,234 @@ function App() {
                                 </span>
                             </div>
                         </div>
-                        <button className="ol-popup-close-btn" onClick={handleClosePointInfo} title={t.btnCloseInfoPanel}>
-                            &times;
-                        </button>
-                    </div>
-
-                    <div className="ol-popup-body">
-                        {selectedPointInfo.lengthText ? (
-                            <>
-                                <div className="ol-popup-coord-row">
-                                    <span className="coord-label">{t.totalLengthLabel}</span>
-                                    <strong className="coord-value" style={{ color: '#3b82f6' }}>{selectedPointInfo.lengthText}</strong>
-                                </div>
-                                <div className="ol-popup-coord-row">
-                                    <span className="coord-label">{t.latitudeLabelShort}</span>
-                                    <strong className="coord-value">{selectedPointInfo.lat}° N</strong>
-                                </div>
-                                <div className="ol-popup-coord-row">
-                                    <span className="coord-label">{t.longitudeLabelShort}</span>
-                                    <strong className="coord-value">{selectedPointInfo.lon}° E</strong>
-                                </div>
-                            </>
-                        ) : selectedPointInfo.areaText ? (
-                            <>
-                                <div className="ol-popup-coord-row">
-                                    <span className="coord-label">{t.totalAreaLabel}</span>
-                                    <strong className="coord-value" style={{ color: '#10b981' }}>{selectedPointInfo.areaText}</strong>
-                                </div>
-                                <div className="ol-popup-coord-row">
-                                    <span className="coord-label">{t.latitudeLabelShort}</span>
-                                    <strong className="coord-value">{selectedPointInfo.lat}° N</strong>
-                                </div>
-                                <div className="ol-popup-coord-row">
-                                    <span className="coord-label">{t.longitudeLabelShort}</span>
-                                    <strong className="coord-value">{selectedPointInfo.lon}° E</strong>
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <div className="ol-popup-coord-row">
-                                    <span className="coord-label">{t.latitudeLabelShort}</span>
-                                    <strong className="coord-value">{selectedPointInfo.lat}° N</strong>
-                                </div>
-
-                                <div className="ol-popup-coord-row">
-                                    <span className="coord-label">{t.longitudeLabelShort}</span>
-                                    <strong className="coord-value">{selectedPointInfo.lon}° E</strong>
-                                </div>
-                            </>
-                        )}
-
-                        <div className="ol-popup-coord-row">
-                            <span className="coord-label">{t.projectionLabel}</span>
-                            <span className="coord-subtext">EPSG:4326</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <button
+                                type="button"
+                                className="ol-popup-minimize-btn"
+                                onClick={() => setIsPopupCollapsed(!isPopupCollapsed)}
+                                title={isPopupCollapsed ? "Paneli Genişlet" : "Paneli Küçült/Gizle"}
+                                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center' }}
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    {isPopupCollapsed ? <polyline points="6 9 12 15 18 9" /> : <polyline points="18 15 12 9 6 15" />}
+                                </svg>
+                            </button>
+                            <button className="ol-popup-close-btn" onClick={handleClosePointInfo} title={t.btnCloseInfoPanel}>
+                                &times;
+                            </button>
                         </div>
                     </div>
 
+                    {!isPopupCollapsed && (
+                        <div className="ol-popup-body">
+                            {selectedPointInfo.id && selectedPointInfo.type !== 'SavedPlace' ? (
+                                <>
+                                    <div className="ol-popup-field-group">
+                                        <label className="ol-popup-field-label">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M12 20h9"/>
+                                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                                            </svg>
+                                            Obje İsmi:
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="ol-popup-input"
+                                            value={editName}
+                                            onChange={(e) => setEditName(e.target.value)}
+                                            placeholder="İsim girin..."
+                                        />
+                                    </div>
+
+                                    <div className="ol-popup-field-group">
+                                        <label className="ol-popup-field-label">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M12 2C6.5 2 2 6.5 2 12c0 3.5 2.5 6.5 6 6.5 1 0 1.5-.5 1.5-1 0-.5-.2-1-.5-1.5-.3-.5-.5-1-.5-1.5 0-1.1.9-2 2-2h1.5c3.6 0 6.5-2.9 6.5-6.5C18.5 5.5 15.6 2 12 2z"/>
+                                            </svg>
+                                            Renk Seçimi:
+                                        </label>
+                                        <div className="ol-popup-color-row">
+                                            <input
+                                                type="color"
+                                                className="ol-popup-color-picker"
+                                                value={editColor}
+                                                onChange={(e) => setEditColor(e.target.value)}
+                                            />
+                                            <div className="ol-popup-color-presets">
+                                                {PRESET_COLORS.map((c) => (
+                                                    <button
+                                                        key={c.hex}
+                                                        type="button"
+                                                        className={`ol-popup-color-swatch ${editColor === c.hex ? 'active' : ''}`}
+                                                        style={{ backgroundColor: c.hex }}
+                                                        onClick={() => setEditColor(c.hex)}
+                                                        title={c.label}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="ol-popup-field-group">
+                                        <label className="ol-popup-field-label">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                <circle cx="12" cy="12" r="10"/>
+                                                <line x1="2" y1="12" x2="22" y2="12"/>
+                                            </svg>
+                                            Geometri (WKT Konum):
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="ol-popup-input ol-popup-wkt-input"
+                                            value={editWkt}
+                                            onChange={(e) => setEditWkt(e.target.value)}
+                                            placeholder="WKT Geometri..."
+                                        />
+                                    </div>
+                                </>
+                            ) : null}
+
+                            {selectedPointInfo.lengthText ? (
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.totalLengthLabel}</span>
+                                    <strong className="coord-value" style={{ color: editColor }}>{selectedPointInfo.lengthText}</strong>
+                                </div>
+                            ) : selectedPointInfo.areaText ? (
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">{t.totalAreaLabel}</span>
+                                    <strong className="coord-value" style={{ color: editColor }}>{selectedPointInfo.areaText}</strong>
+                                </div>
+                            ) : null}
+
+                            {selectedPointInfo.lat != null && selectedPointInfo.lon != null && (
+                                <div className="ol-popup-coord-row">
+                                    <span className="coord-label">Konum:</span>
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                                        <strong className="coord-value">{selectedPointInfo.lat}°, {selectedPointInfo.lon}°</strong>
+                                        <button
+                                            type="button"
+                                            className="btn-copy-inline"
+                                            onClick={handleCopyCoords}
+                                            title={t.btnCopyCoords || "Konum Koordinatlarını Kopyala"}
+                                        >
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* BİLGİ KUTUSU / TIP BANNER (Noktaları Düzenle İpucu) */}
+                            {selectedPointInfo.id && selectedPointInfo.type !== 'SavedPlace' && (
+                                <div className={`vertex-edit-info-box ${isModifyingVertex ? 'active-mode' : ''}`}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isModifyingVertex ? '#22c55e' : '#f59e0b'} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '2px' }}>
+                                        {isModifyingVertex ? (
+                                            <polyline points="20 6 9 17 4 12" />
+                                        ) : (
+                                            <>
+                                                <circle cx="12" cy="12" r="10" />
+                                                <line x1="12" y1="16" x2="12" y2="12" />
+                                                <line x1="12" y1="8" x2="12.01" y2="8" />
+                                            </>
+                                        )}
+                                    </svg>
+                                    <span>
+                                        {isModifyingVertex
+                                            ? 'Düzenleme Modu Aktif: Noktaları sürükleyin. Kaydetmek için "Kaydet"e, vazgeçmek için "Vazgeç"e tıklayın.'
+                                            : 'İpucu: Haritadaki kırılma noktalarını/köşelerini fare ile sürükleyerek değiştirmek için "Noktalar" butonuna basın.'}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="ol-popup-footer">
-                        <button
-                            className="ol-popup-btn btn-copy"
-                            onClick={handleCopyCoords}
-                            title={t.btnCopyCoords}
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                            {t.btnCopyCoords}
-                        </button>
+                        {userRole !== 'Viewer' && selectedPointInfo.id && selectedPointInfo.type !== 'SavedPlace' && (
+                            <>
+                                <button
+                                    type="button"
+                                    className="ol-popup-btn btn-save-update"
+                                    onClick={handleUpdateDrawingFromPopup}
+                                    title="Değişiklikleri Kaydet ve Güncelle"
+                                >
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                    <span>Kaydet</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    className={`ol-popup-btn btn-vertex-edit ${isModifyingVertex ? 'active-vertex' : ''}`}
+                                    onClick={isModifyingVertex ? handleTriggerCancelVertexEditing : startVertexEditing}
+                                    title={isModifyingVertex ? "Düzenlemeyi İptal Et (Vazgeç)" : "Kırılma Noktalarını Fare ile Düzenle"}
+                                >
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        {isModifyingVertex ? (
+                                            <>
+                                                <line x1="18" y1="6" x2="6" y2="18" />
+                                                <line x1="6" y1="6" x2="18" y2="18" />
+                                            </>
+                                        ) : (
+                                            <>
+                                                <circle cx="12" cy="12" r="3"/>
+                                                <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+                                            </>
+                                        )}
+                                    </svg>
+                                </button>
+
+                                {isModifyingVertex && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            className="ol-popup-btn btn-undo-redo"
+                                            onClick={handleUndoGeometry}
+                                            disabled={historyIndex <= 0}
+                                            title="Geri Al (Undo)"
+                                        >
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M3 7v6h6"/>
+                                                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+                                            </svg>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="ol-popup-btn btn-undo-redo"
+                                            onClick={handleRedoGeometry}
+                                            disabled={historyIndex < 0 || historyIndex >= geometryHistoryRef.current.length - 1}
+                                            title="İleri Al (Redo)"
+                                        >
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M21 7v6h-6"/>
+                                                <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+                                            </svg>
+                                        </button>
+                                    </>
+                                )}
+
+                                <button
+                                    type="button"
+                                    className="ol-popup-btn btn-delete-soft"
+                                    onClick={triggerDeleteDrawingFromPopup}
+                                    title="Çizimi Sil (Soft Delete)"
+                                >
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                    </svg>
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>,
                 overlayContainerRef.current
             )}
 
             {/* OpenLayers Harita Container */}
-            <div id="map"></div>
+            <div id="map" ref={mapContainerRef}></div>
         </div>
     );
 }

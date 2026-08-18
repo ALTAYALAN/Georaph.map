@@ -16,10 +16,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     ));
 
 // Custom Application Services (N-Tier Architecture)
-builder.Services.AddScoped<IPlaceService, PlaceService>();
 builder.Services.AddScoped<IDrawingService, DrawingService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IAnalysisService, AnalysisService>();
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IRoleService, RoleService>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<ICollaborationService, CollaborationService>();
 
 // JWT Authentication Configuration
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "GeoMap_Super_Secret_Key_For_Jwt_Authentication_2026_Key!";
@@ -63,11 +66,13 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Otomatik Veritabanı Migrasyonunu Uygula
+// Otomatik Veritabanı Migrasyonunu Uygula ve Seed Verilerini İşle
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     dbContext.Database.Migrate();
+    DbSeeder.EnsureTablesCreatedAsync(dbContext).GetAwaiter().GetResult();
+    DbSeeder.SeedAsdfUserAndAssignDrawingsAsync(dbContext).GetAwaiter().GetResult();
 }
 
 // Configure the HTTP request pipeline.

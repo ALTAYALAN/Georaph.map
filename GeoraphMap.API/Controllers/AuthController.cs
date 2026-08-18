@@ -17,6 +17,20 @@ namespace GeoraphMap.API.Controllers
             _authService = authService;
         }
 
+        [HttpPost("guest-login")]
+        public async Task<IActionResult> GuestLogin()
+        {
+            try
+            {
+                var result = await _authService.GuestLoginAsync();
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
+            }
+        }
+
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {

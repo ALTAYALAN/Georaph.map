@@ -3,6 +3,7 @@ using System;
 using GeoraphMap.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeoraphMap.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260817220954_AddAdminAndPermissionTables")]
+    partial class AddAdminAndPermissionTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -28,50 +31,40 @@ namespace GeoraphMap.Infrastructure.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Color")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("color");
+                        .HasColumnType("text");
 
                     b.Property<LineString>("Geometry")
                         .IsRequired()
-                        .HasColumnType("geometry")
-                        .HasColumnName("geometry");
+                        .HasColumnType("geometry");
 
                     b.Property<DateTime>("InsertedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("inserted_date");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("InsertedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("inserted_user_id");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_deleted");
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("ModifiedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("modified_date");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
+                        .HasColumnType("text");
 
                     b.Property<string>("Wkt")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("wkt");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -82,25 +75,21 @@ namespace GeoraphMap.Infrastructure.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Code")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("code");
+                        .HasColumnType("text");
 
                     b.Property<string>("Description")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("description");
+                        .HasColumnType("text");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -130,6 +119,13 @@ namespace GeoraphMap.Infrastructure.Migrations
                         },
                         new
                         {
+                            Id = 4,
+                            Code = "place.create",
+                            Description = "Veritabanına mekan kaydı ekleme yetkisi",
+                            Name = "Mekan/Place Ekleme"
+                        },
+                        new
+                        {
                             Id = 5,
                             Code = "user.manage",
                             Description = "Kullanıcı ekleme, güncelleme, silme ve yetkilendirme",
@@ -144,54 +140,88 @@ namespace GeoraphMap.Infrastructure.Migrations
                         });
                 });
 
-            modelBuilder.Entity("GeoraphMap.Core.PointFeature", b =>
+            modelBuilder.Entity("GeoraphMap.Core.Place", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Color")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("color");
-
-                    b.Property<Point>("Geometry")
-                        .IsRequired()
-                        .HasColumnType("geometry")
-                        .HasColumnName("geometry");
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("InsertedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("inserted_date");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("InsertedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("inserted_user_id");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_deleted");
+                        .HasColumnType("boolean");
+
+                    b.Property<Point>("Location")
+                        .IsRequired()
+                        .HasColumnType("geometry");
 
                     b.Property<DateTime>("ModifiedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("modified_date");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
+                        .HasColumnType("text");
 
                     b.Property<string>("Wkt")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("wkt");
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("tbl_place", (string)null);
+                });
+
+            modelBuilder.Entity("GeoraphMap.Core.PointFeature", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Point>("Geometry")
+                        .IsRequired()
+                        .HasColumnType("geometry");
+
+                    b.Property<DateTime>("InsertedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("InsertedUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("ModifiedDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Wkt")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -202,50 +232,40 @@ namespace GeoraphMap.Infrastructure.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Color")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("color");
+                        .HasColumnType("text");
 
                     b.Property<Polygon>("Geometry")
                         .IsRequired()
-                        .HasColumnType("geometry")
-                        .HasColumnName("geometry");
+                        .HasColumnType("geometry");
 
                     b.Property<DateTime>("InsertedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("inserted_date");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("InsertedUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("inserted_user_id");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_deleted");
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("ModifiedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("modified_date");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
+                        .HasColumnType("text");
 
                     b.Property<string>("Wkt")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("wkt");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -256,20 +276,17 @@ namespace GeoraphMap.Infrastructure.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Description")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("description");
+                        .HasColumnType("text");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -299,12 +316,10 @@ namespace GeoraphMap.Infrastructure.Migrations
             modelBuilder.Entity("GeoraphMap.Core.RolePermission", b =>
                 {
                     b.Property<int>("RoleId")
-                        .HasColumnType("integer")
-                        .HasColumnName("role_id");
+                        .HasColumnType("integer");
 
                     b.Property<int>("PermissionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("permission_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("RoleId", "PermissionId");
 
@@ -331,6 +346,11 @@ namespace GeoraphMap.Infrastructure.Migrations
                         new
                         {
                             RoleId = 1,
+                            PermissionId = 4
+                        },
+                        new
+                        {
+                            RoleId = 1,
                             PermissionId = 5
                         },
                         new
@@ -352,6 +372,11 @@ namespace GeoraphMap.Infrastructure.Migrations
                         {
                             RoleId = 2,
                             PermissionId = 3
+                        },
+                        new
+                        {
+                            RoleId = 2,
+                            PermissionId = 4
                         });
                 });
 
@@ -359,42 +384,34 @@ namespace GeoraphMap.Infrastructure.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Email")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("email");
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_deleted");
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("ModifiedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("modified_date");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("password_hash");
+                        .HasColumnType("text");
 
                     b.Property<string>("Phone")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("phone");
+                        .HasColumnType("text");
 
                     b.Property<string>("Username")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("username");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -404,12 +421,10 @@ namespace GeoraphMap.Infrastructure.Migrations
             modelBuilder.Entity("GeoraphMap.Core.UserPermission", b =>
                 {
                     b.Property<int>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
+                        .HasColumnType("integer");
 
                     b.Property<int>("PermissionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("permission_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("UserId", "PermissionId");
 
@@ -421,12 +436,10 @@ namespace GeoraphMap.Infrastructure.Migrations
             modelBuilder.Entity("GeoraphMap.Core.UserRole", b =>
                 {
                     b.Property<int>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
+                        .HasColumnType("integer");
 
                     b.Property<int>("RoleId")
-                        .HasColumnType("integer")
-                        .HasColumnName("role_id");
+                        .HasColumnType("integer");
 
                     b.HasKey("UserId", "RoleId");
 

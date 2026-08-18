@@ -3,6 +3,7 @@ using GeoraphMap.Core.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace GeoraphMap.API.Controllers
@@ -19,19 +20,67 @@ namespace GeoraphMap.API.Controllers
             _drawingService = drawingService;
         }
 
+        private int GetUserId()
+        {
+            var claim = User.Claims.FirstOrDefault(c =>
+                c.Type.Equals("userId", StringComparison.OrdinalIgnoreCase) ||
+                c.Type.Equals("id", StringComparison.OrdinalIgnoreCase) ||
+                c.Type.Equals(ClaimTypes.NameIdentifier, StringComparison.OrdinalIgnoreCase) ||
+                c.Type.EndsWith("nameidentifier", StringComparison.OrdinalIgnoreCase) ||
+                c.Type.Equals("sub", StringComparison.OrdinalIgnoreCase));
+
+            if (claim != null && int.TryParse(claim.Value, out int userId) && userId > 0)
+            {
+                return userId;
+            }
+            return 0;
+        }
+
+        private string GetUserRole()
+        {
+            var isAdminClaim = User.Claims.FirstOrDefault(c => c.Type.Equals("isAdmin", StringComparison.OrdinalIgnoreCase))?.Value;
+            if (string.Equals(isAdminClaim, "true", StringComparison.OrdinalIgnoreCase))
+                return "Admin";
+
+            var roleClaim = User.Claims.FirstOrDefault(c =>
+                c.Type.Equals("userRole", StringComparison.OrdinalIgnoreCase) ||
+                c.Type.Equals(ClaimTypes.Role, StringComparison.OrdinalIgnoreCase) ||
+                c.Type.EndsWith("role", StringComparison.OrdinalIgnoreCase));
+
+            if (roleClaim != null && !string.IsNullOrEmpty(roleClaim.Value))
+            {
+                return roleClaim.Value;
+            }
+
+            return "Editor";
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetAllDrawings()
         {
-            var drawings = await _drawingService.GetAllDrawingsAsync();
-            return Ok(drawings);
+            try
+            {
+                int userId = GetUserId();
+                string userRole = GetUserRole();
+                var drawings = await _drawingService.GetAllDrawingsAsync(userId, userRole);
+                return Ok(drawings);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
+            }
         }
 
         [HttpPost("point")]
         public async Task<IActionResult> CreatePoint([FromBody] CreateDrawingDto dto)
         {
+            if (GetUserRole().Equals("Viewer", StringComparison.OrdinalIgnoreCase))
+                return StatusCode(403, new { Message = "Viewer (İzleyici) rolündeki kullanıcılar çizim oluşturamaz." });
+
             try
             {
-                var result = await _drawingService.CreatePointAsync(dto);
+                int userId = GetUserId();
+                var result = await _drawingService.CreatePointAsync(dto, userId);
                 return Ok(new
                 {
                     Message = "Nokta veritabanına (tbl_point) başarıyla kaydedildi.",
@@ -51,9 +100,13 @@ namespace GeoraphMap.API.Controllers
         [HttpPost("line")]
         public async Task<IActionResult> CreateLine([FromBody] CreateDrawingDto dto)
         {
+            if (GetUserRole().Equals("Viewer", StringComparison.OrdinalIgnoreCase))
+                return StatusCode(403, new { Message = "Viewer (İzleyici) rolündeki kullanıcılar çizim oluşturamaz." });
+
             try
             {
-                var result = await _drawingService.CreateLineAsync(dto);
+                int userId = GetUserId();
+                var result = await _drawingService.CreateLineAsync(dto, userId);
                 return Ok(new
                 {
                     Message = "Çizgi veritabanına (tbl_line) başarıyla kaydedildi.",
@@ -73,9 +126,13 @@ namespace GeoraphMap.API.Controllers
         [HttpPost("polygon")]
         public async Task<IActionResult> CreatePolygon([FromBody] CreateDrawingDto dto)
         {
+            if (GetUserRole().Equals("Viewer", StringComparison.OrdinalIgnoreCase))
+                return StatusCode(403, new { Message = "Viewer (İzleyici) rolündeki kullanıcılar çizim oluşturamaz." });
+
             try
             {
-                var result = await _drawingService.CreatePolygonAsync(dto);
+                int userId = GetUserId();
+                var result = await _drawingService.CreatePolygonAsync(dto, userId);
                 return Ok(new
                 {
                     Message = "Poligon veritabanına (tbl_polygon) başarıyla kaydedildi.",
@@ -92,12 +149,47 @@ namespace GeoraphMap.API.Controllers
             }
         }
 
+        [HttpPut("{type}/{id}")]
+        public async Task<IActionResult> UpdateDrawing(string type, int id, [FromBody] UpdateDrawingDto dto)
+        {
+            string role = GetUserRole();
+            if (role.Equals("Viewer", StringComparison.OrdinalIgnoreCase))
+                return StatusCode(403, new { Message = "Viewer (İzleyici) rolündeki kullanıcılar çizim değiştiremez." });
+
+            try
+            {
+                int userId = role.Equals("Admin", StringComparison.OrdinalIgnoreCase) ? 0 : GetUserId();
+                var result = await _drawingService.UpdateDrawingAsync(type, id, dto, userId);
+                if (result == null)
+                    return NotFound(new { Message = "Çizim bulunamadı veya güncelleme yetkiniz yok." });
+
+                return Ok(new
+                {
+                    Message = "Çizim detayları ve konumu başarıyla güncellendi.",
+                    Data = result
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
+            }
+        }
+
         [HttpDelete("{type}/{id}")]
         public async Task<IActionResult> DeleteDrawing(string type, int id)
         {
+            string role = GetUserRole();
+            if (role.Equals("Viewer", StringComparison.OrdinalIgnoreCase))
+                return StatusCode(403, new { Message = "Viewer (İzleyici) rolündeki kullanıcılar çizim silemez." });
+
             try
             {
-                var success = await _drawingService.DeleteDrawingAsync(type, id);
+                int userId = role.Equals("Admin", StringComparison.OrdinalIgnoreCase) ? 0 : GetUserId();
+                var success = await _drawingService.DeleteDrawingAsync(type, id, userId);
                 if (!success)
                     return NotFound(new { Message = "Çizim bulunamadı." });
 
@@ -106,6 +198,10 @@ namespace GeoraphMap.API.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
             }
         }
     }

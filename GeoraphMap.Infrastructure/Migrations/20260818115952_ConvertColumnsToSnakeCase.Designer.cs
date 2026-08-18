@@ -3,6 +3,7 @@ using System;
 using GeoraphMap.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeoraphMap.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260818115952_ConvertColumnsToSnakeCase")]
+    partial class ConvertColumnsToSnakeCase
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -29,7 +32,7 @@ namespace GeoraphMap.Infrastructure.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnName("ıd");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
@@ -45,19 +48,19 @@ namespace GeoraphMap.Infrastructure.Migrations
 
                     b.Property<DateTime>("InsertedDate")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("inserted_date");
+                        .HasColumnName("ınserted_date");
 
                     b.Property<int>("InsertedUserId")
                         .HasColumnType("integer")
-                        .HasColumnName("inserted_user_id");
+                        .HasColumnName("ınserted_user_ıd");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
-                        .HasColumnName("is_active");
+                        .HasColumnName("ıs_active");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean")
-                        .HasColumnName("is_deleted");
+                        .HasColumnName("ıs_deleted");
 
                     b.Property<DateTime>("ModifiedDate")
                         .HasColumnType("timestamp with time zone")
@@ -83,7 +86,7 @@ namespace GeoraphMap.Infrastructure.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnName("ıd");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
@@ -149,7 +152,7 @@ namespace GeoraphMap.Infrastructure.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnName("ıd");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
@@ -165,19 +168,19 @@ namespace GeoraphMap.Infrastructure.Migrations
 
                     b.Property<DateTime>("InsertedDate")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("inserted_date");
+                        .HasColumnName("ınserted_date");
 
                     b.Property<int>("InsertedUserId")
                         .HasColumnType("integer")
-                        .HasColumnName("inserted_user_id");
+                        .HasColumnName("ınserted_user_ıd");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
-                        .HasColumnName("is_active");
+                        .HasColumnName("ıs_active");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean")
-                        .HasColumnName("is_deleted");
+                        .HasColumnName("ıs_deleted");
 
                     b.Property<DateTime>("ModifiedDate")
                         .HasColumnType("timestamp with time zone")
@@ -203,7 +206,7 @@ namespace GeoraphMap.Infrastructure.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnName("ıd");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
@@ -219,19 +222,19 @@ namespace GeoraphMap.Infrastructure.Migrations
 
                     b.Property<DateTime>("InsertedDate")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("inserted_date");
+                        .HasColumnName("ınserted_date");
 
                     b.Property<int>("InsertedUserId")
                         .HasColumnType("integer")
-                        .HasColumnName("inserted_user_id");
+                        .HasColumnName("ınserted_user_ıd");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
-                        .HasColumnName("is_active");
+                        .HasColumnName("ıs_active");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean")
-                        .HasColumnName("is_deleted");
+                        .HasColumnName("ıs_deleted");
 
                     b.Property<DateTime>("ModifiedDate")
                         .HasColumnType("timestamp with time zone")
@@ -257,7 +260,7 @@ namespace GeoraphMap.Infrastructure.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnName("ıd");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
@@ -300,11 +303,11 @@ namespace GeoraphMap.Infrastructure.Migrations
                 {
                     b.Property<int>("RoleId")
                         .HasColumnType("integer")
-                        .HasColumnName("role_id");
+                        .HasColumnName("role_ıd");
 
                     b.Property<int>("PermissionId")
                         .HasColumnType("integer")
-                        .HasColumnName("permission_id");
+                        .HasColumnName("permission_ıd");
 
                     b.HasKey("RoleId", "PermissionId");
 
@@ -360,7 +363,7 @@ namespace GeoraphMap.Infrastructure.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnName("ıd");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
@@ -371,11 +374,11 @@ namespace GeoraphMap.Infrastructure.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
-                        .HasColumnName("is_active");
+                        .HasColumnName("ıs_active");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean")
-                        .HasColumnName("is_deleted");
+                        .HasColumnName("ıs_deleted");
 
                     b.Property<DateTime>("ModifiedDate")
                         .HasColumnType("timestamp with time zone")
@@ -405,11 +408,11 @@ namespace GeoraphMap.Infrastructure.Migrations
                 {
                     b.Property<int>("UserId")
                         .HasColumnType("integer")
-                        .HasColumnName("user_id");
+                        .HasColumnName("user_ıd");
 
                     b.Property<int>("PermissionId")
                         .HasColumnType("integer")
-                        .HasColumnName("permission_id");
+                        .HasColumnName("permission_ıd");
 
                     b.HasKey("UserId", "PermissionId");
 
@@ -422,11 +425,11 @@ namespace GeoraphMap.Infrastructure.Migrations
                 {
                     b.Property<int>("UserId")
                         .HasColumnType("integer")
-                        .HasColumnName("user_id");
+                        .HasColumnName("user_ıd");
 
                     b.Property<int>("RoleId")
                         .HasColumnType("integer")
-                        .HasColumnName("role_id");
+                        .HasColumnName("role_ıd");
 
                     b.HasKey("UserId", "RoleId");
 

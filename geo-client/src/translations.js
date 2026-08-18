@@ -76,7 +76,7 @@ export const translations = {
         drawingPointMode: "Nokta Çizimi",
         drawingLineMode: "Çizgi Çizimi",
         drawingPolygonMode: "Poligon Çizimi",
-        drawingCompleted: "✓ Çizim Tamamlandı",
+        drawingCompleted: "Çizim Tamamlandı",
         drawingInProgress: "Haritada çizin",
         drawingNamePlaceholder: "Çizim Adı...",
         btnSaveToDb: "Kaydet",
@@ -113,7 +113,15 @@ export const translations = {
         totalLengthLabel: "Toplam Uzunluk:",
         totalAreaLabel: "Toplam Alan:",
         centerCoordsLabel: "Merkez Koordinat:",
-        btnInfoTooltip: "Bilgisini Göster"
+        btnInfoTooltip: "Bilgisini Göster",
+
+        // Editör İşbirliği
+        collaborationTitle: "Editörler Arası İşbirliği Mekanizması",
+        collaborationShortBtn: "İşbirliği",
+        sendRequestBtn: "İstek Gönder",
+        acceptBtn: "✓ Kabul Et",
+        declineBtn: "✕ Reddet",
+        closeBtn: "Kapat"
     },
     en: {
         // Auth & Login
@@ -192,7 +200,7 @@ export const translations = {
         drawingPointMode: "Point Drawing Mode",
         drawingLineMode: "Line Drawing Mode",
         drawingPolygonMode: "Polygon Drawing Mode",
-        drawingCompleted: "✓ Drawing Completed",
+        drawingCompleted: "Drawing Completed",
         drawingInProgress: "Draw on the map",
         drawingNamePlaceholder: "Feature Name...",
         btnSaveToDb: "Save",
@@ -229,6 +237,14 @@ export const translations = {
         totalLengthLabel: "Total Length:",
         totalAreaLabel: "Total Area:",
         centerCoordsLabel: "Center Coordinate:",
-        btnInfoTooltip: "Show Info"
+        btnInfoTooltip: "Show Info",
+
+        // Editor Collaboration
+        collaborationTitle: "Inter-Editor Collaboration Mechanism",
+        collaborationShortBtn: "Collaboration",
+        sendRequestBtn: "Send Request",
+        acceptBtn: "✓ Accept",
+        declineBtn: "✕ Decline",
+        closeBtn: "Close"
     }
 };
