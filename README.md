@@ -42,26 +42,42 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 
 ---
 
+### Editör İşbirliği & Yetkilendirme (Collaborations & Roles)
+- **Editörler Arası İşbirliği (`tbl_editor_collaboration`)**: Editör kullanıcılarının bir diğer editöre işbirliği isteği göndermesi, kabul/reddetmesi ve harita üzerindeki çizimlerini karşılıklı görüntüleyip kırılma noktalarını düzenleyebilmesi/silebilmesi.
+- **Misafir (Viewer / Salt-Okunur) Girişi**: Şifresiz misafir girişi ile haritadaki tüm çizimlerin salt-okunur (izleyici) modda görüntülenebilmesi.
+- **Dinamik Harita Filtreleme Toolbar**: Zoom butonları yanında tür ve editör bazlı dinamik şekil filtreleme menüsü.
+- **Gelişmiş Kırılma Noktası Düzenleme (Vertex Modify)**: Haritada şekil kırılma noktaları düzenlenirken çakışmayı önleyen otomatik ötelemeli pop-up ve yüzer kontrol çubuğu (`↩ Geri Al`, `↪ İleri Al`, `✓ Kaydet`, `✕ Vazgeç`).
+
+---
+
 ## Veritabanı Tablo Yapısı
 
 - `tbl_user`: Kullanıcı hesapları (`id`, `username`, `password_hash`, `is_active`, `is_deleted`, `modified_date`)
+- `tbl_editor_collaboration`: Editör işbirliği ve davet verileri (`id`, `sender_user_id`, `receiver_user_id`, `status`, `requested_date`)
 - `tbl_place`: Konum verileri (`id`, `name`, `wkt`, `longitude`, `latitude`, `modified_date`)
-- `tbl_point`: Nokta katmanı (`id`, `name`, `wkt`, `geometry`, `modified_date`)
-- `tbl_line`: Çizgi katmanı (`id`, `name`, `wkt`, `geometry`, `modified_date`)
-- `tbl_polygon`: Poligon katmanı (`id`, `name`, `wkt`, `geometry`, `modified_date`)
+- `tbl_point`: Nokta katmanı (`id`, `name`, `wkt`, `geometry`, `inserted_user_id`, `modified_date`)
+- `tbl_line`: Çizgi katmanı (`id`, `name`, `wkt`, `geometry`, `inserted_user_id`, `modified_date`)
+- `tbl_polygon`: Poligon katmanı (`id`, `name`, `wkt`, `geometry`, `inserted_user_id`, `modified_date`)
 
 ---
 
 ## Kurulum ve Çalıştırma
 
-### 1. Backend (API) Başlatma
+### 🚀 Tek Tıkla Başlatma (En Kolay Yol)
+Proje kök dizinindeki `start.bat` veya `baslat.bat` dosyasına **çift tıklayarak** hem **Backend (.NET Web API)** hem de **Frontend (React)** servislerini aynı anda otomatik olarak başlatabilirsiniz.
+
+---
+
+### Manuel Başlatma
+
+#### 1. Backend (API) Başlatma
 ```bash
 cd GeoraphMap.API
 dotnet run
 ```
 *Backend API: `http://localhost:5041`*
 
-### 2. Frontend (React) Başlatma
+#### 2. Frontend (React) Başlatma
 ```bash
 cd geo-client
 npm install

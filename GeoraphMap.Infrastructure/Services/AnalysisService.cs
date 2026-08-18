@@ -22,7 +22,7 @@ namespace GeoraphMap.Infrastructure.Services
             _wktReader = new WKTReader { DefaultSRID = 4326 };
         }
 
-        public async Task<InventoryAnalysisResultDto> AnalyzePolygonInventoryAsync(string polygonWkt)
+        public async Task<InventoryAnalysisResultDto> AnalyzePolygonInventoryAsync(string polygonWkt, int userId = 0, string userRole = "")
         {
             if (string.IsNullOrWhiteSpace(polygonWkt))
             {
@@ -40,37 +40,51 @@ namespace GeoraphMap.Infrastructure.Services
                 throw new ArgumentException($"WKT ayrıştırma hatası: {ex.Message}");
             }
 
-            // Places (tbl_place) kesişim hesabı
-            var intersectedPlaces = await _context.Places
-                .Where(p => !p.IsDeleted && p.IsActive && p.Location != null && p.Location.Intersects(targetGeom))
-                .Select(p => p.Name)
-                .ToListAsync();
+            bool isAdmin = string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(userRole, "Administrator", StringComparison.OrdinalIgnoreCase);
 
-            // PointFeatures (tbl_point) kesişim hesabı
-            var intersectedPoints = await _context.Points
-                .Where(pt => !pt.IsDeleted && pt.IsActive && pt.Geometry != null && pt.Geometry.Intersects(targetGeom))
-                .Select(pt => pt.Name)
-                .ToListAsync();
+            var pointsQuery = _context.Points.Where(pt => !pt.IsDeleted && pt.IsActive && pt.Geometry != null && pt.Geometry.Intersects(targetGeom));
+            var linesQuery = _context.Lines.Where(l => !l.IsDeleted && l.IsActive && l.Geometry != null && l.Geometry.Intersects(targetGeom));
+            var polygonsQuery = _context.Polygons.Where(pg => !pg.IsDeleted && pg.IsActive && pg.Geometry != null && pg.Geometry.Intersects(targetGeom));
 
-            // LineFeatures (tbl_line) kesişim hesabı
-            var intersectedLines = await _context.Lines
-                .Where(l => !l.IsDeleted && l.IsActive && l.Geometry != null && l.Geometry.Intersects(targetGeom))
-                .Select(l => l.Name)
-                .ToListAsync();
+            if (isAdmin)
+            {
+                // Admin kullanıcıları sistemdeki TÜM şekiller üzerinde envanter analizi yapar
+            }
+            else if (string.Equals(userRole, "Viewer", StringComparison.OrdinalIgnoreCase))
+            {
+                var editorUserIds = await _context.UserRoles
+                    .Include(ur => ur.Role)
+                    .Where(ur => ur.RoleId == 2 || (ur.Role != null && ur.Role.Name.Equals("Editor", StringComparison.OrdinalIgnoreCase)))
+                    .Select(ur => ur.UserId)
+                    .Distinct()
+                    .ToListAsync();
 
-            // PolygonFeatures (tbl_polygon) kesişim hesabı
-            var intersectedPolygons = await _context.Polygons
-                .Where(pg => !pg.IsDeleted && pg.IsActive && pg.Geometry != null && pg.Geometry.Intersects(targetGeom))
-                .Select(pg => pg.Name)
-                .ToListAsync();
+                if (editorUserIds != null && editorUserIds.Any())
+                {
+                    pointsQuery = pointsQuery.Where(pt => editorUserIds.Contains(pt.InsertedUserId) || pt.InsertedUserId == 0);
+                    linesQuery = linesQuery.Where(l => editorUserIds.Contains(l.InsertedUserId) || l.InsertedUserId == 0);
+                    polygonsQuery = polygonsQuery.Where(pg => editorUserIds.Contains(pg.InsertedUserId) || pg.InsertedUserId == 0);
+                }
+            }
+            else
+            {
+                // Editör kullanıcıları YALNIZCA kendi görebildiği/çizdiği şekiller üzerinde envanter analizi yapar
+                pointsQuery = pointsQuery.Where(pt => pt.InsertedUserId == userId || pt.InsertedUserId == 0);
+                linesQuery = linesQuery.Where(l => l.InsertedUserId == userId || l.InsertedUserId == 0);
+                polygonsQuery = polygonsQuery.Where(pg => pg.InsertedUserId == userId || pg.InsertedUserId == 0);
+            }
+
+            var intersectedPoints = await pointsQuery.Select(pt => pt.Name).ToListAsync();
+            var intersectedLines = await linesQuery.Select(l => l.Name).ToListAsync();
+            var intersectedPolygons = await polygonsQuery.Select(pg => pg.Name).ToListAsync();
 
             var details = new List<string>();
-            foreach (var name in intersectedPlaces) details.Add($"[Nokta] {name}");
             foreach (var name in intersectedPoints) details.Add($"[Nokta] {name}");
             foreach (var name in intersectedLines) details.Add($"[Çizgi] {name}");
             foreach (var name in intersectedPolygons) details.Add($"[Poligon] {name}");
 
-            int pointsTotalCount = intersectedPlaces.Count + intersectedPoints.Count;
+            int pointsTotalCount = intersectedPoints.Count;
             int linesCount = intersectedLines.Count;
             int polygonsCount = intersectedPolygons.Count;
             int total = pointsTotalCount + linesCount + polygonsCount;

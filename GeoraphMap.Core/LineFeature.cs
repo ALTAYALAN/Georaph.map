@@ -10,6 +10,8 @@ namespace GeoraphMap.Core
         public string Wkt { get; set; } = string.Empty;
         public string Color { get; set; } = "#3b82f6";
         public LineString Geometry { get; set; } = null!;
+        public int InsertedUserId { get; set; } = 1;
+        public DateTime InsertedDate { get; set; } = DateTime.UtcNow;
         public bool IsActive { get; set; } = true;
         public bool IsDeleted { get; set; } = false;
         public DateTime ModifiedDate { get; set; } = DateTime.UtcNow;
