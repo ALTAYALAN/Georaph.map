@@ -39,3 +39,8 @@ node_modules/
 **/node_modules/
 dist/
 
+# Ignore all Markdown files except README.md
+*.md
+!README.md
+
+
