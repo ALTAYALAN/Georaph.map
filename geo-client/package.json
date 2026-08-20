@@ -1,14 +1,15 @@
 {
   "name": "geo-client",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && xcopy /E /Y /I dist\\* ..\\GeoraphMap.API\\wwwroot\\",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@turf/turf": "^7.4.0",
     "ol": "^10.4.0",
     "primeicons": "^8.0.0",
     "primereact": "^10.9.3",

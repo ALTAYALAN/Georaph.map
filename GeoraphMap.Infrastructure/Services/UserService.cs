@@ -39,6 +39,17 @@ namespace GeoraphMap.Infrastructure.Services
                 result.Add(MapToUserDetailDto(user, allPermissions));
             }
 
+            result = result
+                .OrderBy(u => {
+                    var roleNames = u.Roles.Select(r => r.Name.ToLower()).ToList();
+                    if (roleNames.Any(r => r.Contains("admin"))) return 1;
+                    if (roleNames.Any(r => r.Contains("edit"))) return 2;
+                    if (roleNames.Any(r => r.Contains("view"))) return 3;
+                    return 4;
+                })
+                .ThenBy(u => u.Username)
+                .ToList();
+
             return result;
         }
 
@@ -279,9 +290,21 @@ namespace GeoraphMap.Infrastructure.Services
                 Email = user.Email,
                 Phone = user.Phone,
                 IsActive = user.IsActive,
+                SpatialBoundaryWkt = user.SpatialBoundaryWkt,
                 Roles = roles,
                 Permissions = permissionDetails
             };
+        }
+
+        public async Task<bool> SetSpatialBoundaryAsync(int userId, string? boundaryWkt)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted);
+            if (user == null) return false;
+
+            user.SpatialBoundaryWkt = string.IsNullOrWhiteSpace(boundaryWkt) ? null : boundaryWkt.Trim();
+            user.ModifiedDate = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            return true;
         }
     }
 }

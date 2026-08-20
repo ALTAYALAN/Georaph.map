@@ -35,8 +35,32 @@ namespace GeoraphMap.API.Controllers
             return User.IsInRole("Admin");
         }
 
+        [HttpGet("me")]
+        public async Task<IActionResult> GetMyProfile()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                    ?? User.FindFirst("id")?.Value 
+                    ?? User.FindFirst("userId")?.Value 
+                    ?? User.FindFirst("nameid")?.Value;
+
+                if (int.TryParse(userIdClaim, out int userId))
+                {
+                    var user = await _userService.GetUserByIdAsync(userId);
+                    if (user != null) return Ok(user);
+                }
+                return NotFound(new { message = "Kullanıcı profili bulunamadı." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Profil bilgisi alınırken hata: {ex.Message}" });
+            }
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetAll()
+
         {
             if (!IsAdmin()) return StatusCode(403, new { message = "Bu alana sadece yetkili yöneticiler (Admin) erişebilir." });
 
@@ -161,6 +185,23 @@ namespace GeoraphMap.API.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = $"Kullanıcı yetkileri atanırken hata: {ex.Message}" });
+            }
+        }
+
+        [HttpPost("{id}/spatial-boundary")]
+        public async Task<IActionResult> SetSpatialBoundary(int id, [FromBody] SetSpatialBoundaryDto dto)
+        {
+            if (!IsAdmin()) return StatusCode(403, new { message = "Sadece asdf.admin bu alana erişebilir." });
+
+            try
+            {
+                var result = await _userService.SetSpatialBoundaryAsync(id, dto.SpatialBoundaryWkt);
+                if (!result) return NotFound(new { message = "Kullanıcı bulunamadı." });
+                return Ok(new { message = "Kullanıcının coğrafi yetki sınırı başarıyla güncellendi." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Coğrafi yetki sınırı kaydedilirken hata: {ex.Message}" });
             }
         }
     }

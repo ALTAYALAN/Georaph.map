@@ -14,5 +14,6 @@ namespace GeoraphMap.Core.Services
         Task<bool> ToggleUserStatusAsync(int id);
         Task<List<UserPermissionDetailDto>> GetUserPermissionsAsync(int userId);
         Task<bool> AssignUserRolesAndPermissionsAsync(int userId, List<int> roleIds, List<int> directPermissionIds);
+        Task<bool> SetSpatialBoundaryAsync(int userId, string? boundaryWkt);
     }
 }

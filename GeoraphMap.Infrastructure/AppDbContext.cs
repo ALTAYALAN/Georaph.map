@@ -20,6 +20,7 @@ namespace GeoraphMap.Infrastructure
         public DbSet<RolePermission> RolePermissions { get; set; }
         public DbSet<UserPermission> UserPermissions { get; set; }
         public DbSet<EditorCollaboration> EditorCollaborations { get; set; }
+        public DbSet<CityFeature> Cities { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -30,6 +31,7 @@ namespace GeoraphMap.Infrastructure
             modelBuilder.Entity<PointFeature>().ToTable("tbl_point");
             modelBuilder.Entity<LineFeature>().ToTable("tbl_line");
             modelBuilder.Entity<PolygonFeature>().ToTable("tbl_polygon");
+            modelBuilder.Entity<CityFeature>().ToTable("tbl_city");
 
             modelBuilder.Entity<Role>().ToTable("tbl_role");
             modelBuilder.Entity<Permission>().ToTable("tbl_permission");

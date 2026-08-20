@@ -153,6 +153,7 @@ namespace GeoraphMap.Infrastructure.Services
                 throw new ArgumentException("Girdi geçerli bir Point WKT verisi değil.");
 
             pointGeom.SRID = 4326;
+            await ValidateSpatialBoundaryAsync(userId, pointGeom);
 
             var entity = new PointFeature
             {
@@ -195,6 +196,7 @@ namespace GeoraphMap.Infrastructure.Services
                 throw new ArgumentException("Girdi geçerli bir LineString WKT verisi değil.");
 
             lineGeom.SRID = 4326;
+            await ValidateSpatialBoundaryAsync(userId, lineGeom);
 
             var entity = new LineFeature
             {
@@ -237,6 +239,7 @@ namespace GeoraphMap.Infrastructure.Services
                 throw new ArgumentException("Girdi geçerli bir Polygon WKT verisi değil.");
 
             polygonGeom.SRID = 4326;
+            await ValidateSpatialBoundaryAsync(userId, polygonGeom);
 
             var entity = new PolygonFeature
             {
@@ -316,6 +319,7 @@ namespace GeoraphMap.Infrastructure.Services
                         if (geom is not LineString lineGeom)
                             throw new ArgumentException("Geçersiz LineString WKT verisi.");
                         lineGeom.SRID = 4326;
+                        await ValidateSpatialBoundaryAsync(userId, lineGeom);
                         l.Geometry = lineGeom;
                         l.Wkt = dto.Wkt.Trim();
                     }
@@ -406,6 +410,32 @@ namespace GeoraphMap.Infrastructure.Services
 
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        private async Task ValidateSpatialBoundaryAsync(int userId, NetTopologySuite.Geometries.Geometry drawingGeom)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted);
+            if (user == null || string.IsNullOrWhiteSpace(user.SpatialBoundaryWkt))
+                return;
+
+            try
+            {
+                var boundaryGeom = _wktReader.Read(user.SpatialBoundaryWkt);
+                boundaryGeom.SRID = 4326;
+
+                if (!boundaryGeom.Covers(drawingGeom) && !boundaryGeom.Intersects(drawingGeom))
+                {
+                    throw new ArgumentException("Çizim, tanımlı coğrafi yetki alanınızın dışındadır! Lütfen sadece izin verilen coğrafi sınırlar içine çizim yapınız.");
+                }
+            }
+            catch (ArgumentException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DrawingService] Coğrafi sınır doğrulama uyarısı: {ex.Message}");
+            }
         }
     }
 }

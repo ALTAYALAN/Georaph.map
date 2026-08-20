@@ -63,8 +63,32 @@ namespace GeoraphMap.Infrastructure
                 }
             }
 
+            // Ensure any users without any role get default "Viewer" role
+            var viewerRole = await context.Roles
+                .FirstOrDefaultAsync(r => r.Name.ToLower() == "viewer" || r.Name.ToLower() == "görüntüleyici");
+
+            if (viewerRole != null)
+            {
+                var usersWithoutRoles = await context.Users
+                    .Where(u => !u.IsDeleted && !u.UserRoles.Any())
+                    .ToListAsync();
+
+                foreach (var u in usersWithoutRoles)
+                {
+                    context.UserRoles.Add(new UserRole
+                    {
+                        UserId = u.Id,
+                        RoleId = viewerRole.Id
+                    });
+                }
+                if (usersWithoutRoles.Any())
+                {
+                    await context.SaveChangesAsync();
+                }
+            }
+
             await context.SaveChangesAsync();
-            Console.WriteLine("[DbSeeder] asdf.admin user and role ensured successfully.");
+            Console.WriteLine("[DbSeeder] asdf.admin user, role and default viewer roles ensured successfully.");
         }
 
         public static async Task EnsureTablesCreatedAsync(AppDbContext context)
@@ -80,8 +104,9 @@ namespace GeoraphMap.Infrastructure
                         requested_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         responded_date TIMESTAMP WITH TIME ZONE NULL
                     );
+                    ALTER TABLE tbl_user ADD COLUMN IF NOT EXISTS spatial_boundary_wkt TEXT;
                 ");
-                Console.WriteLine("[DbSeeder] tbl_editor_collaboration table ensured successfully.");
+                Console.WriteLine("[DbSeeder] tbl_editor_collaboration table and spatial_boundary_wkt column ensured successfully.");
             }
             catch (Exception ex)
             {

@@ -51,8 +51,15 @@ namespace GeoraphMap.Core.DTOs
         public string Email { get; set; } = string.Empty;
         public string Phone { get; set; } = string.Empty;
         public bool IsActive { get; set; }
+        public string? SpatialBoundaryWkt { get; set; }
         public List<RoleDto> Roles { get; set; } = new List<RoleDto>();
         public List<UserPermissionDetailDto> Permissions { get; set; } = new List<UserPermissionDetailDto>();
+    }
+
+    public class SetSpatialBoundaryDto
+    {
+        public int UserId { get; set; }
+        public string? SpatialBoundaryWkt { get; set; }
     }
 
     public class CreateAdminUserDto
