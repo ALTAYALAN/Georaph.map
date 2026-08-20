@@ -119,8 +119,8 @@ export const translations = {
         collaborationTitle: "Editörler Arası İşbirliği Mekanizması",
         collaborationShortBtn: "İşbirliği",
         sendRequestBtn: "İstek Gönder",
-        acceptBtn: "✓ Kabul Et",
-        declineBtn: "✕ Reddet",
+        acceptBtn: "Kabul Et",
+        declineBtn: "Reddet",
         closeBtn: "Kapat"
     },
     en: {

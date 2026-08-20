@@ -4,18 +4,24 @@ import Map from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
+import HeatmapLayer from 'ol/layer/Heatmap';
 import VectorSource from 'ol/source/Vector';
 import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
 import Polygon from 'ol/geom/Polygon';
 import { Style, Icon, Stroke, Fill, Circle as CircleStyle } from 'ol/style';
+import { setupPulsingSpatialBoundaryLayer, isGeomInsideBoundary } from './utils/spatialConstraint';
+
 import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
+import TileWMS from 'ol/source/TileWMS';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import Draw from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
 import Collection from 'ol/Collection';
 import WKT from 'ol/format/WKT';
+import GeoJSON from 'ol/format/GeoJSON';
+
 import Overlay from 'ol/Overlay';
 import { getLength, getArea } from 'ol/sphere';
 import { getCenter } from 'ol/extent';
@@ -25,6 +31,8 @@ import { Toast } from 'primereact/toast';
 
 import { translations } from './translations';
 import { AdminDashboard } from './components/admin/AdminDashboard';
+import { BASEMAP_LAYERS } from './constants/mapLayers';
+import { MapLayerSwitcher } from './components/common/MapLayerSwitcher';
 import './App.css';
 
 // Hex rengi RGBA stringe çevirme yardımcısı
@@ -147,6 +155,74 @@ function App() {
         const role = localStorage.getItem('user_role') || (parseJwt(localStorage.getItem('jwt_token'))?.userRole);
         return role === 'Admin';
     });
+
+    const [userSpatialBoundaryWkt, setUserSpatialBoundaryWkt] = useState('');
+    const userSpatialBoundaryWktRef = useRef(userSpatialBoundaryWkt);
+    const pulsingBoundaryRef = useRef(null);
+
+    // Isı Haritası (Heatmap) Analizi Durumu ve Katman Referansları
+    const [isHeatmapActive, setIsHeatmapActive] = useState(false);
+    const [heatmapTypeFilter, setHeatmapTypeFilter] = useState('ALL'); // 'ALL' | 'Point' | 'Line' | 'Polygon'
+    const heatmapSourceRef = useRef(new VectorSource());
+    const heatmapLayerRef = useRef(null);
+    const geoServerWmsSourceRef = useRef(null);
+    const geoServerWmsLayerRef = useRef(null);
+
+    useEffect(() => {
+        userSpatialBoundaryWktRef.current = userSpatialBoundaryWkt;
+    }, [userSpatialBoundaryWkt]);
+
+
+    // Fetch active user profile (including Spatial Boundary WKT) on login (Only for Editor / non-Admin users)
+    useEffect(() => {
+        if (!token || isAdmin || userRole === 'Admin') {
+            setUserSpatialBoundaryWkt('');
+            return;
+        }
+        fetch('http://localhost:5041/api/users/me', {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+        .then(res => res.ok ? res.json() : null)
+        .then(user => {
+            if (user && user.spatialBoundaryWkt && !isAdmin && userRole !== 'Admin') {
+                console.log('Aktif editör kullanıcısının coğrafi yetki sınırı yüklendi:', user.spatialBoundaryWkt);
+                setUserSpatialBoundaryWkt(user.spatialBoundaryWkt);
+            } else {
+                setUserSpatialBoundaryWkt('');
+            }
+        })
+        .catch(err => console.error('Kullanıcı coğrafi sınır bilgisi alınamadı:', err));
+    }, [token, isAdmin, userRole]);
+
+    // Setup pulsing red spatial boundary layer on main map ONLY for Editor / non-Admin users
+    useEffect(() => {
+        if (!mapRef.current) return;
+
+        if (pulsingBoundaryRef.current) {
+            pulsingBoundaryRef.current.cleanup();
+            pulsingBoundaryRef.current = null;
+        }
+
+        if (userSpatialBoundaryWkt && !isAdmin && userRole !== 'Admin') {
+            const handle = setupPulsingSpatialBoundaryLayer(mapRef.current, userSpatialBoundaryWkt);
+            pulsingBoundaryRef.current = handle;
+            if (handle && handle.feature) {
+                try {
+                    const extent = handle.feature.getGeometry().getExtent();
+                    mapRef.current.getView().fit(extent, { padding: [60, 60, 60, 60], maxZoom: 11, duration: 600 });
+                } catch (e) {}
+            }
+        }
+
+        return () => {
+            if (pulsingBoundaryRef.current) {
+                pulsingBoundaryRef.current.cleanup();
+                pulsingBoundaryRef.current = null;
+            }
+        };
+    }, [userSpatialBoundaryWkt, isAdmin, userRole]);
+
+
     
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
@@ -165,8 +241,29 @@ function App() {
     const [placeName, setPlaceName] = useState('');
     const [placeColor, setPlaceColor] = useState('#16a34a');
     const [coords, setCoords] = useState({ lon: 33.2433, lat: 38.9637 }); // Varsayılan Türkiye
+    const [hasUserSelectedPin, setHasUserSelectedPin] = useState(false); // Haritaya tıklanmadığı sürece iğne görünmez / şeffaf
+    const [cursorCoords, setCursorCoords] = useState({ lon: 33.2433, lat: 38.9637 });
+    const [mapZoom, setMapZoom] = useState(6.5);
     const [infoMessage, setInfoMessage] = useState('');
     const [savedPlaces, setSavedPlaces] = useState([]); // Veritabanından gelen kayıtlı mekanlar
+
+    // Harita Altlık Katman Seçimi (Google Hibrit, Siyasi, Arazi, Saf Uydu, Gece Modu, vb.)
+    const [selectedBaseLayer, setSelectedBaseLayer] = useState(() => localStorage.getItem('geo_selected_basemap') || 'google_hybrid');
+
+    const handleSelectBaseLayer = (layerId) => {
+        setSelectedBaseLayer(layerId);
+        localStorage.setItem('geo_selected_basemap', layerId);
+        const layerConfig = BASEMAP_LAYERS.find(l => l.id === layerId) || BASEMAP_LAYERS[0];
+        if (tileLayerRef.current) {
+            tileLayerRef.current.setSource(
+                new XYZ({
+                    url: layerConfig.url,
+                    crossOrigin: 'anonymous',
+                    maxZoom: 20
+                })
+            );
+        }
+    };
 
     // OpenLayers Çizim İşlemleri (Point, LineString, Polygon, Analysis)
     const [drawType, setDrawType] = useState('None');
@@ -362,14 +459,22 @@ function App() {
         placeColorRef.current = placeColor;
     }, [placeColor]);
 
-    // OTURUM SÜRESİ KONTROLÜ VE GERİ SAYIM ZAMANLAYICISI (10 Dakika)
+    // OTURUM SÜRESİ KONTROLÜ VE GERİ SAYIM ZAMANLAYICISI (Admin için Sınırsız / Infinite)
     useEffect(() => {
         if (!token) return;
 
         const checkSessionExpiration = () => {
+            const role = localStorage.getItem('user_role') || userRole;
+            const isUserAdmin = role === 'Admin' || isAdmin || localStorage.getItem('is_admin') === 'true';
+
+            // Admin oturum süresi sınırsızdır (asla otomatik çıkış yapmaz)
+            if (isUserAdmin) {
+                setTimeLeft(999999);
+                return;
+            }
+
             const expirationTime = localStorage.getItem('session_expiration');
             if (!expirationTime) {
-                handleLogout('Oturum bilgisi bulunamadı.');
                 return;
             }
 
@@ -392,17 +497,28 @@ function App() {
         checkSessionExpiration();
         const interval = setInterval(checkSessionExpiration, 1000);
         return () => clearInterval(interval);
-    }, [token]);
+    }, [token, isAdmin, userRole]);
+
 
     // Toast Bildirimi Tetikleme
     useEffect(() => {
         if (infoMessage && toastRef.current) {
-            const isError = infoMessage.toLowerCase().includes('hata') || infoMessage.toLowerCase().includes('başarısız');
+            const lowerMsg = infoMessage.toLowerCase();
+            const isError = lowerMsg.includes('hata') || 
+                            lowerMsg.includes('başarısız') ||
+                            lowerMsg.includes('dışındadır') ||
+                            lowerMsg.includes('dışında') ||
+                            lowerMsg.includes('yetkisiz') ||
+                            lowerMsg.includes('engellendi') ||
+                            lowerMsg.includes('izin verilen') ||
+                            lowerMsg.includes('uyarı') ||
+                            lowerMsg.includes('bulunamadı') ||
+                            lowerMsg.includes('geçersiz');
             toastRef.current.show({
                 severity: isError ? 'error' : 'success',
-                summary: isError ? 'İşlem Uyarısı' : 'Başarılı',
+                summary: isError ? 'Başarısız' : 'Başarılı',
                 detail: infoMessage,
-                life: 3500
+                life: isError ? 4500 : 3500
             });
         }
     }, [infoMessage]);
@@ -595,9 +711,12 @@ function App() {
             const drawingsSource = new VectorSource();
             drawingsSourceRef.current = drawingsSource;
 
+            const activeBaseConfig = BASEMAP_LAYERS.find(l => l.id === selectedBaseLayer) || BASEMAP_LAYERS[0];
             const baseTileLayer = new TileLayer({
-                source: new OSM({
-                    crossOrigin: 'anonymous'
+                source: new XYZ({
+                    url: activeBaseConfig.url,
+                    crossOrigin: 'anonymous',
+                    maxZoom: 20
                 })
             });
             tileLayerRef.current = baseTileLayer;
@@ -616,6 +735,39 @@ function App() {
                 })
             });
 
+            const heatmapLayer = new HeatmapLayer({
+                source: heatmapSourceRef.current,
+                blur: 24,
+                radius: 20,
+                weight: function () {
+                    return 1;
+                },
+                gradient: ['#0000ff', '#00ffff', '#00ff00', '#ffff00', '#ff0000'],
+                visible: false,
+                zIndex: 15
+            });
+            heatmapLayerRef.current = heatmapLayer;
+
+            const geoServerWmsSource = new TileWMS({
+                url: 'http://localhost:5041/api/geoserver/wms',
+                params: {
+                    'LAYERS': 'geomap:v_points',
+                    'STYLES': 'drawings_heatmap',
+                    'TILED': true,
+                    'CQL_FILTER': 'is_deleted = false'
+                },
+                serverType: 'geoserver',
+                crossOrigin: 'anonymous'
+            });
+            geoServerWmsSourceRef.current = geoServerWmsSource;
+
+            const geoServerHeatmapLayer = new TileLayer({
+                source: geoServerWmsSource,
+                visible: false,
+                zIndex: 16
+            });
+            geoServerWmsLayerRef.current = geoServerHeatmapLayer;
+
             const map = new Map({
                 target: container,
                 layers: [
@@ -626,6 +778,8 @@ function App() {
                     new VectorLayer({
                         source: drawingsSource
                     }),
+                    heatmapLayer,
+                    geoServerHeatmapLayer,
                     analysisLayer,
                     new VectorLayer({
                         source: activeMarkerSource
@@ -665,6 +819,19 @@ function App() {
                 const lat = parseFloat(lonLat[1].toFixed(6));
 
                 setCoords({ lon, lat });
+                setHasUserSelectedPin(true);
+            });
+
+            map.on('pointermove', function (evt) {
+                if (evt.coordinate) {
+                    const [cLon, cLat] = toLonLat(evt.coordinate);
+                    setCursorCoords({ lon: parseFloat(cLon.toFixed(5)), lat: parseFloat(cLat.toFixed(5)) });
+                }
+            });
+
+            map.getView().on('change:resolution', function () {
+                const z = map.getView().getZoom();
+                if (z != null) setMapZoom(z);
             });
 
             mapRef.current = map;
@@ -746,6 +913,135 @@ function App() {
             }
         }
     }, [selectedPointInfo, isModifyingVertex]);
+
+    // ISI HARİTASI (HEATMAP) NOKTALARINI GÜNCELLEME VE KATMAN GÖRÜNÜRLÜĞÜ
+    useEffect(() => {
+        if (!heatmapLayerRef.current) return;
+        heatmapLayerRef.current.setVisible(isHeatmapActive);
+
+        if (isHeatmapActive && heatmapSourceRef.current) {
+            heatmapSourceRef.current.clear();
+            const wktFormat = new WKT();
+            const featuresToAdd = [];
+
+            // 1. NOKTALAR (Points & Saved Places)
+            if (heatmapTypeFilter === 'ALL' || heatmapTypeFilter === 'Point') {
+                const pointDrawings = savedDrawings.filter(d => (d.type === 'Point' || d.type === 'PointDrawing') && d.wkt);
+                pointDrawings.forEach(d => {
+                    try {
+                        const geom = wktFormat.readGeometry(d.wkt, {
+                            dataProjection: 'EPSG:4326',
+                            featureProjection: 'EPSG:3857'
+                        });
+                        featuresToAdd.push(new Feature({
+                            geometry: geom,
+                            name: d.name,
+                            id: `pt-${d.id}`,
+                            weight: 1
+                        }));
+                    } catch (e) {
+                        console.error('Heatmap point parsing error:', e);
+                    }
+                });
+
+                savedPlaces.forEach(p => {
+                    if (p.longitude != null && p.latitude != null) {
+                        featuresToAdd.push(new Feature({
+                            geometry: new Point(fromLonLat([p.longitude, p.latitude])),
+                            name: p.name,
+                            id: `place-${p.id}`,
+                            weight: 1
+                        }));
+                    }
+                });
+            }
+
+            // 2. ÇİZGİLER (LineStrings - Güzergah Düğüm & Kırılma Noktaları)
+            if (heatmapTypeFilter === 'ALL' || heatmapTypeFilter === 'Line') {
+                const lineDrawings = savedDrawings.filter(d => (d.type === 'Line' || d.type === 'LineString' || d.type === 'LineDrawing') && d.wkt);
+                lineDrawings.forEach(d => {
+                    try {
+                        const geom = wktFormat.readGeometry(d.wkt, {
+                            dataProjection: 'EPSG:4326',
+                            featureProjection: 'EPSG:3857'
+                        });
+                        const coords = geom.getCoordinates();
+                        if (Array.isArray(coords)) {
+                            coords.forEach((coord, idx) => {
+                                featuresToAdd.push(new Feature({
+                                    geometry: new Point(coord),
+                                    name: `${d.name || 'Çizgi'} (Nokta ${idx + 1})`,
+                                    id: `line-${d.id}-pt-${idx}`,
+                                    weight: 0.9
+                                }));
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Heatmap line parsing error:', e);
+                    }
+                });
+            }
+
+            // 3. POLİGONLAR (Polygons - Köşe Noktaları & Ağırlık Merkezi)
+            if (heatmapTypeFilter === 'ALL' || heatmapTypeFilter === 'Polygon') {
+                const polyDrawings = savedDrawings.filter(d => (d.type === 'Polygon' || d.type === 'PolygonDrawing') && d.wkt);
+                polyDrawings.forEach(d => {
+                    try {
+                        const geom = wktFormat.readGeometry(d.wkt, {
+                            dataProjection: 'EPSG:4326',
+                            featureProjection: 'EPSG:3857'
+                        });
+                        const coordsArray = geom.getCoordinates();
+                        if (Array.isArray(coordsArray) && coordsArray.length > 0) {
+                            // Dış çevre köşe koordinatları
+                            coordsArray[0].forEach((coord, idx) => {
+                                featuresToAdd.push(new Feature({
+                                    geometry: new Point(coord),
+                                    name: `${d.name || 'Poligon'} (Köşe ${idx + 1})`,
+                                    id: `poly-${d.id}-v-${idx}`,
+                                    weight: 0.85
+                                }));
+                            });
+                            // İç merkez / ağırlık noktası
+                            if (geom.getInteriorPoint) {
+                                featuresToAdd.push(new Feature({
+                                    geometry: geom.getInteriorPoint(),
+                                    name: `${d.name || 'Poligon'} (Merkez)`,
+                                    id: `poly-${d.id}-center`,
+                                    weight: 1
+                                }));
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Heatmap polygon parsing error:', e);
+                    }
+                });
+            }
+
+            heatmapSourceRef.current.addFeatures(featuresToAdd);
+        }
+
+        // GEOSERVER WMS KATMANI & DİNAMİK CQL_FILTER GÜNCELLEMESİ
+        if (geoServerWmsSourceRef.current) {
+            let cql = 'is_deleted = false';
+            if (heatmapTypeFilter === 'Point') {
+                cql += " AND (type = 'Point' OR type = 'PointDrawing')";
+            } else if (heatmapTypeFilter === 'Line') {
+                cql += " AND (type = 'Line' OR type = 'LineString' OR type = 'LineDrawing')";
+            } else if (heatmapTypeFilter === 'Polygon') {
+                cql += " AND (type = 'Polygon' OR type = 'PolygonDrawing')";
+            }
+
+            try {
+                geoServerWmsSourceRef.current.updateParams({
+                    'CQL_FILTER': cql,
+                    'TIME': Date.now()
+                });
+            } catch (e) {
+                console.warn('GeoServer WMS params update:', e);
+            }
+        }
+    }, [isHeatmapActive, heatmapTypeFilter, savedDrawings, savedPlaces]);
 
     // NOKTA BİLGİ PANELİ EYLEMLERİ
     const handleCopyCoords = () => {
@@ -922,10 +1218,12 @@ function App() {
         setSelectedPointInfo(null);
     };
 
-    // SEÇİLİ MAVİ PIN İŞARETÇİSİ
+    // SEÇİLİ MAVİ PIN İŞARETÇİSİ (Haritaya tıklanmadığı sürece şeffaf / gizli)
     useEffect(() => {
         if (!vectorSourceRef.current) return;
         vectorSourceRef.current.clear();
+
+        if (!hasUserSelectedPin) return; // Kullanıcı haritaya tıklamadığı sürece pin çizilmez
 
         const lon = parseFloat(coords.lon);
         const lat = parseFloat(coords.lat);
@@ -935,22 +1233,34 @@ function App() {
                 geometry: new Point(fromLonLat([lon, lat]))
             });
 
-            const pinSvg = `<svg width="34" height="46" viewBox="0 0 34 46" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="${placeColor}" stroke="#ffffff" stroke-width="2.5"/>
-              <circle cx="17" cy="17" r="6.5" fill="#ffffff"/>
+            // Seçili konumu diğer tüm objelerden ayıran belirgin, modern mavi cam degradeli ve hedef halkalı iğne
+            const pinSvg = `<svg width="36" height="48" viewBox="0 0 36 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0284c7" flood-opacity="0.6"/>
+                </filter>
+                <linearGradient id="pinGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.9"/>
+                  <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.75"/>
+                </linearGradient>
+              </defs>
+              <path d="M18 1.5C9.44 1.5 2.5 8.44 2.5 17C2.5 29.5 18 46.5 18 46.5C18 46.5 33.5 29.5 33.5 17C33.5 8.44 26.56 1.5 18 1.5Z" fill="url(#pinGrad)" stroke="#ffffff" stroke-width="2.2" filter="url(#glow)"/>
+              <circle cx="18" cy="17" r="6.5" fill="#ffffff" stroke="#0284c7" stroke-width="2"/>
+              <circle cx="18" cy="17" r="2.8" fill="#0284c7"/>
             </svg>`;
 
             marker.setStyle(new Style({
                 image: new Icon({
                     src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
-                    scale: 0.75,
-                    anchor: [0.5, 1]
+                    scale: 0.85,
+                    anchor: [0.5, 1],
+                    opacity: 0.9
                 })
             }));
 
             vectorSourceRef.current.addFeature(marker);
         }
-    }, [coords, token, placeColor]);
+    }, [coords, hasUserSelectedPin, token, placeColor]);
 
     // KAYITLI MEKANLARI HARİTADA GÖSTER
     useEffect(() => {
@@ -1183,7 +1493,7 @@ function App() {
             draftFeatureRef.current = event.feature;
         });
 
-        // 2. MADDE: Haritada çizim tamamlandığı anda (drawend) WKT Alır ve Yüzer Menüye Aktarır
+        // 2. MADDE: Haritada çizim tamamlandığı anda (drawend) WKT Alır ve Yüzer Menüye Aktarır (Sınır Dışına Çıkma Kontrolü İle)
         drawInteraction.on('drawend', (event) => {
             const geometry = event.feature.getGeometry();
             draftFeatureRef.current = event.feature;
@@ -1194,8 +1504,46 @@ function App() {
                 featureProjection: 'EPSG:3857'
             });
 
+            // STRICT SPATIAL BOUNDARY ENFORCEMENT CHECK (Only for non-Admin / Editor users)
+            if (!isAdmin && userRole !== 'Admin' && userSpatialBoundaryWktRef.current) {
+
+                try {
+                    const bFeature = wktFormat.readFeature(userSpatialBoundaryWktRef.current, {
+                        dataProjection: 'EPSG:4326',
+                        featureProjection: 'EPSG:3857'
+                    });
+                    const geojsonFormat = new GeoJSON();
+                    const bGeoJsonObj = geojsonFormat.writeGeometryObject(bFeature.getGeometry());
+                    const drawnGeoJsonObj = geojsonFormat.writeGeometryObject(geometry);
+
+                    const isAllowed = isGeomInsideBoundary(drawnGeoJsonObj, bGeoJsonObj);
+
+                    if (!isAllowed) {
+                        setTimeout(() => {
+                            if (drawingsSourceRef.current && draftFeatureRef.current) {
+                                try { drawingsSourceRef.current.removeFeature(draftFeatureRef.current); } catch (e) {}
+                                draftFeatureRef.current = null;
+                            }
+                        }, 50);
+                        setDraftWkt('');
+                        if (toastRef.current) {
+                            toastRef.current.show({
+                                severity: 'error',
+                                summary: '⚠️ YETKİSİZ ALAN!',
+                                detail: 'Çiziminiz tanımlı coğrafi yetki sınırınızın dışına çıktı! Çizim engellendi. Lütfen yalnızca kırmızı yanıp sönen coğrafi sınır içerisine çizim yapınız.',
+                                life: 6000
+                            });
+                        }
+                        return;
+                    }
+                } catch (spatialErr) {
+                    console.error('Sınır denetim hatası:', spatialErr);
+                }
+            }
+
             setDraftWkt(wktString);
         });
+
 
         mapRef.current.addInteraction(drawInteraction);
         drawInteractionRef.current = drawInteraction;
@@ -1818,7 +2166,7 @@ function App() {
 
             {/* ADMIN PANELİ TAM EKRAN KAPLAMA (OVERLAY) */}
             {currentView === 'admin' && isAdmin && userRole === 'Admin' && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc', overflow: 'auto' }}>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc', overflow: 'hidden' }}>
                     <AdminDashboard token={token} onBackToMap={() => {
                         setCurrentView('map');
                         setTimeout(() => {
@@ -1883,14 +2231,16 @@ function App() {
                         </div>
                     </div>
 
-                    {/* Oturum Süresi Geri Sayım Rozeti */}
-                    <div className="session-timer-badge">
-                        <div className="timer-label">
-                            <span className="live-dot"></span>
-                            <span>{t.sessionTime}</span>
+                    {/* Oturum Süresi Geri Sayım Rozeti (Admin için gizlenir) */}
+                    {!isAdmin && userRole !== 'Admin' && (
+                        <div className="session-timer-badge">
+                            <div className="timer-label">
+                                <span className="live-dot"></span>
+                                <span>{t.sessionTime}</span>
+                            </div>
+                            <strong>{formatTime(timeLeft)}</strong>
                         </div>
-                        <strong>{formatTime(timeLeft)}</strong>
-                    </div>
+                    )}
 
                     <div className="sidebar-divider"></div>
 
@@ -2003,7 +2353,6 @@ function App() {
                                                         borderRadius: '50%',
                                                         backgroundColor: c.hex,
                                                         border: placeColor === c.hex ? (isDarkMode ? '2px solid #ffffff' : '2px solid #0f172a') : (isDarkMode ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(0,0,0,0.25)'),
-                                                        boxShadow: placeColor === c.hex ? `0 0 5px ${c.hex}` : 'none',
                                                         cursor: 'pointer',
                                                         transition: 'all 0.15s ease'
                                                     }}
@@ -2024,7 +2373,6 @@ function App() {
                                                 border: `1.5px solid ${placeColor}`,
                                                 borderRadius: '5px',
                                                 marginLeft: 'auto',
-                                                boxShadow: `0 0 6px ${hexToRgba(placeColor, 0.3)}`,
                                                 flexShrink: 0
                                             }}
                                         >
@@ -2034,7 +2382,6 @@ function App() {
                                                     height: '10px',
                                                     borderRadius: '50%',
                                                     backgroundColor: placeColor,
-                                                    boxShadow: `0 0 3px ${placeColor}`,
                                                     display: 'inline-block',
                                                     flexShrink: 0
                                                 }}
@@ -2137,116 +2484,120 @@ function App() {
                 </div>
 
                 <div className="map-sidebar-bottom">
-                    {/* Küçültülmüş Çıkış Yap Butonu */}
-                    <button onClick={() => handleLogout()} className="btn-logout-compact" title={t.logout}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
-                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                            <polyline points="16 17 21 12 16 7" />
-                            <line x1="21" y1="12" x2="9" y2="12" />
-                        </svg>
-                        <span>{t.logout}</span>
-                    </button>
-
-                    {/* Admin Paneli Butonu (Çıkış Yap ile Dil Seçeneği Arasında) */}
-                    {isAdmin && (
-                        <button
-                            className="btn-admin-sidebar-compact"
-                            onClick={() => setCurrentView('admin')}
-                            title="Admin Paneli"
-                        >
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                            </svg>
-                            <span>Admin</span>
-                        </button>
-                    )}
-
-                    {/* Editör İşbirliği Butonu (Admin Butonunun Yerinde - Editörler İçin) */}
-                    {!isAdmin && userRole === 'Editor' && (
-                        <button
-                            className="btn-admin-sidebar-compact btn-collab-header"
-                            onClick={() => {
-                                fetchCollaborations();
-                                setShowCollaborationModal(true);
-                            }}
-                            title="Editör İşbirliği & İstekler"
-                            style={{
-                                position: 'relative',
-                                backgroundColor: '#2563eb',
-                                color: '#ffffff',
-                                border: 'none',
-                                fontWeight: 700
-                            }}
-                        >
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                                <circle cx="9" cy="7" r="4" />
-                                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                            </svg>
-                            <span>{t.collaborationShortBtn}</span>
-                            {pendingIncoming.length > 0 && (
-                                <span style={{
-                                    position: 'absolute',
-                                    top: '-4px',
-                                    right: '-4px',
-                                    backgroundColor: '#ef4444',
-                                    color: '#ffffff',
-                                    fontSize: '10px',
-                                    fontWeight: 800,
-                                    width: '18px',
-                                    height: '18px',
-                                    borderRadius: '50%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    border: '2px solid #ffffff',
-                                    boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
-                                }}>
-                                    {pendingIncoming.length}
+                    {/* GİRİŞ YAPAN KULLANICI PROFİL KUTUSU */}
+                    {token && (
+                        <div className="user-profile-badge-box">
+                            <div className="user-profile-avatar">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                                    <circle cx="12" cy="7" r="4" />
+                                </svg>
+                            </div>
+                            <div className="user-profile-details">
+                                <span className="user-profile-username" title={loggedInUsername || 'Kullanıcı'}>
+                                    {loggedInUsername || 'Kullanıcı'}
                                 </span>
-                            )}
+                                <span className={`user-profile-role-tag ${userRole?.toLowerCase()}`}>
+                                    {userRole || 'Viewer'}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ALT EYLEM BUTONLARI (ÇIKIŞ, ADMİN/İŞBİRLİĞİ, DİL) */}
+                    <div className="map-sidebar-bottom-actions">
+                        {/* Küçültülmüş Çıkış Yap Butonu */}
+                        <button onClick={() => handleLogout()} className="btn-logout-compact" title={t.logout}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                <polyline points="16 17 21 12 16 7" />
+                                <line x1="21" y1="12" x2="9" y2="12" />
+                            </svg>
+                            <span>{t.logout}</span>
                         </button>
-                    )}
 
-                    {/* Dil Seçim Butonu */}
-                    <button
-                        className="theme-toggle-btn lang-toggle-btn"
-                        onClick={toggleLang}
-                        title={t.languageSelect}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: '38px',
-                            height: '38px',
-                            padding: 0,
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                            border: '1px solid rgba(59, 130, 246, 0.3)',
-                            flexShrink: 0
-                        }}
-                    >
-                        {lang === 'tr' ? <TurkeyFlag /> : <UKFlag />}
-                    </button>
+                        {/* Admin Paneli Butonu (Çıkış Yap ile Dil Seçeneği Arasında) */}
+                        {isAdmin && (
+                            <button
+                                className="btn-admin-sidebar-compact"
+                                onClick={() => setCurrentView('admin')}
+                                title="Admin Paneli"
+                            >
+                                <span>Admin</span>
+                            </button>
+                        )}
+
+                        {/* Editör İşbirliği Butonu (Admin Butonunun Yerinde - Editörler İçin) */}
+                        {!isAdmin && userRole === 'Editor' && (
+                            <button
+                                className="btn-admin-sidebar-compact btn-collab-header"
+                                onClick={() => {
+                                    fetchCollaborations();
+                                    setShowCollaborationModal(true);
+                                }}
+                                title="Editör İşbirliği & İstekler"
+                                style={{
+                                    position: 'relative',
+                                    backgroundColor: '#2563eb',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontWeight: 700
+                                }}
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                </svg>
+                                <span>{t.collaborationShortBtn}</span>
+                                {pendingIncoming.length > 0 && (
+                                    <span style={{
+                                        position: 'absolute',
+                                        top: '-4px',
+                                        right: '-4px',
+                                        backgroundColor: '#ef4444',
+                                        color: '#ffffff',
+                                        fontSize: '10px',
+                                        fontWeight: 800,
+                                        width: '18px',
+                                        height: '18px',
+                                        borderRadius: '50%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        border: '2px solid #ffffff',
+                                        boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
+                                    }}>
+                                        {pendingIncoming.length}
+                                    </span>
+                                )}
+                            </button>
+                        )}
+
+                        {/* Dil Seçim Butonu */}
+                        <button
+                            className="theme-toggle-btn lang-toggle-btn"
+                            onClick={toggleLang}
+                            title={t.languageSelect}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '38px',
+                                height: '38px',
+                                padding: 0,
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                border: '1px solid rgba(59, 130, 246, 0.3)',
+                                flexShrink: 0
+                            }}
+                        >
+                            {lang === 'tr' ? <TurkeyFlag /> : <UKFlag />}
+                        </button>
+                    </div>
                 </div>
-            </div>
-
-            {/* HARİTA KATMAN FİLTRELEME ARAÇ ÇUBUĞU (ZOOM BUTONLARININ SOLUNDA BİREBİR UYUMLU) */}
-            <div className="map-filter-toolbar-floating">
-                <button
-                    className={`map-filter-btn ${showFilterPanel ? 'active' : ''}`}
-                    onClick={() => setShowFilterPanel(!showFilterPanel)}
-                    title="Harita Katman Filtresi"
-                >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                    </svg>
-                    {(selectedTypeFilter !== 'ALL' || selectedEditorFilter !== 'ALL') && (
-                        <span style={{ position: 'absolute', top: '5px', right: '5px', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b', border: '1.5px solid #ffffff' }} />
-                    )}
-                </button>
             </div>
 
             {/* HARİTA FİLTRELEME YÜZER PANELİ */}
@@ -2255,8 +2606,8 @@ function App() {
                     className="map-filter-panel-floating"
                     style={{
                         position: 'absolute',
-                        top: '80px',
-                        right: '80px',
+                        top: '128px',
+                        right: '76px',
                         width: '280px',
                         backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
                         border: isDarkMode ? '1px solid #334155' : '1px solid #cbd5e1',
@@ -2373,66 +2724,105 @@ function App() {
                 </div>
             )}
 
-            {/* HARİTA ÜZERİNDEKİ ÇİZİM & ANALİZ ARAÇ ÇUBUĞU (SAĞ ÜST) */}
-            {userRole !== 'Viewer' && (
-                <div className="map-draw-toolbar-floating">
-                <div className="map-draw-toolbar-header-compact" title={t.drawToolsTitle} data-tooltip={t.drawToolsTitle}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                    </svg>
-                </div>
-                <div className="map-draw-toolbar-divider" />
+            {/* HARİTA ÜZERİNDEKİ ÇİZİM & ANALİZ & KATMAN & FİLTRE ARAÇ ÇUBUĞU (SAĞ ÜST) */}
+            <div className="map-draw-toolbar-floating">
+                {/* HARİTA KATMANLARI SEÇİCİ (GOOGLE UYDU, SİYASİ, ARAZİ, GECE MODU) */}
+                <MapLayerSwitcher
+                    selectedLayerId={selectedBaseLayer}
+                    onSelectLayer={handleSelectBaseLayer}
+                    direction="left"
+                />
 
+                {/* HARİTA KATMAN FİLTRELEME BUTONU (KATMAN BUTONUNUN HEMEN ALTINDA) */}
                 <button
-                    className={`map-tool-icon-btn ${drawType === 'LineString' ? 'active' : ''}`}
-                    onClick={() => {
-                        if (drawType === 'LineString') handleCancelDraw();
-                        else setDrawType('LineString');
-                    }}
-                    title={t.toolLineTitle}
-                    data-tooltip={t.drawingLineMode}
+                    className={`map-tool-icon-btn ${showFilterPanel ? 'active' : ''}`}
+                    onClick={() => setShowFilterPanel(!showFilterPanel)}
+                    title="Harita Çizim Filtresi"
+                    data-tooltip="Filtreleme Menüsü"
+                    style={{ position: 'relative' }}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 20L20 4" />
-                        <circle cx="4" cy="20" r="2.5" fill="currentColor" />
-                        <circle cx="20" cy="4" r="2.5" fill="currentColor" />
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
                     </svg>
+                    {(selectedTypeFilter !== 'ALL' || selectedEditorFilter !== 'ALL') && (
+                        <span style={{ position: 'absolute', top: '4px', right: '4px', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b', border: '1.5px solid #ffffff' }} />
+                    )}
                 </button>
 
-                <button
-                    className={`map-tool-icon-btn ${drawType === 'Polygon' ? 'active' : ''}`}
-                    onClick={() => {
-                        if (drawType === 'Polygon') handleCancelDraw();
-                        else setDrawType('Polygon');
-                    }}
-                    title={t.toolPolygonTitle}
-                    data-tooltip={t.drawingPolygonMode}
-                >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="12 2 22 7.5 18 19 6 19 2 8.5" />
-                    </svg>
-                </button>
+                {userRole !== 'Viewer' && (
+                    <>
+                        <div className="map-draw-toolbar-divider" />
 
-                {/* GEÇİCİ ENVANTER ANALİZİ ARACI */}
+                        {/* ÇİZGİ ÇİZİM ARACI */}
+                        <button
+                            className={`map-tool-icon-btn ${drawType === 'LineString' ? 'active' : ''}`}
+                            onClick={() => {
+                                if (drawType === 'LineString') handleCancelDraw();
+                                else setDrawType('LineString');
+                            }}
+                            title={t.toolLineTitle}
+                            data-tooltip={t.drawingLineMode}
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 20L20 4" />
+                                <circle cx="4" cy="20" r="2.5" fill="currentColor" />
+                                <circle cx="20" cy="4" r="2.5" fill="currentColor" />
+                            </svg>
+                        </button>
+
+                        {/* POLİGON ÇİZİM ARACI */}
+                        <button
+                            className={`map-tool-icon-btn ${drawType === 'Polygon' ? 'active' : ''}`}
+                            onClick={() => {
+                                if (drawType === 'Polygon') handleCancelDraw();
+                                else setDrawType('Polygon');
+                            }}
+                            title={t.toolPolygonTitle}
+                            data-tooltip={t.drawingPolygonMode}
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="12 2 22 7.5 18 19 6 19 2 8.5" />
+                            </svg>
+                        </button>
+
+                        {/* GEÇİCİ ENVANTER ANALİZİ ARACI */}
+                        <button
+                            className={`map-tool-icon-btn analysis-tool-btn ${drawType === 'Analysis' ? 'active' : ''}`}
+                            onClick={() => {
+                                if (drawType === 'Analysis') handleCancelDraw();
+                                else {
+                                    setDrawType('Analysis');
+                                }
+                            }}
+                            title={t.toolAnalysisTitle}
+                            data-tooltip={t.toolAnalysisTitle}
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                <polygon points="10 8 13 11 11 14 8 12" />
+                            </svg>
+                        </button>
+                    </>
+                )}
+
+                {/* ISI HARİTASI (HEATMAP) ANALİZİ BUTONU */}
                 <button
-                    className={`map-tool-icon-btn analysis-tool-btn ${drawType === 'Analysis' ? 'active' : ''}`}
-                    onClick={() => {
-                        if (drawType === 'Analysis') handleCancelDraw();
-                        else {
-                            setDrawType('Analysis');
-                        }
+                    className={`map-tool-icon-btn heatmap-tool-btn ${isHeatmapActive ? 'active' : ''}`}
+                    onClick={() => setIsHeatmapActive(!isHeatmapActive)}
+                    title="Isı Haritası Analizi (Nokta Yoğunluğu)"
+                    data-tooltip="Isı Haritası"
+                    style={{
+                        background: isHeatmapActive ? '#f97316' : undefined,
+                        color: isHeatmapActive ? '#ffffff' : undefined,
+                        border: isHeatmapActive ? '1.5px solid #fdba74' : undefined,
+                        boxShadow: isHeatmapActive ? '0 0 12px rgba(249, 115, 22, 0.5)' : undefined
                     }}
-                    title={t.toolAnalysisTitle}
-                    data-tooltip={t.toolAnalysisTitle}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        <polygon points="10 8 13 11 11 14 8 12" />
+                        <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
                     </svg>
                 </button>
             </div>
-            )}
 
             {/* SADE VE NET YÜZER ÇİZİM BARI */}
             {drawType !== 'None' && drawType !== 'Analysis' && (
@@ -2519,7 +2909,6 @@ function App() {
                                                 borderRadius: '50%',
                                                 backgroundColor: c.hex,
                                                 border: drawingColor === c.hex ? '2px solid #ffffff' : '1px solid rgba(255,255,255,0.2)',
-                                                boxShadow: drawingColor === c.hex ? `0 0 5px ${c.hex}` : 'none',
                                                 cursor: 'pointer'
                                             }}
                                             title={`${c.label} (${c.hex})`}
@@ -2539,7 +2928,6 @@ function App() {
                                         border: `1.5px solid ${drawingColor}`,
                                         borderRadius: '5px',
                                         marginLeft: 'auto',
-                                        boxShadow: `0 0 6px ${hexToRgba(drawingColor, 0.3)}`,
                                         flexShrink: 0
                                     }}
                                 >
@@ -2549,7 +2937,6 @@ function App() {
                                             height: '10px',
                                             borderRadius: '50%',
                                             backgroundColor: drawingColor,
-                                            boxShadow: `0 0 3px ${drawingColor}`,
                                             display: 'inline-block',
                                             flexShrink: 0
                                         }}
@@ -2687,7 +3074,7 @@ function App() {
                                 cursor: 'pointer'
                             }}
                         >
-                            ✓ Kaydet
+                            Kaydet
                         </button>
 
                         <button
@@ -2703,7 +3090,7 @@ function App() {
                                 cursor: 'pointer'
                             }}
                         >
-                            ✕ Vazgeç
+                            Vazgeç
                         </button>
                     </div>
                 </div>
@@ -2995,7 +3382,7 @@ function App() {
                                                             transition: 'all 0.15s ease'
                                                         }}
                                                     >
-                                                        ✕ {lang === 'tr' ? 'İptal Et' : 'Cancel'}
+                                                        {lang === 'tr' ? 'İptal Et' : 'Cancel'}
                                                     </button>
                                                 </div>
                                             </div>
@@ -3320,6 +3707,83 @@ function App() {
                 </div>,
                 overlayContainerRef.current
             )}
+
+            {/* ISI HARİTASI LEJANTI (SAĞ ALT KÖŞE) */}
+            {isHeatmapActive && (
+                <div className="heatmap-legend-floating-card">
+                    <div className="heatmap-legend-header">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+                            </svg>
+                            <span style={{ fontSize: '12px', fontWeight: 700 }}>Nokta Yoğunluğu (Isı Haritası)</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsHeatmapActive(false)}
+                            className="heatmap-legend-close"
+                            title="Lejantı Kapat"
+                        >
+                            ✕
+                        </button>
+                    </div>
+
+                    {/* GEOMETRİ TÜRÜ FİLTRELEME BUTONLARI (TÜMÜ / NOKTA / ÇİZGİ / POLİGON) */}
+                    <div className="heatmap-filter-pill-group">
+                        {[
+                            { id: 'ALL', label: 'Tümü' },
+                            { id: 'Point', label: 'Nokta' },
+                            { id: 'Line', label: 'Çizgi' },
+                            { id: 'Polygon', label: 'Poligon' }
+                        ].map(f => (
+                            <button
+                                key={f.id}
+                                type="button"
+                                className={`heatmap-filter-pill-btn ${heatmapTypeFilter === f.id ? 'active' : ''}`}
+                                onClick={() => setHeatmapTypeFilter(f.id)}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Renk Skalası Şeridi (0.0 Mavi -> Camgöbeği -> Yeşil -> Sarı -> 1.0 Kırmızı) */}
+                    <div className="heatmap-gradient-strip" />
+
+                    {/* 0.0 - 1.0 Değer Aralıkları */}
+                    <div className="heatmap-scale-labels">
+                        <span>0.0 (Düşük)</span>
+                        <span>0.5 (Orta)</span>
+                        <span>1.0 (Yüksek)</span>
+                    </div>
+
+                    <div className="heatmap-legend-footer">
+                        <span>Analiz Kapsamı:</span>
+                        <strong style={{ color: '#f97316' }}>
+                            {heatmapSourceRef.current ? heatmapSourceRef.current.getFeatures().length : 0} Konum / Nokta
+                        </strong>
+                    </div>
+                </div>
+            )}
+
+            {/* CANLI İMLEÇ KOORDİNAT & HARİTA ÖLÇEK ÇUBUĞU (SAĞ ALT KÖŞE) */}
+            <div className="map-coords-scale-bar">
+                <div className="coords-display-section" title="İmlecin Bulunduğu Coğrafi Koordinatlar (Enlem, Boylam)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#3b82f6' }}>
+                        <circle cx="12" cy="12" r="10" />
+                        <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+                    </svg>
+                    <span>
+                        {cursorCoords.lat.toFixed(5)}° K, {cursorCoords.lon.toFixed(5)}° D
+                    </span>
+                </div>
+
+                <div className="coords-scale-divider" />
+
+                <div className="scale-display-section" title="Yakınlaştırma Düzeyi">
+                    <span>Zoom {mapZoom.toFixed(1)}</span>
+                </div>
+            </div>
 
             {/* OpenLayers Harita Container */}
             <div id="map" ref={mapContainerRef}></div>

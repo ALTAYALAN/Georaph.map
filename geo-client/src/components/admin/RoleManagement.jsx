@@ -23,15 +23,15 @@ const UserIcon = () => (
     </svg>
 );
 
-const EditIcon = () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+const EditIcon = ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
     </svg>
 );
 
-const TrashIcon = () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+const TrashIcon = ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="3 6 5 6 21 6" />
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </svg>
@@ -154,9 +154,7 @@ export const RoleManagement = ({ token }) => {
         <div className="admin-view-container">
             <div className="admin-header">
                 <div>
-                    <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <ShieldIcon /> Rol Listesi ve Yetki Yönetimi
-                    </h2>
+                    <h2>Rol Listesi ve Yetki Yönetimi</h2>
                     <p className="admin-subtext">Sistemdeki rolleri ve bu rollere bağlı varsayılan yetkileri yönetin.</p>
                 </div>
                 <button className="admin-primary-btn" onClick={handleOpenCreateModal}>
@@ -187,27 +185,27 @@ export const RoleManagement = ({ token }) => {
                                 >
                                     <div className="role-card-header">
                                         <div>
-                                            <h3 className="role-title" style={{ display: 'flex', alignItems: 'center', gap: '6px', color: style.color }}>
-                                                <ShieldIcon /> {role.name}
+                                            <h3 className="role-title" style={{ color: style.color }}>
+                                                {role.name}
                                             </h3>
                                             <span className="role-user-count" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <UserIcon /> {role.userCount} Kullanıcı
                                             </span>
                                         </div>
-                                        <div className="role-actions">
+                                        <div className="role-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <button
-                                                className="action-btn edit-btn"
+                                                className="admin-action-btn edit-icon-btn"
+                                                title="Rolü Düzenle"
                                                 onClick={() => handleOpenEditModal(role)}
-                                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                             >
-                                                <EditIcon /> Düzenle
+                                                <EditIcon size={16} />
                                             </button>
                                             <button
-                                                className="action-btn delete-btn"
+                                                className="admin-action-btn delete-icon-btn"
+                                                title="Rolü Sil"
                                                 onClick={() => handleDeleteRole(role.id, role.name)}
-                                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                             >
-                                                <TrashIcon /> Sil
+                                                <TrashIcon size={18} />
                                             </button>
                                         </div>
                                     </div>
@@ -243,7 +241,7 @@ export const RoleManagement = ({ token }) => {
                             <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 {editingRole ? <><EditIcon /> Rol Düzenle: {editingRole.name}</> : <><PlusIcon /> Yeni Rol Ekle</>}
                             </h3>
-                            <button className="close-btn" onClick={() => setShowModal(false)}>✕</button>
+                            <button className="close-btn" onClick={() => setShowModal(false)}>x</button>
                         </div>
                         <form onSubmit={handleSubmit} className="admin-modal-form">
                             <div className="form-group">

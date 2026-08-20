@@ -66,6 +66,17 @@ export const adminApi = {
         return data;
     },
 
+    setSpatialBoundary: async (id, spatialBoundaryWkt, token) => {
+        const res = await fetch(`${API_BASE_URL}/users/${id}/spatial-boundary`, {
+            method: 'POST',
+            headers: getAuthHeaders(token),
+            body: JSON.stringify({ userId: id, spatialBoundaryWkt })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Coğrafi yetki sınırı kaydedilemedi.');
+        return data;
+    },
+
     // ROLES
     getRoles: async (token) => {
         const res = await fetch(`${API_BASE_URL}/roles`, { headers: getAuthHeaders(token) });
@@ -109,6 +120,69 @@ export const adminApi = {
     getPermissions: async (token) => {
         const res = await fetch(`${API_BASE_URL}/permissions`, { headers: getAuthHeaders(token) });
         if (!res.ok) throw new Error('Yetkiler getirilemedi.');
+        return await res.json();
+    },
+
+    // CITIES (Database Table Integration)
+    getCities: async (includeDeleted = false, token) => {
+        const res = await fetch(`${API_BASE_URL}/cities?includeDeleted=${includeDeleted}`, { headers: getAuthHeaders(token) });
+        if (!res.ok) throw new Error('İl sınır verileri veritabanından alınamadı.');
+        return await res.json();
+    },
+
+    saveBulkCities: async (cities, token) => {
+        const dtoList = (cities || []).map(c => ({
+            id: typeof c.id === 'number' ? c.id : (parseInt(c.plate, 10) || 0),
+            plate: parseInt(c.plate, 10) || 0,
+            name: c.name || '',
+            region: c.region || '',
+            wkt: c.wkt || '',
+            isActive: c.isActive !== false,
+            isDeleted: c.isDeleted === true
+        }));
+
+        const res = await fetch(`${API_BASE_URL}/cities/bulk-save`, {
+            method: 'POST',
+            headers: getAuthHeaders(token),
+            body: JSON.stringify({ cities: dtoList })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'İl sınır verileri veritabanına kaydedilemedi.');
+        return data;
+    },
+
+    backupCities: async (payload) => {
+        try {
+            await fetch(`${API_BASE_URL}/drawings/backup-cities`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } catch (e) {
+            console.warn('[backupCities] Sunucu disk yedeği kaydedilemedi:', e);
+        }
+    },
+
+    seedCities: async (token) => {
+        const res = await fetch(`${API_BASE_URL}/cities/seed`, {
+            method: 'POST',
+            headers: getAuthHeaders(token)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Veritabanı otomatik doldurulamadı.');
+        return data;
+    },
+
+    // GEOSERVER (WMS / WFS OGC Integration)
+    getGeoServerStatus: async (token) => {
+        const res = await fetch(`${API_BASE_URL}/geoserver/status`, { headers: getAuthHeaders(token) });
+        if (!res.ok) throw new Error('GeoServer servisi durumu alınamadı.');
+        return await res.json();
+    },
+
+    getGeoServerWfsLayer: async (layerName, token) => {
+        const res = await fetch(`${API_BASE_URL}/geoserver/wfs/${layerName}`, { headers: getAuthHeaders(token) });
+        if (!res.ok) throw new Error(`GeoServer WFS katman verisi alınamadı (${layerName}).`);
         return await res.json();
     }
 };

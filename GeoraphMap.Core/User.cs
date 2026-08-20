@@ -11,6 +11,7 @@ namespace GeoraphMap.Core
         public string PasswordHash { get; set; } = string.Empty;
         public bool IsActive { get; set; } = true;
         public bool IsDeleted { get; set; } = false;
+        public string? SpatialBoundaryWkt { get; set; }
         public DateTime ModifiedDate { get; set; } = DateTime.UtcNow;
         public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
         public ICollection<UserPermission> UserPermissions { get; set; } = new List<UserPermission>();

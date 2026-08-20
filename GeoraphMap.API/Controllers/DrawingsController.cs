@@ -204,5 +204,43 @@ namespace GeoraphMap.API.Controllers
                 return StatusCode(500, new { Message = $"Sunucu hatası: {ex.Message}" });
             }
         }
+
+        [AllowAnonymous]
+        [HttpPost("backup-cities")]
+        public async Task<IActionResult> BackupCities([FromBody] System.Text.Json.JsonElement payload)
+        {
+            try
+            {
+                string jsonStr = payload.GetRawText();
+                string basePath = AppDomain.CurrentDomain.BaseDirectory;
+                string solutionDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(basePath, "..", "..", "..", ".."));
+                string targetPath1 = System.IO.Path.Combine(solutionDir, "geo-client", "public", "data", "turkey-cities.json");
+                string targetPath2 = System.IO.Path.Combine(solutionDir, "geo-client", "public", "data", "turkey-cities-backup.json");
+                string targetPath3 = System.IO.Path.Combine(solutionDir, "GeoraphMap.API", "wwwroot", "data", "turkey-cities.json");
+
+                var dir = System.IO.Path.GetDirectoryName(targetPath1);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                var dir3 = System.IO.Path.GetDirectoryName(targetPath3);
+                if (!string.IsNullOrEmpty(dir3) && !Directory.Exists(dir3))
+                {
+                    Directory.CreateDirectory(dir3);
+                }
+
+                await System.IO.File.WriteAllTextAsync(targetPath1, jsonStr);
+                await System.IO.File.WriteAllTextAsync(targetPath2, jsonStr);
+                try { await System.IO.File.WriteAllTextAsync(targetPath3, jsonStr); } catch { }
+
+                return Ok(new { Message = "Haritadaki tüm iller ve poligonlar sunucu diskindeki turkey-cities.json dosyasına ve yedek dosyasına başarıyla kaydedildi!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Yedekleme Hatası: {ex.Message}" });
+            }
+        }
     }
 }
+

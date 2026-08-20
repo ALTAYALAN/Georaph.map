@@ -48,6 +48,13 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 - **Dinamik Harita Filtreleme Toolbar**: Zoom butonları yanında tür ve editör bazlı dinamik şekil filtreleme menüsü.
 - **Gelişmiş Kırılma Noktası Düzenleme (Vertex Modify)**: Haritada şekil kırılma noktaları düzenlenirken çakışmayı önleyen otomatik ötelemeli pop-up ve yüzer kontrol çubuğu (`↩ Geri Al`, `↪ İleri Al`, `✓ Kaydet`, `✕ Vazgeç`).
 
+### Admin Paneli, Rol Sıralaması ve Şekilsel Bütünlük
+- **Yetki Hiyerarşisi Sıralaması (`Admin > Editör > Viewer`)**: Kullanıcı listesi hem veritabanı API servisinde hem de istemci tarafında strictly yetki önceliğine göre sıralanır.
+- **Varsayılan "Viewer" Rolü**: Yeni kayıt olan kullanıcılar veritabanı seeder'ı ve `RegisterAsync` mantığı ile otomatik olarak "Viewer" (Görüntüleyici) rolü atanarak başlatılır.
+- **Sade İkonlu Buton Standartları**: Düzenle tuşları `34x34px` transparan mavi ikon buton, Silme tuşları `36x36px` transparan kırmızı ikon buton olarak en sağa sabitlenmiştir.
+- **Tablo Sütun Düzeni**: `ID | Kullanıcı Adı | Rol | Durum | Yetki | E-Posta | Telefon | İşlemler` sıralamasına tam uyum.
+- **Görsel Bütünlük ve Neon Temizliği**: Tüm kalkan/şimşek ikonları ve neon parlamalar kaldırılmış, mat flat kurumsal görünüm uygulanmıştır.
+
 ---
 
 ## Veritabanı Tablo Yapısı
