@@ -1481,6 +1481,18 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
         };
     }, [user]);
 
+    const handleZoomIn = () => {
+        if (!mapRef.current) return;
+        const view = mapRef.current.getView();
+        view.animate({ zoom: view.getZoom() + 0.8, duration: 250 });
+    };
+
+    const handleZoomOut = () => {
+        if (!mapRef.current) return;
+        const view = mapRef.current.getView();
+        view.animate({ zoom: view.getZoom() - 0.8, duration: 250 });
+    };
+
     const handleToggleDraw = () => {
         if (!mapRef.current || !vectorSourceRef.current) return;
 
