@@ -96,4 +96,21 @@ namespace GeoraphMap.Core.DTOs
         public string Username { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
     }
+
+    public class UserSpatialBoundaryItemDto
+    {
+        public int UserId { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string? SpatialBoundaryWkt { get; set; }
+        public bool IsCurrentUser { get; set; }
+    }
+
+    public class EffectiveSpatialBoundaryDto
+    {
+        public string? SpatialBoundaryWkt { get; set; }
+        public bool HasBoundary { get; set; }
+        public bool IsCollaborative { get; set; }
+        public List<string> ActiveCollaboratorUsernames { get; set; } = new List<string>();
+        public List<UserSpatialBoundaryItemDto> Boundaries { get; set; } = new List<UserSpatialBoundaryItemDto>();
+    }
 }

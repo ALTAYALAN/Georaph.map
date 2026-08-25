@@ -30,10 +30,18 @@ const MapRegionIcon = () => (
     </svg>
 );
 
+const PoiIcon = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+        <circle cx="12" cy="10" r="3" />
+    </svg>
+);
+
 export const AdminSidebar = ({ activeTab, setActiveTab, onBackToMap, isDarkMode, toggleTheme }) => {
     const navItems = [
         { id: 'users', label: 'Kullanıcı Yönetimi', icon: <UserGroupIcon />, sub: 'Üyeler & Coğrafi Yetkiler' },
         { id: 'roles', label: 'Rol & Yetki Yönetimi', icon: <ShieldIcon />, sub: 'Sistem Rolleri & İzinler' },
+        { id: 'pois', label: 'POI & Kategori Yönetimi', icon: <PoiIcon />, sub: 'POI Noktaları & Hiyerarşi' },
         { id: 'geo', label: 'Şehir & Bölge Yönetimi', icon: <MapRegionIcon />, sub: '81 İl & Bölge Sınırları' },
     ];
 

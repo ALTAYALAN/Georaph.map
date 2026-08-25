@@ -127,5 +127,20 @@ namespace GeoraphMap.API.Controllers
                 return StatusCode(500, new { Message = $"İşbirliği iptal edilirken hata: {ex.Message}" });
             }
         }
+
+        [HttpGet("effective-boundary")]
+        public async Task<IActionResult> GetEffectiveBoundary()
+        {
+            try
+            {
+                int userId = GetUserId();
+                var result = await _collaborationService.GetEffectiveSpatialBoundaryInfoAsync(userId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Ortak yetki alanı getirilirken hata: {ex.Message}" });
+            }
+        }
     }
 }

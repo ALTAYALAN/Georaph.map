@@ -21,6 +21,8 @@ namespace GeoraphMap.Infrastructure
         public DbSet<UserPermission> UserPermissions { get; set; }
         public DbSet<EditorCollaboration> EditorCollaborations { get; set; }
         public DbSet<CityFeature> Cities { get; set; }
+        public DbSet<PoiCategory> PoiCategories { get; set; }
+        public DbSet<Poi> Pois { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -32,6 +34,8 @@ namespace GeoraphMap.Infrastructure
             modelBuilder.Entity<LineFeature>().ToTable("tbl_line");
             modelBuilder.Entity<PolygonFeature>().ToTable("tbl_polygon");
             modelBuilder.Entity<CityFeature>().ToTable("tbl_city");
+            modelBuilder.Entity<PoiCategory>().ToTable("tbl_poi_category");
+            modelBuilder.Entity<Poi>().ToTable("tbl_poi");
 
             modelBuilder.Entity<Role>().ToTable("tbl_role");
             modelBuilder.Entity<Permission>().ToTable("tbl_permission");
@@ -39,6 +43,26 @@ namespace GeoraphMap.Infrastructure
             modelBuilder.Entity<RolePermission>().ToTable("tbl_role_permission");
             modelBuilder.Entity<UserPermission>().ToTable("tbl_user_permission");
             modelBuilder.Entity<EditorCollaboration>().ToTable("tbl_editor_collaboration");
+
+            // POI Category Self-Referencing Relation
+            modelBuilder.Entity<PoiCategory>()
+                .HasOne(c => c.Parent)
+                .WithMany(c => c.Children)
+                .HasForeignKey(c => c.ParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // POI Category & User Relations
+            modelBuilder.Entity<Poi>()
+                .HasOne(p => p.Category)
+                .WithMany(c => c.Pois)
+                .HasForeignKey(p => p.CategoryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Poi>()
+                .HasOne(p => p.User)
+                .WithMany()
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // Composite Keys
             modelBuilder.Entity<UserRole>()
@@ -87,7 +111,8 @@ namespace GeoraphMap.Infrastructure
                 new Permission { Id = 3, Name = "Polygon Ekleme", Code = "polygon.create", Description = "Haritada yeni poligon objesi ekleme yetkisi" },
                 new Permission { Id = 5, Name = "Kullanıcı Yönetimi", Code = "user.manage", Description = "Kullanıcı ekleme, güncelleme, silme ve yetkilendirme" },
                 new Permission { Id = 6, Name = "Rol Yönetimi", Code = "role.manage", Description = "Rol ekleme, güncelleme ve rol yetkisi yönetimi" },
-                new Permission { Id = 7, Name = "Bütün Çizimleri Görüntüleme", Code = "drawings.view_all", Description = "Sistemdeki tüm çizimleri ve konumları görüntüleme yetkisi" }
+                new Permission { Id = 7, Name = "Bütün Çizimleri Görüntüleme", Code = "drawings.view_all", Description = "Sistemdeki tüm çizimleri ve konumları görüntüleme yetkisi" },
+                new Permission { Id = 8, Name = "POI Ekleme", Code = "poi.create", Description = "Haritada yeni POI (İlgi Noktası) ekleme ve yönetme yetkisi" }
             );
 
             // Seed Roles
@@ -105,10 +130,12 @@ namespace GeoraphMap.Infrastructure
                 new RolePermission { RoleId = 1, PermissionId = 5 },
                 new RolePermission { RoleId = 1, PermissionId = 6 },
                 new RolePermission { RoleId = 1, PermissionId = 7 },
+                new RolePermission { RoleId = 1, PermissionId = 8 },
 
                 new RolePermission { RoleId = 2, PermissionId = 1 }, // Editor role includes "Point Ekleme"
                 new RolePermission { RoleId = 2, PermissionId = 2 },
                 new RolePermission { RoleId = 2, PermissionId = 3 },
+                new RolePermission { RoleId = 2, PermissionId = 8 },
 
                 new RolePermission { RoleId = 3, PermissionId = 7 }  // Viewer role includes "Bütün Çizimleri Görüntüleme"
             );

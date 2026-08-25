@@ -170,5 +170,169 @@ namespace GeoraphMap.Infrastructure.Services
             foreach (var id in receiverCollabs) result.Add(id);
             return result.ToList();
         }
+
+        public async Task<EffectiveSpatialBoundaryDto> GetEffectiveSpatialBoundaryInfoAsync(int userId)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted && u.IsActive);
+            if (user == null)
+            {
+                return new EffectiveSpatialBoundaryDto();
+            }
+
+            // Onaylanmış aktif işbirlikleri
+            var approvedCollabs = await _context.EditorCollaborations
+                .Include(c => c.SenderUser)
+                .Include(c => c.ReceiverUser)
+                .Where(c => c.Status == "Approved" && (c.SenderUserId == userId || c.ReceiverUserId == userId))
+                .ToListAsync();
+
+            var collaboratorUsers = approvedCollabs
+                .Select(c => c.SenderUserId == userId ? c.ReceiverUser : c.SenderUser)
+                .Where(u => u != null && u.IsActive && !u.IsDeleted)
+                .GroupBy(u => u!.Id)
+                .Select(g => g.First())
+                .ToList();
+
+            var allRelevantUsers = new List<User> { user };
+            foreach (var cUser in collaboratorUsers)
+            {
+                if (cUser != null && !allRelevantUsers.Any(x => x.Id == cUser.Id))
+                {
+                    allRelevantUsers.Add(cUser);
+                }
+            }
+
+            var collaboratorNames = collaboratorUsers.Select(u => u!.Username).ToList();
+            var isCollaborative = collaboratorNames.Count > 0;
+
+            var boundaryItems = new List<UserSpatialBoundaryItemDto>();
+            if (!string.IsNullOrWhiteSpace(user.SpatialBoundaryWkt))
+            {
+                boundaryItems.Add(new UserSpatialBoundaryItemDto
+                {
+                    UserId = user.Id,
+                    Username = user.Username,
+                    SpatialBoundaryWkt = user.SpatialBoundaryWkt,
+                    IsCurrentUser = true
+                });
+            }
+
+            foreach (var cUser in collaboratorUsers)
+            {
+                if (cUser != null && !string.IsNullOrWhiteSpace(cUser.SpatialBoundaryWkt))
+                {
+                    boundaryItems.Add(new UserSpatialBoundaryItemDto
+                    {
+                        UserId = cUser.Id,
+                        Username = cUser.Username,
+                        SpatialBoundaryWkt = cUser.SpatialBoundaryWkt,
+                        IsCurrentUser = false
+                    });
+                }
+            }
+
+            var usersWithBoundary = allRelevantUsers.Where(u => !string.IsNullOrWhiteSpace(u.SpatialBoundaryWkt)).ToList();
+            if (!usersWithBoundary.Any())
+            {
+                return new EffectiveSpatialBoundaryDto
+                {
+                    SpatialBoundaryWkt = null,
+                    HasBoundary = false,
+                    IsCollaborative = isCollaborative,
+                    ActiveCollaboratorUsernames = collaboratorNames,
+                    Boundaries = boundaryItems
+                };
+            }
+
+            try
+            {
+                var wktReader = new NetTopologySuite.IO.WKTReader { DefaultSRID = 4326 };
+                var geometries = new List<NetTopologySuite.Geometries.Geometry>();
+
+                foreach (var u in usersWithBoundary)
+                {
+                    try
+                    {
+                        var geom = wktReader.Read(u.SpatialBoundaryWkt);
+                        if (geom != null && !geom.IsEmpty)
+                        {
+                            geom.SRID = 4326;
+                            geometries.Add(geom);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[WKT Parse Error for User {u.Id}]: {ex.Message}");
+                    }
+                }
+
+                if (geometries.Count == 0)
+                {
+                    return new EffectiveSpatialBoundaryDto
+                    {
+                        SpatialBoundaryWkt = null,
+                        HasBoundary = false,
+                        IsCollaborative = isCollaborative,
+                        ActiveCollaboratorUsernames = collaboratorNames,
+                        Boundaries = boundaryItems
+                    };
+                }
+
+                NetTopologySuite.Geometries.Geometry unifiedGeom;
+                if (geometries.Count == 1)
+                {
+                    unifiedGeom = geometries[0];
+                }
+                else
+                {
+                    // Birden fazla editörün coğrafi yetki alanını sağlam şekilde birleştir (Spatial Union)
+                    try
+                    {
+                        var cleaned = geometries.Select(g => g.IsValid ? g : g.Buffer(0)).ToList();
+                        unifiedGeom = NetTopologySuite.Operation.Union.CascadedPolygonUnion.Union(cleaned)
+                                      ?? NetTopologySuite.Operation.Union.UnaryUnionOp.Union(cleaned)
+                                      ?? geometries[0];
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            var buffered = geometries.Select(g => g.Buffer(0.000001)).ToList();
+                            unifiedGeom = NetTopologySuite.Operation.Union.UnaryUnionOp.Union(buffered) ?? geometries[0];
+                        }
+                        catch
+                        {
+                            var factory = NetTopologySuite.NtsGeometryServices.Instance.CreateGeometryFactory(4326);
+                            unifiedGeom = factory.CreateGeometryCollection(geometries.ToArray());
+                        }
+                    }
+                }
+
+                unifiedGeom.SRID = 4326;
+                var wktWriter = new NetTopologySuite.IO.WKTWriter();
+                var mergedWkt = wktWriter.Write(unifiedGeom);
+
+                return new EffectiveSpatialBoundaryDto
+                {
+                    SpatialBoundaryWkt = mergedWkt,
+                    HasBoundary = true,
+                    IsCollaborative = isCollaborative,
+                    ActiveCollaboratorUsernames = collaboratorNames,
+                    Boundaries = boundaryItems
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Effective Spatial Boundary Union Error]: {ex.Message}");
+                return new EffectiveSpatialBoundaryDto
+                {
+                    SpatialBoundaryWkt = user.SpatialBoundaryWkt,
+                    HasBoundary = !string.IsNullOrWhiteSpace(user.SpatialBoundaryWkt),
+                    IsCollaborative = isCollaborative,
+                    ActiveCollaboratorUsernames = collaboratorNames,
+                    Boundaries = boundaryItems
+                };
+            }
+        }
     }
 }

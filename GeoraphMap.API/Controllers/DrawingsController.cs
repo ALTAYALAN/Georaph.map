@@ -56,6 +56,7 @@ namespace GeoraphMap.API.Controllers
         }
 
         [HttpGet]
+        [AllowAnonymous]
         public async Task<IActionResult> GetAllDrawings()
         {
             try

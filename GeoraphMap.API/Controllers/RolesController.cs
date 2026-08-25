@@ -104,7 +104,8 @@ namespace GeoraphMap.API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = $"Rol güncellenirken hata: {ex.Message}" });
+                var errorMsg = ex.InnerException != null ? $"{ex.Message} -> {ex.InnerException.Message}" : ex.Message;
+                return StatusCode(500, new { message = $"Rol güncellenirken hata: {errorMsg}" });
             }
         }
 

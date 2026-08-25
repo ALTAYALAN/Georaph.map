@@ -156,24 +156,27 @@ namespace GeoraphMap.Infrastructure.Services
                 user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
             }
 
-            // Update Roles
-            _context.UserRoles.RemoveRange(user.UserRoles);
-            if (dto.RoleIds != null && dto.RoleIds.Any())
+            // Update Roles safely with diffing
+            var targetRoleIds = (dto.RoleIds ?? new List<int>()).Distinct().ToList();
+            var currentRoleIds = user.UserRoles.Select(ur => ur.RoleId).ToList();
+            var rolesToRemove = user.UserRoles.Where(ur => !targetRoleIds.Contains(ur.RoleId)).ToList();
+            if (rolesToRemove.Any()) _context.UserRoles.RemoveRange(rolesToRemove);
+            var rolesToAdd = targetRoleIds.Where(rid => !currentRoleIds.Contains(rid)).ToList();
+            foreach (var roleId in rolesToAdd)
             {
-                foreach (var roleId in dto.RoleIds.Distinct())
-                {
-                    _context.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = roleId });
-                }
+                _context.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = roleId });
             }
 
-            // Update Direct Permissions
-            _context.UserPermissions.RemoveRange(user.UserPermissions);
-            if (dto.DirectPermissionIds != null && dto.DirectPermissionIds.Any())
+            // Update Direct Permissions safely with diffing
+            var validPermIds = await _context.Permissions.Select(p => p.Id).ToListAsync();
+            var targetDirectPermIds = (dto.DirectPermissionIds ?? new List<int>()).Where(pid => validPermIds.Contains(pid)).Distinct().ToList();
+            var currentDirectPermIds = user.UserPermissions.Select(up => up.PermissionId).ToList();
+            var permsToRemove = user.UserPermissions.Where(up => !targetDirectPermIds.Contains(up.PermissionId)).ToList();
+            if (permsToRemove.Any()) _context.UserPermissions.RemoveRange(permsToRemove);
+            var permsToAdd = targetDirectPermIds.Where(pid => !currentDirectPermIds.Contains(pid)).ToList();
+            foreach (var permId in permsToAdd)
             {
-                foreach (var permId in dto.DirectPermissionIds.Distinct())
-                {
-                    _context.UserPermissions.Add(new UserPermission { UserId = user.Id, PermissionId = permId });
-                }
+                _context.UserPermissions.Add(new UserPermission { UserId = user.Id, PermissionId = permId });
             }
 
             await _context.SaveChangesAsync();
@@ -218,22 +221,27 @@ namespace GeoraphMap.Infrastructure.Services
 
             if (user == null) return false;
 
-            _context.UserRoles.RemoveRange(user.UserRoles);
-            if (roleIds != null)
+            // Roles diffing
+            var targetRoleIds = (roleIds ?? new List<int>()).Distinct().ToList();
+            var currentRoleIds = user.UserRoles.Select(ur => ur.RoleId).ToList();
+            var rolesToRemove = user.UserRoles.Where(ur => !targetRoleIds.Contains(ur.RoleId)).ToList();
+            if (rolesToRemove.Any()) _context.UserRoles.RemoveRange(rolesToRemove);
+            var rolesToAdd = targetRoleIds.Where(rid => !currentRoleIds.Contains(rid)).ToList();
+            foreach (var roleId in rolesToAdd)
             {
-                foreach (var roleId in roleIds.Distinct())
-                {
-                    _context.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = roleId });
-                }
+                _context.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = roleId });
             }
 
-            _context.UserPermissions.RemoveRange(user.UserPermissions);
-            if (directPermissionIds != null)
+            // Direct permissions diffing
+            var validPermIds = await _context.Permissions.Select(p => p.Id).ToListAsync();
+            var targetDirectPermIds = (directPermissionIds ?? new List<int>()).Where(pid => validPermIds.Contains(pid)).Distinct().ToList();
+            var currentDirectPermIds = user.UserPermissions.Select(up => up.PermissionId).ToList();
+            var permsToRemove = user.UserPermissions.Where(up => !targetDirectPermIds.Contains(up.PermissionId)).ToList();
+            if (permsToRemove.Any()) _context.UserPermissions.RemoveRange(permsToRemove);
+            var permsToAdd = targetDirectPermIds.Where(pid => !currentDirectPermIds.Contains(pid)).ToList();
+            foreach (var permId in permsToAdd)
             {
-                foreach (var permId in directPermissionIds.Distinct())
-                {
-                    _context.UserPermissions.Add(new UserPermission { UserId = user.Id, PermissionId = permId });
-                }
+                _context.UserPermissions.Add(new UserPermission { UserId = user.Id, PermissionId = permId });
             }
 
             await _context.SaveChangesAsync();

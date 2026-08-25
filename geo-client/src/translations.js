@@ -243,8 +243,8 @@ export const translations = {
         collaborationTitle: "Inter-Editor Collaboration Mechanism",
         collaborationShortBtn: "Collaboration",
         sendRequestBtn: "Send Request",
-        acceptBtn: "✓ Accept",
-        declineBtn: "✕ Decline",
+        acceptBtn: "Accept",
+        declineBtn: "Decline",
         closeBtn: "Close"
     }
 };

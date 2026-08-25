@@ -184,5 +184,90 @@ export const adminApi = {
         const res = await fetch(`${API_BASE_URL}/geoserver/wfs/${layerName}`, { headers: getAuthHeaders(token) });
         if (!res.ok) throw new Error(`GeoServer WFS katman verisi alınamadı (${layerName}).`);
         return await res.json();
+    },
+
+    // POI (Point of Interest) & Kategori API
+    getPoiCategories: async (includeInactive = false, token) => {
+        const res = await fetch(`${API_BASE_URL}/poicategories?includeInactive=${includeInactive}`, { headers: getAuthHeaders(token) });
+        if (!res.ok) throw new Error('Kategoriler alınamadı.');
+        return await res.json();
+    },
+
+    getPoiCategoryTree: async (token) => {
+        const res = await fetch(`${API_BASE_URL}/poicategories/tree`, { headers: getAuthHeaders(token) });
+        if (!res.ok) throw new Error('Kategori ağacı alınamadı.');
+        return await res.json();
+    },
+
+    createPoiCategory: async (categoryDto, token) => {
+        const res = await fetch(`${API_BASE_URL}/poicategories`, {
+            method: 'POST',
+            headers: getAuthHeaders(token),
+            body: JSON.stringify(categoryDto)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Kategori oluşturulamadı.');
+        return data;
+    },
+
+    updatePoiCategory: async (id, categoryDto, token) => {
+        const res = await fetch(`${API_BASE_URL}/poicategories/${id}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(token),
+            body: JSON.stringify(categoryDto)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Kategori güncellenemedi.');
+        return data;
+    },
+
+    deletePoiCategory: async (id, token) => {
+        const res = await fetch(`${API_BASE_URL}/poicategories/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(token)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Kategori silinemedi.');
+        return data;
+    },
+
+    getPois: async (categoryId = null, includeInactive = false, token) => {
+        let url = `${API_BASE_URL}/pois?includeInactive=${includeInactive}`;
+        if (categoryId) url += `&categoryId=${categoryId}`;
+        const res = await fetch(url, { headers: getAuthHeaders(token) });
+        if (!res.ok) throw new Error('POI listesi alınamadı.');
+        return await res.json();
+    },
+
+    createPoi: async (poiDto, token) => {
+        const res = await fetch(`${API_BASE_URL}/pois`, {
+            method: 'POST',
+            headers: getAuthHeaders(token),
+            body: JSON.stringify(poiDto)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'POI oluşturulamadı.');
+        return data;
+    },
+
+    updatePoi: async (id, poiDto, token) => {
+        const res = await fetch(`${API_BASE_URL}/pois/${id}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(token),
+            body: JSON.stringify(poiDto)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'POI güncellenemedi.');
+        return data;
+    },
+
+    deletePoi: async (id, token) => {
+        const res = await fetch(`${API_BASE_URL}/pois/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(token)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'POI silinemedi.');
+        return data;
     }
 };

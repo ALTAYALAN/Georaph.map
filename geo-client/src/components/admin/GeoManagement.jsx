@@ -1910,9 +1910,9 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <h2 className="geo-title compact-title">Şehir & Coğrafi Bölge Sınır Yönetimi</h2>
                         {hasUnsavedChanges ? (
-                            <span className="status-badge unsaved-badge">● Değişiklikler Var</span>
+                            <span className="status-badge unsaved-badge">Değişiklikler Var</span>
                         ) : (
-                            <span className="status-badge saved-badge">✓ Kaydedildi</span>
+                            <span className="status-badge saved-badge">Kaydedildi</span>
                         )}
                     </div>
                     <p className="geo-subtitle compact-sub">
@@ -1955,7 +1955,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                         onClick={() => setIsRightDrawerOpen(!isRightDrawerOpen)}
                         title="Sağ İl Listesi Panelini Aç/Kapat"
                     >
-                        <span>{isRightDrawerOpen ? '◀ Panel Gizle' : '☰ Panel Aç'}</span>
+                        <span>{isRightDrawerOpen ? 'Panel Gizle' : 'Panel Aç'}</span>
                     </button>
 
                     {toggleTheme && (
@@ -2011,8 +2011,8 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                                         <span>2. İli 1. İle Bağla</span>
                                     </button>
                                 )}
-                                <button className="banner-btn btn-clear btn-sm-action" onClick={handleClearSelection} title="Seçimi Temizle">
-                                    ✕
+                                <button className="banner-btn btn-clear btn-sm-action" onClick={handleClearSelection} title="Seçimi Temizle" style={{ fontSize: '16px', lineHeight: 1 }}>
+                                    &times;
                                 </button>
                             </div>
                         </div>
@@ -2121,14 +2121,14 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                     <div className="geo-right-drawer compact-drawer">
                         <div className="drawer-header compact-drawer-header">
                             <span>İLLER LİSTESİ ({filteredCities.length})</span>
-                            <button className="drawer-close-btn" onClick={() => setIsRightDrawerOpen(false)}>✕</button>
+                            <button className="drawer-close-btn" onClick={() => setIsRightDrawerOpen(false)} style={{ fontSize: '18px', lineHeight: 1 }}>&times;</button>
                         </div>
 
                         <div className="geo-filter-bar compact-filter-bar">
                             <div style={{ position: 'relative', flex: 1.5, display: 'flex', alignItems: 'center' }}>
                                 <input
                                     type="text"
-                                    placeholder="🔍 Şehir veya Plaka..."
+                                    placeholder="Şehir veya Plaka..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     className="geo-search-input compact-search"
@@ -2144,12 +2144,13 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                                             border: 'none',
                                             color: '#94a3b8',
                                             cursor: 'pointer',
-                                            fontSize: '12px',
-                                            padding: '2px 4px'
+                                            fontSize: '14px',
+                                            padding: '2px 4px',
+                                            lineHeight: 1
                                         }}
                                         title="Aramayı Temizle"
                                     >
-                                        ✕
+                                        &times;
                                     </button>
                                 )}
                             </div>
@@ -2444,7 +2445,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                                         toggleMapTool('draw');
                                     }}
                                 >
-                                    ✏️ Haritada Çiz
+                                    Haritada Çiz
                                 </button>
                             </div>
                             <textarea
