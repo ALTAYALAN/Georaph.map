@@ -12,5 +12,6 @@ namespace GeoraphMap.Core.Services
         Task<bool> CancelCollaborationAsync(int userId, int requestId);
         Task<List<CollaborationResponseDto>> GetMyRequestsAsync(int userId);
         Task<List<int>> GetApprovedCollaboratorUserIdsAsync(int userId);
+        Task<EffectiveSpatialBoundaryDto> GetEffectiveSpatialBoundaryInfoAsync(int userId);
     }
 }

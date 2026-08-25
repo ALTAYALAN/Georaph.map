@@ -17,6 +17,8 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 - **Dark Glassmorphism Tasarımı**: Modern gece temalı giriş ekranı arayüzü.
 
 ### OpenLayers Çizim ve Mekansal İşlemler (GIS)
+- **POI (Point of Interest / tbl_poi)**: Operatör ve Admin'ler için harita üzerinden kategori, mesai saatleri ve açıklama bilgisiyle ilgi noktası kaydetme.
+- **Hiyerarşik Kategori Sistemi (`tbl_poi_category`)**: Üst-Alt (Parent-Child) ilişkisine sahip hiyerarşik POI kategorilendirme mimarisi (Örn: *Yeme-İçme → Restoran, Kafe*).
 - **Nokta (Point / tbl_point)**: Harita tıklaması veya dinamik konum aracı ile nokta verisi kaydetme.
 - **Çizgi (LineString / tbl_line)**: Serbest hat ve vektör çizgi çizimi, veritabanına aktarımı.
 - **Poligon (Polygon / tbl_polygon)**: Alan ve bölge sınır çizimi, veritabanına aktarımı.
@@ -27,9 +29,10 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 - **Projeksiyon Dönüşümü**: Haritadaki Web Mercator (`EPSG:3857`) ile PostgreSQL / PostGIS veritabanındaki WGS84 (`EPSG:4326`) koordinat projeksiyonları arasında otomatik dönüşüm.
 
 ### Kullanıcı Deneyimi (UX) & PrimeReact Entegrasyonu
+- **POI Bilgi Paneli (Info Card / Popup)**: Haritadaki veya listedeki POI'ye tıklandığında kategori rozeti, mesai saatleri, ekleyen kullanıcı ve koordinatları gösteren modern bilgi kartı.
 - **PrimeReact Bileşenleri**: Toast bildirimleri ve silme onay modalı (`Dialog`).
 - **Error Prevention (Silme Onayı)**: Konum veya çizim silme işlemlerinden önce uyarı penceresi.
-- **Birleşik Kayıtlı Menü**: Kayıtlı konumlar ve çizimler tek sekmeli panel altında görsel simgelerle listelenir.
+- **Birleşik Kayıtlı Menü**: Kayıtlı konumlar, POI'ler ve çizimler tek sekmeli panel altında görsel simgelerle listelenir.
 - **Sade Vektörel İkonlar**: SVG formatında sadeleştirilmiş arayüz elemanları ve çöp kutusu ikonları.
 
 ---
@@ -48,7 +51,8 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 - **Dinamik Harita Filtreleme Toolbar**: Zoom butonları yanında tür ve editör bazlı dinamik şekil filtreleme menüsü.
 - **Gelişmiş Kırılma Noktası Düzenleme (Vertex Modify)**: Haritada şekil kırılma noktaları düzenlenirken çakışmayı önleyen otomatik ötelemeli pop-up ve yüzer kontrol çubuğu (`↩ Geri Al`, `↪ İleri Al`, `✓ Kaydet`, `✕ Vazgeç`).
 
-### Admin Paneli, Rol Sıralaması ve Şekilsel Bütünlük
+### Admin Paneli, Rol Sıralaması ve POI Yönetimi
+- **POI & Hiyerarşik Kategori Yönetimi**: Eklenen tüm POI'lerin listesi, oluşturan kullanıcı bilgisi, arama/filtreleme, hiyerarşik ağaç üzerinden yeni ana/alt kategori ekleme ve düzenleme.
 - **Yetki Hiyerarşisi Sıralaması (`Admin > Editör > Viewer`)**: Kullanıcı listesi hem veritabanı API servisinde hem de istemci tarafında strictly yetki önceliğine göre sıralanır.
 - **Varsayılan "Viewer" Rolü**: Yeni kayıt olan kullanıcılar veritabanı seeder'ı ve `RegisterAsync` mantığı ile otomatik olarak "Viewer" (Görüntüleyici) rolü atanarak başlatılır.
 - **Sade İkonlu Buton Standartları**: Düzenle tuşları `34x34px` transparan mavi ikon buton, Silme tuşları `36x36px` transparan kırmızı ikon buton olarak en sağa sabitlenmiştir.
@@ -60,11 +64,14 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 ## Veritabanı Tablo Yapısı
 
 - `tbl_user`: Kullanıcı hesapları (`id`, `username`, `password_hash`, `is_active`, `is_deleted`, `modified_date`)
+- `tbl_poi_category`: Hiyerarşik POI kategorileri (`id`, `name`, `description`, `icon`, `color`, `parent_id`, `is_active`, `is_deleted`, `created_date`)
+- `tbl_poi`: İlgi noktaları (POI) (`id`, `name`, `description`, `category_id`, `working_hours`, `wkt`, `geometry`, `user_id`, `is_active`, `is_deleted`, `created_date`)
 - `tbl_editor_collaboration`: Editör işbirliği ve davet verileri (`id`, `sender_user_id`, `receiver_user_id`, `status`, `requested_date`)
 - `tbl_place`: Konum verileri (`id`, `name`, `wkt`, `longitude`, `latitude`, `modified_date`)
 - `tbl_point`: Nokta katmanı (`id`, `name`, `wkt`, `geometry`, `inserted_user_id`, `modified_date`)
 - `tbl_line`: Çizgi katmanı (`id`, `name`, `wkt`, `geometry`, `inserted_user_id`, `modified_date`)
 - `tbl_polygon`: Poligon katmanı (`id`, `name`, `wkt`, `geometry`, `inserted_user_id`, `modified_date`)
+- `tbl_city`: Şehir ve il sınır poligonları (`id`, `plate`, `name`, `region`, `geometry`, `wkt`)
 
 ---
 

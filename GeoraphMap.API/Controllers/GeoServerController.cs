@@ -63,6 +63,20 @@ namespace GeoraphMap.API.Controllers
             }
         }
 
+        [HttpGet("sld/poi")]
+        public async Task<IActionResult> GetPoiSld()
+        {
+            try
+            {
+                var sldXml = await _geoServerService.GetPoiSldStyleAsync();
+                return Content(sldXml, "application/vnd.ogc.sld+xml");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"GeoServer POI SLD Hatası: {ex.Message}" });
+            }
+        }
+
         [HttpGet("status")]
         public async Task<IActionResult> GetStatus()
         {

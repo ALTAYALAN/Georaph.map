@@ -1577,7 +1577,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                         cursor: 'pointer'
                     }}
                 >
-                    ✕
+                    &times;
                 </button>
 
                 <div className="modal-header-section" style={{ marginBottom: '16px' }}>
@@ -1748,9 +1748,9 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                 </span>
                                 <button
                                     onClick={() => setShowRegionSelector(false)}
-                                    style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '15px', cursor: 'pointer', padding: '0 4px' }}
+                                    style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '18px', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}
                                 >
-                                    ✕
+                                    &times;
                                 </button>
                             </div>
 

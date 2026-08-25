@@ -8,5 +8,6 @@ namespace GeoraphMap.Core.Services
         Task<byte[]> GetWmsMapImageAsync(string queryString);
         Task<string> GetCapabilitiesAsync();
         Task<object> GetGeoServerStatusAsync();
+        Task<string> GetPoiSldStyleAsync();
     }
 }

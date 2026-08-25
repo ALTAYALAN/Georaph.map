@@ -26,6 +26,7 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ICollaborationService, CollaborationService>();
 builder.Services.AddScoped<ICityService, CityService>();
 builder.Services.AddScoped<IGeoServerService, GeoServerService>();
+builder.Services.AddScoped<IPoiService, PoiService>();
 
 // JWT Authentication Configuration
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "GeoMap_Super_Secret_Key_For_Jwt_Authentication_2026_Key!";

@@ -3,6 +3,7 @@ import { AdminSidebar } from './AdminSidebar';
 import { UserManagement } from './UserManagement';
 import { RoleManagement } from './RoleManagement';
 import { GeoManagement } from './GeoManagement';
+import { PoiManagement } from './PoiManagement';
 
 export const AdminDashboard = ({ token, onBackToMap }) => {
     const [activeTab, setActiveTab] = useState('users');
@@ -30,6 +31,7 @@ export const AdminDashboard = ({ token, onBackToMap }) => {
             <main className="admin-content">
                 {activeTab === 'users' && <UserManagement token={token} isDarkMode={isDarkMode} />}
                 {activeTab === 'roles' && <RoleManagement token={token} isDarkMode={isDarkMode} />}
+                {activeTab === 'pois' && <PoiManagement token={token} isDarkMode={isDarkMode} />}
                 {activeTab === 'geo' && <GeoManagement token={token} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />}
             </main>
         </div>

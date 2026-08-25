@@ -60,7 +60,7 @@ export const RoleManagement = ({ token }) => {
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [token]);
 
     const loadData = async () => {
         setLoading(true);
@@ -70,8 +70,19 @@ export const RoleManagement = ({ token }) => {
                 adminApi.getRoles(token),
                 adminApi.getPermissions(token)
             ]);
-            setRoles(rolesData);
-            setPermissions(permsData);
+
+            const finalPerms = Array.isArray(permsData) ? [...permsData] : [];
+            if (!finalPerms.some(p => p.code === 'poi.create')) {
+                finalPerms.push({
+                    id: 8,
+                    name: 'POI Ekleme',
+                    code: 'poi.create',
+                    description: 'Haritada yeni POI (İlgi Noktası) ekleme ve yönetme yetkisi'
+                });
+            }
+
+            setRoles(rolesData || []);
+            setPermissions(finalPerms);
         } catch (err) {
             setError(err.message || 'Veriler yüklenirken hata oluştu.');
         } finally {
@@ -91,7 +102,13 @@ export const RoleManagement = ({ token }) => {
 
     const handleOpenEditModal = (role) => {
         setEditingRole(role);
-        const permIds = role.permissions ? role.permissions.map(p => p.id) : [];
+        let permIds = role.permissions ? role.permissions.map(p => p.id) : [];
+        if (role.id === 1 || role.name === 'Admin') {
+            const poiPerm = permissions.find(p => p.code === 'poi.create');
+            if (poiPerm && !permIds.includes(poiPerm.id)) {
+                permIds = [...permIds, poiPerm.id];
+            }
+        }
         setFormData({
             name: role.name,
             description: role.description || '',

@@ -34,10 +34,9 @@ namespace GeoraphMap.API.Controllers
         }
 
         [HttpGet]
+        [AllowAnonymous]
         public async Task<IActionResult> GetAll()
         {
-            if (!IsAdmin()) return StatusCode(403, new { message = "Bu alana sadece yetkili yöneticiler (Admin) erişebilir." });
-
             try
             {
                 var perms = await _permissionService.GetAllPermissionsAsync();

@@ -14,27 +14,52 @@ namespace GeoraphMap.Infrastructure.Services
     public class DrawingService : IDrawingService
     {
         private readonly AppDbContext _context;
+        private readonly ICollaborationService _collaborationService;
         private readonly WKTReader _wktReader;
         private readonly WKTWriter _wktWriter;
 
-        public DrawingService(AppDbContext context)
+        public DrawingService(AppDbContext context, ICollaborationService collaborationService)
         {
             _context = context;
+            _collaborationService = collaborationService;
             _wktReader = new WKTReader { DefaultSRID = 4326 };
             _wktWriter = new WKTWriter();
         }
 
         private async Task<List<int>> GetAllowedUserIdsAsync(int userId)
         {
-            var list = new List<int> { userId, 0 };
-            if (userId != 0)
+            if (userId == 0) return new List<int>();
+
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted);
+            bool isAdmin = (currentUser != null && (currentUser.Username.Equals("asdf.admin", StringComparison.OrdinalIgnoreCase) || currentUser.Username.EndsWith(".admin", StringComparison.OrdinalIgnoreCase)));
+            if (!isAdmin && currentUser != null)
             {
-                var collaborators = await _context.EditorCollaborations
-                    .Where(c => c.Status == "Approved" && (c.SenderUserId == userId || c.ReceiverUserId == userId))
-                    .Select(c => c.SenderUserId == userId ? c.ReceiverUserId : c.SenderUserId)
-                    .ToListAsync();
-                list.AddRange(collaborators);
+                isAdmin = await _context.UserRoles.AnyAsync(ur => ur.UserId == userId && ur.RoleId == 1);
             }
+
+            if (isAdmin)
+            {
+                // Admin sistemdeki tüm çizimleri düzenleyebilir
+                return await _context.Users.Select(u => u.Id).ToListAsync();
+            }
+
+            // Normal Editör: Yalnızca kendi çizimlerini ve ONAYLANMIŞ işbirliği olan diğer editörlerin çizimlerini düzenleyebilir.
+            // Admin çizimleri (Id: 1 veya Admin rolüne sahip kullanıcılar) normal editörler tarafından DÜZENLENEMEZ.
+            var list = new List<int> { userId };
+
+            var adminUserIds = await _context.UserRoles
+                .Where(ur => ur.RoleId == 1)
+                .Select(ur => ur.UserId)
+                .ToListAsync();
+            if (!adminUserIds.Contains(1)) adminUserIds.Add(1);
+
+            var collaborators = await _context.EditorCollaborations
+                .Where(c => c.Status == "Approved" && (c.SenderUserId == userId || c.ReceiverUserId == userId))
+                .Select(c => c.SenderUserId == userId ? c.ReceiverUserId : c.SenderUserId)
+                .Where(collabId => !adminUserIds.Contains(collabId)) // Admin hariç
+                .ToListAsync();
+
+            list.AddRange(collaborators);
             return list;
         }
 
@@ -52,23 +77,14 @@ namespace GeoraphMap.Infrastructure.Services
                 if (hasAdminRole) isAdmin = true;
             }
 
-            bool isViewer = string.Equals(userRole, "Viewer", StringComparison.OrdinalIgnoreCase);
+            bool isViewer = string.Equals(userRole, "Viewer", StringComparison.OrdinalIgnoreCase) || userId == 0 || string.IsNullOrEmpty(userRole);
 
-            var linesQuery = _context.Lines.Where(l => !l.IsDeleted && l.IsActive);
-            var polygonsQuery = _context.Polygons.Where(pg => !pg.IsDeleted && pg.IsActive);
-            var pointsQuery = _context.Points.Where(pt => !pt.IsDeleted && pt.IsActive);
+            var linesQuery = _context.Lines.Where(l => !l.IsDeleted);
+            var polygonsQuery = _context.Polygons.Where(pg => !pg.IsDeleted);
+            var pointsQuery = _context.Points.Where(pt => !pt.IsDeleted);
 
-            if (isAdmin || isViewer)
-            {
-                // Admin ve Viewer kullanıcıları sistemdeki TÜM konum ve çizimleri görür
-            }
-            else
-            {
-                var allowedUserIds = await GetAllowedUserIdsAsync(userId);
-                linesQuery = linesQuery.Where(l => allowedUserIds.Contains(l.InsertedUserId));
-                polygonsQuery = polygonsQuery.Where(pg => allowedUserIds.Contains(pg.InsertedUserId));
-                pointsQuery = pointsQuery.Where(pt => allowedUserIds.Contains(pt.InsertedUserId));
-            }
+            // Tüm kullanıcılar ve editörler haritada ve filtreleme ekranında tüm çizimleri görüntüleyebilir
+            // Düzenleme / güncelleme yetkisi ise yalnızca çizim sahibi, admin veya onaylı işbirliği olan editörlere verilir
 
             var usersMap = await _context.Users
                 .ToDictionaryAsync(u => u.Id, u => u.Username);
@@ -414,18 +430,57 @@ namespace GeoraphMap.Infrastructure.Services
 
         private async Task ValidateSpatialBoundaryAsync(int userId, NetTopologySuite.Geometries.Geometry drawingGeom)
         {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted);
-            if (user == null || string.IsNullOrWhiteSpace(user.SpatialBoundaryWkt))
+            var boundaryInfo = await _collaborationService.GetEffectiveSpatialBoundaryInfoAsync(userId);
+            if (!boundaryInfo.HasBoundary || string.IsNullOrWhiteSpace(boundaryInfo.SpatialBoundaryWkt))
                 return;
 
             try
             {
-                var boundaryGeom = _wktReader.Read(user.SpatialBoundaryWkt);
+                var boundaryGeom = _wktReader.Read(boundaryInfo.SpatialBoundaryWkt);
                 boundaryGeom.SRID = 4326;
 
-                if (!boundaryGeom.Covers(drawingGeom) && !boundaryGeom.Intersects(drawingGeom))
+                // Bitişik iller/bölgeler seçildiğinde aradaki ortak sınırları dinamik olarak eritip tek bir birleşik alan oluştur
+                var unifiedBoundary = NetTopologySuite.Operation.Union.UnaryUnionOp.Union(boundaryGeom) ?? boundaryGeom;
+                unifiedBoundary.SRID = 4326;
+
+                // 1. Doğrudan kapsama veya içerme kontrolü
+                if (unifiedBoundary.Covers(drawingGeom) || unifiedBoundary.Contains(drawingGeom))
                 {
-                    throw new ArgumentException("Çizim, tanımlı coğrafi yetki alanınızın dışındadır! Lütfen sadece izin verilen coğrafi sınırlar içine çizim yapınız.");
+                    return;
+                }
+
+                // 2. Çizimin birleşik sınır dışına taşan kısmının olup olmadığını kontrol et
+                var difference = drawingGeom.Difference(unifiedBoundary);
+                if (difference == null || difference.IsEmpty)
+                {
+                    return;
+                }
+
+                var scopeMsg = boundaryInfo.IsCollaborative
+                    ? $"işbirliği ile birleştirilmiş ortak yetki alanınızın ({string.Join(", ", boundaryInfo.ActiveCollaboratorUsernames)} ile ortak)"
+                    : "tanımlı coğrafi yetki alanınızın";
+
+                // Poligonlar için toleranslı alan kontrolü, çizgi ve noktalar için uzunluk/nokta kontrolü
+                if (drawingGeom is Polygon || drawingGeom is MultiPolygon)
+                {
+                    if (difference.Area > 0.0000001)
+                    {
+                        throw new ArgumentException($"Çizim, {scopeMsg} dışındadır! Lütfen sadece izin verilen coğrafi sınırlar içine çizim yapınız.");
+                    }
+                }
+                else if (drawingGeom is LineString || drawingGeom is MultiLineString)
+                {
+                    if (difference.Length > 0.0000001)
+                    {
+                        throw new ArgumentException($"Çizgi, {scopeMsg} dışına taşmaktadır! Lütfen izin verilen sınırlar içinde çiziniz.");
+                    }
+                }
+                else
+                {
+                    if (!unifiedBoundary.Covers(drawingGeom) && !unifiedBoundary.Intersects(drawingGeom))
+                    {
+                        throw new ArgumentException($"Nokta / Çizim, {scopeMsg} dışındadır! Lütfen sadece izin verilen coğrafi sınırlar içine konumlandırınız.");
+                    }
                 }
             }
             catch (ArgumentException)
