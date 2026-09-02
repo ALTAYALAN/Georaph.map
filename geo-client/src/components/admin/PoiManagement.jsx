@@ -78,7 +78,9 @@ const ChevronRightIcon = ({ size = 14 }) => (
     </svg>
 );
 
-export const PoiManagement = ({ token }) => {
+export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
+    const lang = propLang || localStorage.getItem('lang') || 'tr';
+    const isTr = lang === 'tr';
     const [subTab, setSubTab] = useState('pois'); // 'pois' | 'categories'
     const [pois, setPois] = useState([]);
     const [categories, setCategories] = useState([]);
@@ -398,13 +400,13 @@ export const PoiManagement = ({ token }) => {
             {/* Üst Başlık ve Ana Eylem Butonu */}
             <div className="admin-header">
                 <div>
-                    <h2>POI & Hiyerarşik Kategori Yönetimi</h2>
-                    <p>Önemli konum noktalarını (POI) ve Parent-Child hiyerarşik kategorilerini yönetin.</p>
+                    <h2>{isTr ? 'POI & Hiyerarşik Kategori Yönetimi' : 'POI & Hierarchical Category Management'}</h2>
+                    <p>{isTr ? 'Önemli konum noktalarını (POI) ve Parent-Child hiyerarşik kategorilerini yönetin.' : 'Manage Points of Interest (POI) and parent-child hierarchical categories.'}</p>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                     {subTab === 'pois' && (
                         <button className="admin-primary-btn" onClick={() => handleOpenPoiModal()}>
-                            <PlusIcon size={16} strokeWidth={3} /> Yeni POI Ekle
+                            <PlusIcon size={16} strokeWidth={3} /> {isTr ? 'Yeni POI Ekle' : 'Add New POI'}
                         </button>
                     )}
                 </div>
@@ -434,7 +436,7 @@ export const PoiManagement = ({ token }) => {
                     }}
                 >
                     <MapPinIcon size={16} color={subTab === 'pois' ? '#3b82f6' : 'currentColor'} />
-                    <span>POI Listesi</span>
+                    <span>{isTr ? 'POI Listesi' : 'POI List'}</span>
                     <span style={{ fontSize: '11px', padding: '1px 7px', borderRadius: '10px', backgroundColor: subTab === 'pois' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.08)', color: subTab === 'pois' ? '#3b82f6' : '#94a3b8', fontWeight: 700 }}>
                         {pois.length}
                     </span>
@@ -457,7 +459,7 @@ export const PoiManagement = ({ token }) => {
                     }}
                 >
                     <FolderIcon size={16} />
-                    <span>Hiyerarşik Kategori Ağacı</span>
+                    <span>{isTr ? 'Hiyerarşik Kategori Ağacı' : 'Category Tree'}</span>
                     <span style={{ fontSize: '11px', padding: '1px 7px', borderRadius: '10px', backgroundColor: subTab === 'categories' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.08)', color: subTab === 'categories' ? '#3b82f6' : '#94a3b8', fontWeight: 700 }}>
                         {categories.length}
                     </span>
@@ -477,7 +479,7 @@ export const PoiManagement = ({ token }) => {
                                 type="text"
                                 className="form-control"
                                 style={{ paddingLeft: '36px', height: '38px' }}
-                                placeholder="POI adı, kullanıcı veya kategori ara..."
+                                placeholder={isTr ? "POI adı, kullanıcı veya kategori ara..." : "Search POI name, user or category..."}
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
@@ -489,10 +491,10 @@ export const PoiManagement = ({ token }) => {
                             value={selectedCategoryFilter}
                             onChange={(e) => setSelectedCategoryFilter(e.target.value)}
                         >
-                            <option value="">Tüm Kategoriler ({categories.length})</option>
+                            <option value="">{isTr ? 'Tüm Kategoriler' : 'All Categories'} ({categories.length})</option>
                             {categories.map(c => (
                                 <option key={c.id} value={c.id}>
-                                    {c.parentName ? `${c.parentName} → ${c.name}` : `[Ana Kategori] ${c.name}`}
+                                    {c.parentName ? `${c.parentName} → ${c.name}` : `[${isTr ? 'Ana Kategori' : 'Root'}] ${c.name}`}
                                 </option>
                             ))}
                         </select>
@@ -500,20 +502,20 @@ export const PoiManagement = ({ token }) => {
 
                     {/* Tablo */}
                     {loading ? (
-                        <div className="admin-loading">POI verileri yükleniyor...</div>
+                        <div className="admin-loading">{isTr ? 'POI verileri yükleniyor...' : 'Loading POI data...'}</div>
                     ) : (
                         <div className="admin-table-wrapper">
                             <table className="admin-table">
                                 <thead>
                                     <tr>
                                         <th>ID</th>
-                                        <th>POI Adı</th>
-                                        <th>Kategori / Üst Kategori</th>
-                                        <th>Mesai Saatleri</th>
-                                        <th>Ekleyen Kullanıcı</th>
-                                        <th>Kayıt Tarihi</th>
-                                        <th>Durum</th>
-                                        <th style={{ textAlign: 'right' }}>İşlemler</th>
+                                        <th>{isTr ? 'POI Adı' : 'POI Name'}</th>
+                                        <th>{isTr ? 'Kategori / Üst Kategori' : 'Category / Parent'}</th>
+                                        <th>{isTr ? 'Mesai Saatleri' : 'Working Hours'}</th>
+                                        <th>{isTr ? 'Ekleyen Kullanıcı' : 'Created By'}</th>
+                                        <th>{isTr ? 'Kayıt Tarihi' : 'Date'}</th>
+                                        <th>{isTr ? 'Durum' : 'Status'}</th>
+                                        <th style={{ textAlign: 'right' }}>{isTr ? 'İşlemler' : 'Actions'}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -837,9 +839,13 @@ export const PoiManagement = ({ token }) => {
                             <button
                                 type="button"
                                 onClick={() => setShowPoiModal(false)}
-                                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '20px', lineHeight: 1 }}
+                                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                title="Kapat"
                             >
-                                &times;
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
                             </button>
                         </div>
 
@@ -916,7 +922,7 @@ export const PoiManagement = ({ token }) => {
                                             borderRadius: '50%',
                                             backgroundColor: activeCategoryObject.color || '#3b82f6',
                                             display: 'inline-block',
-                                            boxShadow: `0 0 6px ${activeCategoryObject.color || '#3b82f6'}80`
+                                            boxShadow: 'none'
                                         }} />
                                         <span style={{ color: '#64748b' }}>Seçili Harita Rozeti:</span>
                                         <strong style={{ color: activeCategoryObject.color || '#3b82f6', fontWeight: 600 }}>
@@ -1106,9 +1112,13 @@ export const PoiManagement = ({ token }) => {
                             <button
                                 type="button"
                                 onClick={() => setShowCategoryModal(false)}
-                                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '20px', lineHeight: 1 }}
+                                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                title="Kapat"
                             >
-                                &times;
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
                             </button>
                         </div>
 

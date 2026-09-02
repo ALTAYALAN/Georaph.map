@@ -99,5 +99,150 @@ namespace GeoraphMap.Infrastructure.Services
                 Details = details
             };
         }
+
+        public async Task<LocationAnalysisResultDto> AnalyzeLocationSuitabilityAsync(LocationAnalysisRequestDto dto, int userId = 0, string userRole = "")
+        {
+            if (dto == null)
+            {
+                throw new ArgumentException("Analiz parametreleri boş olamaz.");
+            }
+
+            // 1. Kriter Sayısı Doğrulaması (En az 2, en fazla 5)
+            if (dto.Criteria == null || dto.Criteria.Count < 2 || dto.Criteria.Count > 5)
+            {
+                throw new ArgumentException("Kullanıcı analiz için en az 2, en fazla 5 adet kategori bazlı kriter eklemelidir.");
+            }
+
+            // 2. Puan Toplamı Doğrulaması (Tam olarak 100 olmalı)
+            int totalScore = dto.Criteria.Sum(c => c.Weight);
+            if (totalScore != 100)
+            {
+                throw new ArgumentException($"Her kritere 100 üzerinden bir ağırlık puanı verilmeli ve tüm kriterlerin puanları toplamı tam olarak 100 olmalıdır. Şu anki puan toplamı: {totalScore}. Puan toplamı 100'den farklı ise analiz başlatılamaz.");
+            }
+
+            // 3. Hedef Bölge / Alan Belirleme (İl veya Poligon Çizimi)
+            string boundaryWkt = dto.BoundaryWkt?.Trim() ?? string.Empty;
+            string boundaryName = dto.BoundaryName?.Trim() ?? "Seçilen Analiz Alanı";
+
+            if (dto.CityPlate.HasValue && dto.CityPlate.Value > 0 && string.IsNullOrWhiteSpace(boundaryWkt))
+            {
+                var city = await _context.Cities.FirstOrDefaultAsync(c => c.Plate == dto.CityPlate.Value && !c.IsDeleted);
+                if (city != null && !string.IsNullOrWhiteSpace(city.Wkt))
+                {
+                    boundaryWkt = city.Wkt;
+                    boundaryName = $"{city.Name} İli";
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(boundaryWkt))
+            {
+                throw new ArgumentException("Lütfen analiz yapılacak bir hedef bölge seçiniz (İller listesinden seçim yapın veya haritada poligon çizin).");
+            }
+
+            Geometry targetBoundaryGeom;
+            try
+            {
+                targetBoundaryGeom = _wktReader.Read(boundaryWkt);
+                targetBoundaryGeom.SRID = 4326;
+            }
+            catch (Exception ex)
+            {
+                throw new ArgumentException($"Hedef bölge geometrisi (WKT) okunamadı: {ex.Message}");
+            }
+
+            // 4. Tüm Kategorileri ve Hiyerarşilerini Çek
+            var allCategories = await _context.PoiCategories
+                .Where(c => !c.IsDeleted && c.IsActive)
+                .ToListAsync();
+
+            // 5. Yalnızca Seçilen Alan İçindeki POI'leri Getir (ST_Intersects)
+            var intersectingPois = await _context.Pois
+                .Include(p => p.Category)
+                    .ThenInclude(c => c.Parent)
+                .Where(p => !p.IsDeleted && p.IsActive && p.Geometry != null && p.Geometry.Intersects(targetBoundaryGeom))
+                .ToListAsync();
+
+            var analyzedPois = new List<AnalyzedPoiItemDto>();
+            var criteriaSummaries = new List<CriterionSummaryDto>();
+
+            // 6. Her Kriter İçin POI'leri Filtrele ve Ağırlıklı Puan Ataması Yap
+            foreach (var criterion in dto.Criteria)
+            {
+                var targetCat = allCategories.FirstOrDefault(c => c.Id == criterion.CategoryId);
+                string catName = !string.IsNullOrWhiteSpace(criterion.CategoryName) ? criterion.CategoryName : (targetCat?.Name ?? $"Kategori #{criterion.CategoryId}");
+                string catColor = targetCat?.Color ?? "#3b82f6";
+                string catIcon = targetCat?.Icon ?? "fa-map-pin";
+
+                // Kategori ve alt kategorilerinin ID listesi
+                var categoryIdList = new HashSet<int> { criterion.CategoryId };
+                var childIds = allCategories.Where(c => c.ParentId == criterion.CategoryId).Select(c => c.Id);
+                foreach (var cid in childIds) categoryIdList.Add(cid);
+
+                // Bu kritere uyan POI'ler
+                var matchingPois = intersectingPois.Where(p => categoryIdList.Contains(p.CategoryId)).ToList();
+
+                double normalizedWeight = Math.Round((double)criterion.Weight / 100.0, 3);
+
+                foreach (var p in matchingPois)
+                {
+                    double lon = 0, lat = 0;
+                    if (p.Geometry != null)
+                    {
+                        var centroid = p.Geometry.Centroid;
+                        if (centroid != null)
+                        {
+                            lon = centroid.X;
+                            lat = centroid.Y;
+                        }
+                        else if (p.Geometry.Coordinate != null)
+                        {
+                            lon = p.Geometry.Coordinate.X;
+                            lat = p.Geometry.Coordinate.Y;
+                        }
+                    }
+
+                    analyzedPois.Add(new AnalyzedPoiItemDto
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        CategoryId = p.CategoryId,
+                        CategoryName = p.Category?.Name ?? catName,
+                        CategoryColor = p.Category?.Color ?? catColor,
+                        CategoryIcon = p.Category?.Icon ?? catIcon,
+                        Weight = normalizedWeight, // Isı haritası için 0.0 - 1.0 arası ağırlık
+                        CriterionScore = criterion.Weight, // Ham ağırlık puanı
+                        Longitude = lon,
+                        Latitude = lat,
+                        Wkt = p.Wkt
+                    });
+                }
+
+                criteriaSummaries.Add(new CriterionSummaryDto
+                {
+                    CategoryId = criterion.CategoryId,
+                    CategoryName = catName,
+                    CategoryColor = catColor,
+                    CategoryIcon = catIcon,
+                    Weight = criterion.Weight,
+                    PoiCount = matchingPois.Count,
+                    ContributionScore = matchingPois.Count > 0 ? criterion.Weight : 0
+                });
+            }
+
+            // Toplam uygunluk skoru (mevcut kriterlerin karşılanma oranı)
+            double overallScore = criteriaSummaries.Count > 0
+                ? criteriaSummaries.Where(c => c.PoiCount > 0).Sum(c => c.Weight)
+                : 0;
+
+            return new LocationAnalysisResultDto
+            {
+                BoundaryName = boundaryName,
+                BoundaryWkt = boundaryWkt,
+                TotalPoiCount = analyzedPois.Count,
+                OverallScore = overallScore,
+                CriteriaSummaries = criteriaSummaries,
+                AnalyzedPois = analyzedPois
+            };
+        }
     }
 }

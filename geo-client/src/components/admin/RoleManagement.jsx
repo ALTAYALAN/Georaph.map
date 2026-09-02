@@ -43,7 +43,9 @@ const KeyIcon = () => (
     </svg>
 );
 
-export const RoleManagement = ({ token }) => {
+export const RoleManagement = ({ token, lang: propLang }) => {
+    const lang = propLang || localStorage.getItem('lang') || 'tr';
+    const isTr = lang === 'tr';
     const [roles, setRoles] = useState([]);
     const [permissions, setPermissions] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -70,19 +72,8 @@ export const RoleManagement = ({ token }) => {
                 adminApi.getRoles(token),
                 adminApi.getPermissions(token)
             ]);
-
-            const finalPerms = Array.isArray(permsData) ? [...permsData] : [];
-            if (!finalPerms.some(p => p.code === 'poi.create')) {
-                finalPerms.push({
-                    id: 8,
-                    name: 'POI Ekleme',
-                    code: 'poi.create',
-                    description: 'Haritada yeni POI (İlgi Noktası) ekleme ve yönetme yetkisi'
-                });
-            }
-
             setRoles(rolesData || []);
-            setPermissions(finalPerms);
+            setPermissions(permsData || []);
         } catch (err) {
             setError(err.message || 'Veriler yüklenirken hata oluştu.');
         } finally {
@@ -102,26 +93,22 @@ export const RoleManagement = ({ token }) => {
 
     const handleOpenEditModal = (role) => {
         setEditingRole(role);
-        let permIds = role.permissions ? role.permissions.map(p => p.id) : [];
-        if (role.id === 1 || role.name === 'Admin') {
-            const poiPerm = permissions.find(p => p.code === 'poi.create');
-            if (poiPerm && !permIds.includes(poiPerm.id)) {
-                permIds = [...permIds, poiPerm.id];
-            }
-        }
         setFormData({
             name: role.name,
             description: role.description || '',
-            selectedPermIds: permIds
+            selectedPermIds: role.permissions ? role.permissions.map(p => p.id) : []
         });
         setShowModal(true);
     };
 
     const handleDeleteRole = async (roleId, roleName) => {
-        if (!window.confirm(`"${roleName}" rolünü silmek istediğinize emin misiniz? Bu role sahip kullanıcıların rol tanımları kaldırılacaktır.`)) return;
+        const confirmMsg = isTr 
+            ? `"${roleName}" rolünü silmek istediğinize emin misiniz? Bu role sahip kullanıcılar etkilenebilir.` 
+            : `Are you sure you want to delete role "${roleName}"? Users with this role may be affected.`;
+        if (!window.confirm(confirmMsg)) return;
         try {
             await adminApi.deleteRole(roleId, token);
-            setSuccessMessage('Rol başarıyla silindi.');
+            setSuccessMessage(isTr ? 'Rol başarıyla silindi.' : 'Role deleted successfully.');
             loadData();
             setTimeout(() => setSuccessMessage(''), 3000);
         } catch (err) {
@@ -150,14 +137,14 @@ export const RoleManagement = ({ token }) => {
                     description: formData.description,
                     permissionIds: formData.selectedPermIds
                 }, token);
-                setSuccessMessage('Rol başarıyla güncellendi.');
+                setSuccessMessage(isTr ? 'Rol başarıyla güncellendi.' : 'Role updated successfully.');
             } else {
                 await adminApi.createRole({
                     name: formData.name,
                     description: formData.description,
                     permissionIds: formData.selectedPermIds
                 }, token);
-                setSuccessMessage('Yeni rol başarıyla oluşturuldu.');
+                setSuccessMessage(isTr ? 'Yeni rol başarıyla oluşturuldu.' : 'New role created successfully.');
             }
             setShowModal(false);
             loadData();
@@ -171,11 +158,15 @@ export const RoleManagement = ({ token }) => {
         <div className="admin-view-container">
             <div className="admin-header">
                 <div>
-                    <h2>Rol Listesi ve Yetki Yönetimi</h2>
-                    <p className="admin-subtext">Sistemdeki rolleri ve bu rollere bağlı varsayılan yetkileri yönetin.</p>
+                    <h2>{isTr ? 'Rol Listesi ve Yetki Yönetimi' : 'Role List & Permission Management'}</h2>
+                    <p className="admin-subtext">
+                        {isTr 
+                            ? 'Sistemdeki rolleri ve bu rollere bağlı varsayılan yetkileri yönetin.' 
+                            : 'Manage system roles and default permissions assigned to them.'}
+                    </p>
                 </div>
                 <button className="admin-primary-btn" onClick={handleOpenCreateModal}>
-                    <PlusIcon /> Yeni Rol Ekle
+                    <PlusIcon /> {isTr ? 'Yeni Rol Ekle' : 'Add New Role'}
                 </button>
             </div>
 
@@ -183,11 +174,11 @@ export const RoleManagement = ({ token }) => {
             {successMessage && <div className="admin-alert success">{successMessage}</div>}
 
             {loading ? (
-                <div className="admin-loading">Roller yükleniyor...</div>
+                <div className="admin-loading">{isTr ? 'Roller yükleniyor...' : 'Loading roles...'}</div>
             ) : (
                 <div className="roles-cards-grid">
                     {roles.length === 0 ? (
-                        <div className="no-data">Rol bulunamadı.</div>
+                        <div className="no-data">{isTr ? 'Rol bulunamadı.' : 'No roles found.'}</div>
                     ) : (
                         roles.map(role => {
                             const style = getRoleColorStyle(role.name, role.id);
@@ -206,20 +197,20 @@ export const RoleManagement = ({ token }) => {
                                                 {role.name}
                                             </h3>
                                             <span className="role-user-count" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <UserIcon /> {role.userCount} Kullanıcı
+                                                <UserIcon /> {role.userCount} {isTr ? 'Kullanıcı' : 'Users'}
                                             </span>
                                         </div>
                                         <div className="role-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <button
                                                 className="admin-action-btn edit-icon-btn"
-                                                title="Rolü Düzenle"
+                                                title={isTr ? "Rolü Düzenle" : "Edit Role"}
                                                 onClick={() => handleOpenEditModal(role)}
                                             >
                                                 <EditIcon size={16} />
                                             </button>
                                             <button
                                                 className="admin-action-btn delete-icon-btn"
-                                                title="Rolü Sil"
+                                                title={isTr ? "Rolü Sil" : "Delete Role"}
                                                 onClick={() => handleDeleteRole(role.id, role.name)}
                                             >
                                                 <TrashIcon size={18} />
@@ -227,10 +218,12 @@ export const RoleManagement = ({ token }) => {
                                         </div>
                                     </div>
 
-                                    <p className="role-description">{role.description || 'Açıklama girilmemiş.'}</p>
+                                    <p className="role-description">{role.description || (isTr ? 'Açıklama girilmemiş.' : 'No description provided.')}</p>
 
                                     <div className="role-permissions-section">
-                                        <span className="role-perm-title">TANIMLI YETKİLER ({role.permissions?.length || 0})</span>
+                                        <span className="role-perm-title">
+                                            {isTr ? 'TANIMLI YETKİLER' : 'DEFINED PERMISSIONS'} ({role.permissions?.length || 0})
+                                        </span>
                                         <div className="role-perm-tags">
                                             {role.permissions && role.permissions.length > 0 ? (
                                                 role.permissions.map(p => (
@@ -239,7 +232,7 @@ export const RoleManagement = ({ token }) => {
                                                     </span>
                                                 ))
                                             ) : (
-                                                <span className="muted-text">Atanmış yetki yok</span>
+                                                <span className="muted-text">{isTr ? 'Atanmış yetki yok' : 'No assigned permissions'}</span>
                                             )}
                                         </div>
                                     </div>
@@ -256,36 +249,38 @@ export const RoleManagement = ({ token }) => {
                     <div className="admin-modal">
                         <div className="admin-modal-header">
                             <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {editingRole ? <><EditIcon /> Rol Düzenle: {editingRole.name}</> : <><PlusIcon /> Yeni Rol Ekle</>}
+                                {editingRole ? <><EditIcon /> {isTr ? 'Rol Düzenle' : 'Edit Role'}: {editingRole.name}</> : <><PlusIcon /> {isTr ? 'Yeni Rol Ekle' : 'Add New Role'}</>}
                             </h3>
                             <button className="close-btn" onClick={() => setShowModal(false)}>x</button>
                         </div>
                         <form onSubmit={handleSubmit} className="admin-modal-form">
                             <div className="form-group">
-                                <label>Rol Adı *</label>
+                                <label>{isTr ? 'Rol Adı *' : 'Role Name *'}</label>
                                 <input
                                     type="text"
                                     required
                                     value={formData.name}
                                     onChange={e => setFormData({ ...formData, name: e.target.value })}
-                                    placeholder="Örn: Editör, Saha Personeli..."
+                                    placeholder={isTr ? "Örn: Editör, Saha Personeli..." : "e.g. Editor, Field Staff..."}
                                 />
                             </div>
                             <div className="form-group">
-                                <label>Açıklama</label>
+                                <label>{isTr ? 'Açıklama' : 'Description'}</label>
                                 <textarea
                                     rows="2"
                                     value={formData.description}
                                     onChange={e => setFormData({ ...formData, description: e.target.value })}
-                                    placeholder="Rolün sorumluluk ve kapsama alanı..."
+                                    placeholder={isTr ? "Rolün sorumluluk ve kapsama alanı..." : "Role responsibilities and scope..."}
                                 />
                             </div>
 
                             <div className="section-divider">
                                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <KeyIcon /> Role Atanacak Yetkiler
+                                    <KeyIcon /> {isTr ? 'Role Atanacak Yetkiler' : 'Permissions to Assign to Role'}
                                 </h4>
-                                <p className="section-help">Bu role sahip kullanıcılar bu yetkileri otomatik kazanır.</p>
+                                <p className="section-help">
+                                    {isTr ? 'Bu role sahip kullanıcılar bu yetkileri otomatik kazanır.' : 'Users with this role automatically acquire these permissions.'}
+                                </p>
                             </div>
 
                             <div className="permissions-grid">
@@ -319,10 +314,10 @@ export const RoleManagement = ({ token }) => {
 
                             <div className="admin-modal-footer">
                                 <button type="button" className="admin-secondary-btn" onClick={() => setShowModal(false)}>
-                                    İptal
+                                    {isTr ? 'İptal' : 'Cancel'}
                                 </button>
                                 <button type="submit" className="admin-primary-btn">
-                                    {editingRole ? 'Rolü Güncelle' : 'Rolü Kaydet'}
+                                    {editingRole ? (isTr ? 'Rolü Güncelle' : 'Update Role') : (isTr ? 'Rolü Kaydet' : 'Save Role')}
                                 </button>
                             </div>
                         </form>

@@ -316,7 +316,9 @@ const MapIcon = () => (
     </svg>
 );
 
-export const UserManagement = ({ token }) => {
+export const UserManagement = ({ token, lang: propLang }) => {
+    const lang = propLang || localStorage.getItem('lang') || 'tr';
+    const isTr = lang === 'tr';
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
     const [permissions, setPermissions] = useState([]);
@@ -513,12 +515,16 @@ export const UserManagement = ({ token }) => {
             <div className="admin-header">
                 <div>
                     <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <UserIcon /> Kullanıcı Yönetimi
+                        <UserIcon /> {isTr ? 'Kullanıcı Yönetimi' : 'User Management'}
                     </h2>
-                    <p className="admin-subtext">Sistemdeki kullanıcıları listeleyin, ekleyin, düzenleyin ve dinamik yetkilerini belirleyin.</p>
+                    <p className="admin-subtext">
+                        {isTr 
+                            ? 'Sistemdeki kullanıcıları listeleyin, ekleyin, düzenleyin ve dinamik yetkilerini belirleyin.' 
+                            : 'List, add, edit users in the system and define their dynamic permissions.'}
+                    </p>
                 </div>
                 <button className="admin-primary-btn" onClick={handleOpenCreateModal}>
-                    <PlusIcon /> Yeni Kullanıcı Ekle
+                    <PlusIcon /> {isTr ? 'Yeni Kullanıcı Ekle' : 'Add New User'}
                 </button>
             </div>
 
@@ -526,26 +532,26 @@ export const UserManagement = ({ token }) => {
             {successMessage && <div className="admin-alert success">{successMessage}</div>}
 
             {loading ? (
-                <div className="admin-loading">Kullanıcılar yükleniyor...</div>
+                <div className="admin-loading">{isTr ? 'Kullanıcılar yükleniyor...' : 'Loading users...'}</div>
             ) : (
                 <div className="admin-table-wrapper">
                     <table className="admin-table">
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Kullanıcı Adı</th>
-                                <th>Rol</th>
-                                <th>Durum</th>
-                                <th>Yetki</th>
-                                <th>E-Posta</th>
-                                <th>Telefon</th>
-                                <th style={{ textAlign: 'right' }}>İşlemler</th>
+                                <th>{isTr ? 'Kullanıcı Adı' : 'Username'}</th>
+                                <th>{isTr ? 'Rol' : 'Role'}</th>
+                                <th>{isTr ? 'Durum' : 'Status'}</th>
+                                <th>{isTr ? 'Yetki' : 'Permissions'}</th>
+                                <th>{isTr ? 'E-Posta' : 'Email'}</th>
+                                <th>{isTr ? 'Telefon' : 'Phone'}</th>
+                                <th style={{ textAlign: 'right' }}>{isTr ? 'İşlemler' : 'Actions'}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {users.length === 0 ? (
                                 <tr>
-                                    <td colSpan="8" className="text-center">Kullanıcı bulunamadı.</td>
+                                    <td colSpan="8" className="text-center">{isTr ? 'Kullanıcı bulunamadı.' : 'No users found.'}</td>
                                 </tr>
                             ) : (
                                 users.map(u => {
@@ -588,22 +594,22 @@ export const UserManagement = ({ token }) => {
                                                             );
                                                         })
                                                     ) : (
-                                                        <span className="badge muted-badge">Rolsüz</span>
+                                                        <span className="badge muted-badge">{isTr ? 'Rolsüz' : 'No Role'}</span>
                                                     )}
                                                 </div>
                                             </td>
                                             <td>
                                                 <span className={`status-badge ${u.isActive ? 'active' : 'inactive'}`}>
-                                                    {u.isActive ? 'Aktif' : 'Pasif'}
+                                                    {u.isActive ? (isTr ? 'Aktif' : 'Active') : (isTr ? 'Pasif' : 'Inactive')}
                                                 </span>
                                             </td>
                                             <td>
                                                 <div className="perm-summary">
                                                     {u.permissions ? (
                                                         <span>
-                                                            {u.permissions.filter(p => p.isFromRole || p.isDirect).length} Yetki
+                                                            {u.permissions.filter(p => p.isFromRole || p.isDirect).length} {isTr ? 'Yetki' : 'Perms'}
                                                         </span>
-                                                    ) : '0 Yetki'}
+                                                    ) : (isTr ? '0 Yetki' : '0 Perms')}
                                                 </div>
                                             </td>
                                             <td>
@@ -620,7 +626,7 @@ export const UserManagement = ({ token }) => {
                                                 <div className="action-buttons">
                                                     <button
                                                         className="admin-action-btn edit-icon-btn"
-                                                        title="Düzenle ve Yetkileri Yönet"
+                                                        title={isTr ? "Düzenle ve Yetkileri Yönet" : "Edit & Manage Permissions"}
                                                         onClick={() => handleOpenEditModal(u)}
                                                     >
                                                         <EditIcon size={16} />
@@ -628,7 +634,9 @@ export const UserManagement = ({ token }) => {
                                                     {!isViewerOnly && (
                                                         <button
                                                             className="admin-action-btn spatial-icon-btn"
-                                                            title={u.spatialBoundaryWkt ? 'Coğrafi Sınır Tanımlı (Sınır Düzenle)' : 'Coğrafi Yetki Alanı (Sınır) Tanımla'}
+                                                            title={u.spatialBoundaryWkt 
+                                                                ? (isTr ? 'Coğrafi Sınır Tanımlı (Sınır Düzenle)' : 'Geographic Boundary Defined (Edit)') 
+                                                                : (isTr ? 'Coğrafi Yetki Alanı (Sınır) Tanımla' : 'Define Geographic Boundary Area')}
                                                             onClick={() => setSpatialModalUser(u)}
                                                             style={{
                                                                 width: '34px',
@@ -643,7 +651,7 @@ export const UserManagement = ({ token }) => {
                                                     )}
                                                     <button
                                                         className="admin-action-btn delete-icon-btn"
-                                                        title="Kullanıcıyı Sil"
+                                                        title={isTr ? "Kullanıcıyı Sil" : "Delete User"}
                                                         onClick={() => handleDeleteUser(u.id, u.username)}
                                                     >
                                                         <TrashIcon size={18} />
@@ -665,43 +673,49 @@ export const UserManagement = ({ token }) => {
                     <div className="admin-modal">
                         <div className="admin-modal-header">
                             <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {editingUser ? <><EditIcon /> Kullanıcı Düzenle: {editingUser.username}</> : <><PlusIcon /> Yeni Kullanıcı Ekle</>}
+                                {editingUser ? <><EditIcon /> {isTr ? 'Kullanıcı Düzenle' : 'Edit User'}: {editingUser.username}</> : <><PlusIcon /> {isTr ? 'Yeni Kullanıcı Ekle' : 'Add New User'}</>}
                             </h3>
                             <button className="close-btn" onClick={() => setShowModal(false)}>x</button>
                         </div>
                         <form onSubmit={handleSubmit} className="admin-modal-form">
                             <div className="form-grid">
                                 <div className="form-group">
-                                    <label>Kullanıcı Adı *</label>
+                                    <label>{isTr ? 'Kullanıcı Adı *' : 'Username *'}</label>
                                     <input
                                         type="text"
                                         required
                                         value={formData.username}
                                         onChange={e => setFormData({ ...formData, username: e.target.value })}
-                                        placeholder="Kullanıcı adı girin..."
+                                        placeholder={isTr ? "Kullanıcı adı girin..." : "Enter username..."}
                                     />
                                 </div>
                                 <div className="form-group">
-                                    <label>{editingUser ? 'Yeni Şifre (Boş bırakılabilir)' : 'Şifre *'}</label>
+                                    <label>
+                                        {editingUser 
+                                            ? (isTr ? 'Yeni Şifre (Boş bırakılabilir)' : 'New Password (Optional)') 
+                                            : (isTr ? 'Şifre *' : 'Password *')}
+                                    </label>
                                     <input
                                         type="password"
                                         required={!editingUser}
                                         value={formData.password}
                                         onChange={e => setFormData({ ...formData, password: e.target.value })}
-                                        placeholder={editingUser ? 'Değiştirmek istemiyorsanız boş bırakın' : 'Şifre girin...'}
+                                        placeholder={editingUser 
+                                            ? (isTr ? 'Değiştirmek istemiyorsanız boş bırakın' : 'Leave empty if unchanged') 
+                                            : (isTr ? 'Şifre girin...' : 'Enter password...')}
                                     />
                                 </div>
                                 <div className="form-group">
-                                    <label>E-Posta</label>
+                                    <label>{isTr ? 'E-Posta' : 'Email'}</label>
                                     <input
                                         type="email"
                                         value={formData.email}
                                         onChange={e => setFormData({ ...formData, email: e.target.value })}
-                                        placeholder="ornek@geomap.com"
+                                        placeholder="user@geomap.com"
                                     />
                                 </div>
                                 <div className="form-group">
-                                    <label>Telefon</label>
+                                    <label>{isTr ? 'Telefon' : 'Phone'}</label>
                                     <input
                                         type="text"
                                         value={formData.phone}
@@ -714,9 +728,9 @@ export const UserManagement = ({ token }) => {
                             {/* ROLES SECTION */}
                             <div className="section-divider">
                                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <ShieldIcon /> Rol Seçimi
+                                    <ShieldIcon /> {isTr ? 'Rol Seçimi' : 'Role Selection'}
                                 </h4>
-                                <p className="section-help">Kullanıcıya tanımlanacak rolleri seçin.</p>
+                                <p className="section-help">{isTr ? 'Kullanıcıya tanımlanacak rolleri seçin.' : 'Select roles to assign to the user.'}</p>
                             </div>
                             <div className="roles-checkbox-grid">
                                 {roles.map(r => {
@@ -749,10 +763,12 @@ export const UserManagement = ({ token }) => {
                             {/* DYNAMIC PERMISSIONS SECTION */}
                             <div className="section-divider">
                                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <KeyIcon /> Kullanıcı Yetkileri (Dinamik Yetkilendirme)
+                                    <KeyIcon /> {isTr ? 'Kullanıcı Yetkileri (Dinamik Yetkilendirme)' : 'User Permissions (Dynamic Authorization)'}
                                 </h4>
                                 <p className="section-help">
-                                    Aşağıda sistemdeki tüm yetkiler listelenmektedir. Seçili rollerden gelen yetkiler <strong>otomatik olarak seçili ve kilitlidir</strong>.
+                                    {isTr 
+                                        ? 'Aşağıda sistemdeki tüm yetkiler listelenmektedir. Seçili rollerden gelen yetkiler otomatik olarak seçili ve kilitlidir.' 
+                                        : 'All system permissions are listed below. Permissions from selected roles are automatically checked and locked.'}
                                 </p>
                             </div>
 
@@ -786,16 +802,16 @@ export const UserManagement = ({ token }) => {
 
                                             <div className="perm-source-tag">
                                                 {isInherited ? (
-                                                    <span className="badge inherited-badge" title="Bu yetki kullanıcının rolünden gelmektedir ve tekrar değiştirilemez.">
-                                                        <ShieldIcon /> Rolden Geliyor ({roleName})
+                                                    <span className="badge inherited-badge" title={isTr ? "Bu yetki kullanıcının rolünden gelmektedir ve tekrar değiştirilemez." : "This permission is inherited from role and cannot be modified."}>
+                                                        <ShieldIcon /> {isTr ? 'Rolden Geliyor' : 'From Role'} ({roleName})
                                                     </span>
                                                 ) : isDirectChecked ? (
                                                     <span className="badge direct-badge">
-                                                        <CheckIcon /> Doğrudan Atanmış
+                                                        <CheckIcon /> {isTr ? 'Doğrudan Atanmış' : 'Directly Assigned'}
                                                     </span>
                                                 ) : (
                                                     <span className="badge unassigned-badge">
-                                                        Atanmadı
+                                                        {isTr ? 'Atanmadı' : 'Unassigned'}
                                                     </span>
                                                 )}
                                             </div>
@@ -806,10 +822,10 @@ export const UserManagement = ({ token }) => {
 
                             <div className="admin-modal-footer">
                                 <button type="button" className="admin-secondary-btn" onClick={() => setShowModal(false)}>
-                                    İptal
+                                    {isTr ? 'İptal' : 'Cancel'}
                                 </button>
                                 <button type="submit" className="admin-primary-btn">
-                                    {editingUser ? 'Kullanıcıyı Güncelle' : 'Kullanıcıyı Kaydet'}
+                                    {editingUser ? (isTr ? 'Kullanıcıyı Güncelle' : 'Update User') : (isTr ? 'Kullanıcıyı Kaydet' : 'Save User')}
                                 </button>
                             </div>
                         </form>
@@ -1179,7 +1195,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
             layers: [
                 new TileLayer({
                     source: new XYZ({
-                        url: 'https://{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+                        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
                         maxZoom: 19
                     })
                 }),
@@ -1573,11 +1589,18 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                         background: 'transparent',
                         border: 'none',
                         color: '#94a3b8',
-                        fontSize: '22px',
-                        cursor: 'pointer'
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
                     }}
+                    title="Kapat"
                 >
-                    &times;
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                 </button>
 
                 <div className="modal-header-section" style={{ marginBottom: '16px' }}>
@@ -1748,9 +1771,13 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                 </span>
                                 <button
                                     onClick={() => setShowRegionSelector(false)}
-                                    style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '18px', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}
+                                    style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                    title="Kapat"
                                 >
-                                    &times;
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
                                 </button>
                             </div>
 

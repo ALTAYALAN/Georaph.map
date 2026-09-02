@@ -23,6 +23,10 @@ namespace GeoraphMap.Infrastructure
         public DbSet<CityFeature> Cities { get; set; }
         public DbSet<PoiCategory> PoiCategories { get; set; }
         public DbSet<Poi> Pois { get; set; }
+        public DbSet<RouteFeature> Routes { get; set; }
+        public DbSet<StopFeature> Stops { get; set; }
+        public DbSet<UserSavedRoute> UserSavedRoutes { get; set; }
+        public DbSet<UserFavoritePoi> UserFavoritePois { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -36,6 +40,14 @@ namespace GeoraphMap.Infrastructure
             modelBuilder.Entity<CityFeature>().ToTable("tbl_city");
             modelBuilder.Entity<PoiCategory>().ToTable("tbl_poi_category");
             modelBuilder.Entity<Poi>().ToTable("tbl_poi");
+            modelBuilder.Entity<RouteFeature>().ToTable("tbl_route");
+            modelBuilder.Entity<RouteFeature>()
+                .Property(r => r.RouteClass)
+                .HasColumnName("route_class")
+                .HasDefaultValue("araba");
+            modelBuilder.Entity<StopFeature>().ToTable("tbl_stop");
+            modelBuilder.Entity<UserSavedRoute>().ToTable("tbl_user_saved_route");
+            modelBuilder.Entity<UserFavoritePoi>().ToTable("tbl_user_favorite_poi");
 
             modelBuilder.Entity<Role>().ToTable("tbl_role");
             modelBuilder.Entity<Permission>().ToTable("tbl_permission");
@@ -43,6 +55,13 @@ namespace GeoraphMap.Infrastructure
             modelBuilder.Entity<RolePermission>().ToTable("tbl_role_permission");
             modelBuilder.Entity<UserPermission>().ToTable("tbl_user_permission");
             modelBuilder.Entity<EditorCollaboration>().ToTable("tbl_editor_collaboration");
+
+            // Route & Stop 1-N Relation
+            modelBuilder.Entity<StopFeature>()
+                .HasOne(s => s.Route)
+                .WithMany(r => r.Stops)
+                .HasForeignKey(s => s.RouteId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             // POI Category Self-Referencing Relation
             modelBuilder.Entity<PoiCategory>()
@@ -132,12 +151,12 @@ namespace GeoraphMap.Infrastructure
                 new RolePermission { RoleId = 1, PermissionId = 7 },
                 new RolePermission { RoleId = 1, PermissionId = 8 },
 
-                new RolePermission { RoleId = 2, PermissionId = 1 }, // Editor role includes "Point Ekleme"
+                new RolePermission { RoleId = 2, PermissionId = 1 },
                 new RolePermission { RoleId = 2, PermissionId = 2 },
                 new RolePermission { RoleId = 2, PermissionId = 3 },
                 new RolePermission { RoleId = 2, PermissionId = 8 },
 
-                new RolePermission { RoleId = 3, PermissionId = 7 }  // Viewer role includes "Bütün Çizimleri Görüntüleme"
+                new RolePermission { RoleId = 3, PermissionId = 7 }
             );
 
             // PostgreSQL Snake_Case / Lowercase Column Naming (Tırnaksız SQL Desteği)

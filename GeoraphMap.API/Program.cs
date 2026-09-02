@@ -27,6 +27,15 @@ builder.Services.AddScoped<ICollaborationService, CollaborationService>();
 builder.Services.AddScoped<ICityService, CityService>();
 builder.Services.AddScoped<IGeoServerService, GeoServerService>();
 builder.Services.AddScoped<IPoiService, PoiService>();
+builder.Services.AddScoped<IOsrmRoutingService, OsrmRoutingService>();
+builder.Services.AddScoped<ITransportService, TransportService>();
+builder.Services.AddScoped<IUserPersonalService, UserPersonalService>();
+builder.Services.AddSingleton<ISimulationHubNotifier, GeoraphMap.API.Hubs.SimulationHubNotifier>();
+builder.Services.AddSingleton<ISimulationService, SimulationService>();
+
+// SignalR Real-Time Communication Services
+builder.Services.AddSignalR();
+
 
 // JWT Authentication Configuration
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "GeoMap_Super_Secret_Key_For_Jwt_Authentication_2026_Key!";
@@ -57,9 +66,10 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.SetIsOriginAllowed(origin => true)
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -93,6 +103,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<GeoraphMap.API.Hubs.SimulationHub>("/hubs/simulation");
 
 app.MapFallbackToFile("index.html");
 
