@@ -123,6 +123,10 @@ export const adminApi = {
         return await res.json();
     },
 
+    getAllPermissions: async (token) => {
+        return await adminApi.getPermissions(token);
+    },
+
     // CITIES (Database Table Integration)
     getCities: async (includeDeleted = false, token) => {
         const res = await fetch(`${API_BASE_URL}/cities?includeDeleted=${includeDeleted}`, { headers: getAuthHeaders(token) });
@@ -268,6 +272,25 @@ export const adminApi = {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || 'POI silinemedi.');
+        return data;
+    },
+
+    // CITIES
+    getCities: async (token) => {
+        const res = await fetch(`${API_BASE_URL}/cities`, { headers: getAuthHeaders(token) });
+        if (!res.ok) throw new Error('İller listesi alınamadı.');
+        return await res.json();
+    },
+
+    // LOCATION / WEIGHTED HEATMAP ANALYSIS
+    runLocationAnalysis: async (analysisDto, token) => {
+        const res = await fetch(`${API_BASE_URL}/analysis/location`, {
+            method: 'POST',
+            headers: getAuthHeaders(token),
+            body: JSON.stringify(analysisDto)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || data.Message || 'Konum analizi gerçekleştirilemedi.');
         return data;
     }
 };

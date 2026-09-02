@@ -48,23 +48,23 @@ export const BASEMAP_LAYERS = [
     {
         id: 'carto_dark',
         name: 'Karanlık Gece Modu (Dark)',
-        sub: 'Vektörel Yüksek Kontrastlı Koyu Tema',
+        sub: 'Vektörel Yüksek Kontrastlı Koyu Tema (ESRI Canvas)',
         iconType: 'dark',
         tag: 'Gece',
         tagColor: '#64748b',
-        url: 'https://{a-c}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        previewUrl: 'https://a.basemaps.cartocdn.com/dark_all/8/152/99.png',
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+        previewUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/6/24/38',
         category: 'theme'
     },
     {
         id: 'carto_light',
         name: 'Aydınlık Siyasi (Light)',
-        sub: 'Temiz Beyaz Arka Plan & Vektörel Sınırlar',
+        sub: 'Temiz Açık Gri Arka Plan & Sınırlar (ESRI Canvas)',
         iconType: 'light',
         tag: 'Açık',
         tagColor: '#0ea5e9',
-        url: 'https://{a-c}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-        previewUrl: 'https://a.basemaps.cartocdn.com/light_all/8/152/99.png',
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+        previewUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/6/24/38',
         category: 'political'
     },
     {

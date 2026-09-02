@@ -288,7 +288,9 @@ const performSpatialErasure = (currentCities, eraserFeatureEPSG3857) => {
     return { updatedCities, erasedCount };
 };
 
-export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
+export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }) => {
+    const lang = propLang || localStorage.getItem('lang') || 'tr';
+    const isTr = lang === 'tr';
 
     const [cities, setCities] = useState([]);
     const [filteredCities, setFilteredCities] = useState([]);
@@ -1908,15 +1910,15 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
             <div className="geo-header compact-header">
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <h2 className="geo-title compact-title">Şehir & Coğrafi Bölge Sınır Yönetimi</h2>
+                        <h2 className="geo-title compact-title">{isTr ? 'Şehir & Coğrafi Bölge Sınır Yönetimi' : 'City & Region Boundary Management'}</h2>
                         {hasUnsavedChanges ? (
-                            <span className="status-badge unsaved-badge">Değişiklikler Var</span>
+                            <span className="status-badge unsaved-badge">{isTr ? 'Değişiklikler Var' : 'Unsaved Changes'}</span>
                         ) : (
-                            <span className="status-badge saved-badge">Kaydedildi</span>
+                            <span className="status-badge saved-badge">{isTr ? 'Kaydedildi' : 'Saved'}</span>
                         )}
                     </div>
                     <p className="geo-subtitle compact-sub">
-                        Son Kayıt: {lastSavedDate || 'İlk Kurulum'}
+                        {isTr ? 'Son Kayıt:' : 'Last Saved:'} {lastSavedDate || (isTr ? 'İlk Kurulum' : 'Initial Setup')}
                     </p>
                 </div>
 
@@ -1925,37 +1927,38 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                     <button
                         className={`btn btn-sm ${hasUnsavedChanges ? 'btn-save-highlight' : 'btn-secondary'}`}
                         onClick={handleSaveChanges}
-                        title="Tüm Yapılan Poligon ve Şehir Değişikliklerini Kalıcı Varsayılan Yap ve Kaydet"
+                        title={isTr ? "Tüm Yapılan Poligon ve Şehir Değişikliklerini Kalıcı Varsayılan Yap ve Kaydet" : "Save All Polygon and City Changes as Permanent Default"}
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                        <span>Değişiklikleri Kaydet</span>
+                        <span>{isTr ? 'Değişiklikleri Kaydet' : 'Save Changes'}</span>
                     </button>
 
+                    {/* COMPACT BACKUP HISTORY BUTTON */}
                     {/* COMPACT BACKUP HISTORY BUTTON */}
                     <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => setIsBackupModalOpen(true)}
-                        title="Eski Kaydedilmiş Sürüm Yedeği Geçmişini İncele"
+                        title={isTr ? "Eski Kaydedilmiş Sürüm Yedeği Geçmişini İncele" : "Review Backup Version History"}
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 16 14"/></svg>
-                        <span>Yedek Geçmişi ({backupsList.length})</span>
+                        <span>{isTr ? 'Yedek Geçmişi' : 'Backup History'} ({backupsList.length})</span>
                     </button>
 
                     <button
                         className="btn btn-secondary btn-sm"
                         onClick={handleResetAllData}
-                        title="Tüm Yapılan Değişiklikleri Orijinaline Sıfırla"
+                        title={isTr ? "Tüm Yapılan Değişiklikleri Orijinaline Sıfırla" : "Reset All Changes to Original Defaults"}
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                        <span>Sıfırla</span>
+                        <span>{isTr ? 'Sıfırla' : 'Reset'}</span>
                     </button>
 
                     <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => setIsRightDrawerOpen(!isRightDrawerOpen)}
-                        title="Sağ İl Listesi Panelini Aç/Kapat"
+                        title={isTr ? "Sağ İl Listesi Panelini Aç/Kapat" : "Toggle Province List Panel"}
                     >
-                        <span>{isRightDrawerOpen ? 'Panel Gizle' : 'Panel Aç'}</span>
+                        <span>{isRightDrawerOpen ? (isTr ? 'Panel Gizle' : 'Hide Panel') : (isTr ? 'Panel Aç' : 'Open Panel')}</span>
                     </button>
 
                     {toggleTheme && (
@@ -2011,8 +2014,11 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                                         <span>2. İli 1. İle Bağla</span>
                                     </button>
                                 )}
-                                <button className="banner-btn btn-clear btn-sm-action" onClick={handleClearSelection} title="Seçimi Temizle" style={{ fontSize: '16px', lineHeight: 1 }}>
-                                    &times;
+                                <button className="banner-btn btn-clear btn-sm-action" onClick={handleClearSelection} title="Seçimi Temizle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
                                 </button>
                             </div>
                         </div>
@@ -2121,7 +2127,12 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                     <div className="geo-right-drawer compact-drawer">
                         <div className="drawer-header compact-drawer-header">
                             <span>İLLER LİSTESİ ({filteredCities.length})</span>
-                            <button className="drawer-close-btn" onClick={() => setIsRightDrawerOpen(false)} style={{ fontSize: '18px', lineHeight: 1 }}>&times;</button>
+                            <button className="drawer-close-btn" onClick={() => setIsRightDrawerOpen(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }} title="Kapat">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                            </button>
                         </div>
 
                         <div className="geo-filter-bar compact-filter-bar">
@@ -2135,23 +2146,27 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme }) => {
                                     style={{ width: '100%', paddingRight: searchQuery ? '24px' : '10px' }}
                                 />
                                 {searchQuery && (
-                                    <button
-                                        onClick={() => setSearchQuery('')}
-                                        style={{
-                                            position: 'absolute',
-                                            right: '6px',
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: '#94a3b8',
-                                            cursor: 'pointer',
-                                            fontSize: '14px',
-                                            padding: '2px 4px',
-                                            lineHeight: 1
-                                        }}
-                                        title="Aramayı Temizle"
-                                    >
-                                        &times;
-                                    </button>
+                                        <button
+                                            onClick={() => setSearchQuery('')}
+                                            style={{
+                                                position: 'absolute',
+                                                right: '6px',
+                                                background: 'transparent',
+                                                border: 'none',
+                                                color: '#94a3b8',
+                                                cursor: 'pointer',
+                                                padding: '2px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center'
+                                            }}
+                                            title="Aramayı Temizle"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                                <line x1="18" y1="6" x2="6" y2="18" />
+                                                <line x1="6" y1="6" x2="18" y2="18" />
+                                            </svg>
+                                        </button>
                                 )}
                             </div>
 

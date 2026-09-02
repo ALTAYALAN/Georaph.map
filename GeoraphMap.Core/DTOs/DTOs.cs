@@ -67,6 +67,58 @@ namespace GeoraphMap.Core.DTOs
         public List<string> Details { get; set; } = new List<string>();
     }
 
+    // Çok Kriterli Konum Analizi DTO'ları (Location / Weighted Heatmap Analysis)
+    public class LocationCriterionDto
+    {
+        public int CategoryId { get; set; }
+        public string CategoryName { get; set; } = string.Empty;
+        public int Weight { get; set; } // 1..100
+    }
+
+    public class LocationAnalysisRequestDto
+    {
+        public string? BoundaryWkt { get; set; } // Çizilen poligon veya il sınır WKT'si
+        public int? CityPlate { get; set; } // Seçilen il plaka kodu (opsiyonel)
+        public string? BoundaryName { get; set; } // Örn: "Ankara İli" veya "Özel Çizilen Alan"
+        public List<LocationCriterionDto> Criteria { get; set; } = new List<LocationCriterionDto>();
+    }
+
+    public class AnalyzedPoiItemDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public int CategoryId { get; set; }
+        public string CategoryName { get; set; } = string.Empty;
+        public string CategoryColor { get; set; } = string.Empty;
+        public string CategoryIcon { get; set; } = string.Empty;
+        public double Weight { get; set; } // 0.0 - 1.0 (Isı Haritası Normalizasyonu: Weight / 100)
+        public int CriterionScore { get; set; } // Kullanıcının atadığı ham puan (örn: 35)
+        public double Longitude { get; set; }
+        public double Latitude { get; set; }
+        public string Wkt { get; set; } = string.Empty;
+    }
+
+    public class CriterionSummaryDto
+    {
+        public int CategoryId { get; set; }
+        public string CategoryName { get; set; } = string.Empty;
+        public string CategoryColor { get; set; } = string.Empty;
+        public string CategoryIcon { get; set; } = string.Empty;
+        public int Weight { get; set; }
+        public int PoiCount { get; set; }
+        public double ContributionScore { get; set; }
+    }
+
+    public class LocationAnalysisResultDto
+    {
+        public string BoundaryName { get; set; } = string.Empty;
+        public string BoundaryWkt { get; set; } = string.Empty;
+        public int TotalPoiCount { get; set; }
+        public double OverallScore { get; set; }
+        public List<CriterionSummaryDto> CriteriaSummaries { get; set; } = new List<CriterionSummaryDto>();
+        public List<AnalyzedPoiItemDto> AnalyzedPois { get; set; } = new List<AnalyzedPoiItemDto>();
+    }
+
     // Editör İşbirliği DTO'ları
     public class SendCollaborationRequestDto
     {

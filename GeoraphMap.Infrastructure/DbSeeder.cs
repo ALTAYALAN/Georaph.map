@@ -95,6 +95,7 @@ namespace GeoraphMap.Infrastructure
         {
             try
             {
+                // 1. Tabloları Oluştur
                 await context.Database.ExecuteSqlRawAsync(@"
                     CREATE TABLE IF NOT EXISTS tbl_editor_collaboration (
                         id SERIAL PRIMARY KEY,
@@ -119,7 +120,6 @@ namespace GeoraphMap.Infrastructure
                         created_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         modified_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
                     );
-                    ALTER TABLE tbl_poi_category ADD COLUMN IF NOT EXISTS display_order INT NOT NULL DEFAULT 1;
 
                     CREATE TABLE IF NOT EXISTS tbl_poi (
                         id SERIAL PRIMARY KEY,
@@ -136,26 +136,229 @@ namespace GeoraphMap.Infrastructure
                         modified_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
                     );
 
-                    -- Poligon ve çoklu geometri türü desteği için geometry kısıtlamasını generic Geometry tipine dönüştür
-                    DO $$
-                    BEGIN
-                        BEGIN
-                            ALTER TABLE tbl_poi ALTER COLUMN geometry TYPE geometry(Geometry, 4326) USING ST_SetSRID(geometry, 4326);
-                        EXCEPTION
-                            WHEN OTHERS THEN
-                                NULL;
-                        END;
-                    END $$;
+                    CREATE TABLE IF NOT EXISTS tbl_route (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        color VARCHAR(50) DEFAULT '#3B82F6',
+                        description TEXT,
+                        wkt TEXT,
+                        geometry geometry(Geometry, 4326),
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+                        created_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        modified_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    ALTER TABLE tbl_route ADD COLUMN IF NOT EXISTS wkt TEXT;
+                    ALTER TABLE tbl_route ADD COLUMN IF NOT EXISTS previous_wkt TEXT;
+                    ALTER TABLE tbl_route ADD COLUMN IF NOT EXISTS custom_wkt TEXT;
+                    ALTER TABLE tbl_route ADD COLUMN IF NOT EXISTS geometry_type VARCHAR(50) DEFAULT 'Direct';
+                    ALTER TABLE tbl_route ADD COLUMN IF NOT EXISTS route_class VARCHAR(50) DEFAULT 'araba';
+                    ALTER TABLE tbl_route ADD COLUMN IF NOT EXISTS geometry geometry(Geometry, 4326);
+                    UPDATE tbl_route SET route_class = 'araba' WHERE route_class IS NULL;
+                    UPDATE tbl_route SET route_class = 'metro' WHERE (name ILIKE '%metro%' OR name ILIKE 'M1%' OR name ILIKE 'M2%' OR name ILIKE 'M4%') AND (route_class = 'araba' OR route_class IS NULL);
 
-                    DO $$
-                    BEGIN
-                        IF NOT EXISTS (SELECT 1 FROM tbl_permission WHERE code = 'poi.create' OR id = 8) THEN
-                            INSERT INTO tbl_permission (id, name, code, description)
-                            VALUES (8, 'POI Ekleme', 'poi.create', 'Haritada yeni POI (İlgi Noktası) ekleme ve yönetme yetkisi');
-                        END IF;
-                    END $$;
+                    CREATE TABLE IF NOT EXISTS tbl_stop (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        order_index INT NOT NULL DEFAULT 1,
+                        description TEXT,
+                        route_id INT NOT NULL REFERENCES tbl_route(id) ON DELETE CASCADE,
+                        wkt TEXT NOT NULL,
+                        geometry geometry(Point, 4326),
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+                        created_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        modified_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    CREATE TABLE IF NOT EXISTS tbl_user_saved_route (
+                        id SERIAL PRIMARY KEY,
+                        user_id INT NOT NULL REFERENCES tbl_user(id) ON DELETE CASCADE,
+                        title VARCHAR(255) NOT NULL,
+                        description TEXT,
+                        start_point_name VARCHAR(255) DEFAULT 'Başlangıç Noktası',
+                        start_wkt TEXT NOT NULL,
+                        target_poi_id INT NULL,
+                        target_poi_name VARCHAR(255) DEFAULT 'Hedef POI',
+                        target_wkt TEXT NOT NULL,
+                        route_wkt TEXT NOT NULL,
+                        geometry geometry(LineString, 4326),
+                        distance_meters DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        color VARCHAR(50) DEFAULT '#10B981',
+                        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+                        created_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    CREATE TABLE IF NOT EXISTS tbl_user_favorite_poi (
+                        id SERIAL PRIMARY KEY,
+                        user_id INT NOT NULL REFERENCES tbl_user(id) ON DELETE CASCADE,
+                        poi_id INT NOT NULL REFERENCES tbl_poi(id) ON DELETE CASCADE,
+                        created_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, poi_id)
+                    );
                 ");
-                Console.WriteLine("[DbSeeder] tbl_editor_collaboration, tbl_poi_category, tbl_poi ve tbl_permission doğrulandı.");
+                Console.WriteLine("[DbSeeder] tbl_route, tbl_stop, tbl_user_saved_route ve tbl_user_favorite_poi tabloları doğrulandı.");
+
+                // 2. İzinleri Güvenle Ekle
+                await context.Database.ExecuteSqlRawAsync(@"
+                    INSERT INTO tbl_permission (id, name, code, description)
+                    VALUES (8, 'POI Ekleme', 'poi.create', 'Haritada yeni POI (İlgi Noktası) ekleme ve yönetme yetkisi')
+                    ON CONFLICT (id) DO NOTHING;
+
+                    INSERT INTO tbl_permission (id, name, code, description)
+                    VALUES (9, 'Güzergah Yönetimi', 'route.manage', 'Yeni güzergah ekleme, düzenleme, silme ve durak sıralama yetkisi')
+                    ON CONFLICT (id) DO NOTHING;
+
+                    INSERT INTO tbl_permission (id, name, code, description)
+                    VALUES (10, 'Durak Yönetimi', 'stop.manage', 'Haritada durak ekleme, düzenleme ve silme yetkisi')
+                    ON CONFLICT (id) DO NOTHING;
+
+                    INSERT INTO tbl_permission (id, name, code, description)
+                    VALUES (11, 'Güzergah ve Durak Görüntüleme', 'route.view', 'Güzergahları ve durakları haritada görüntüleme yetkisi')
+                    ON CONFLICT (id) DO NOTHING;
+                ");
+
+                // 3. Rolleri Güvenle Ekle
+                await context.Database.ExecuteSqlRawAsync(@"
+                    INSERT INTO tbl_role (id, name, description)
+                    VALUES (4, 'Operatör', 'Ulaşım güzergah ve durak yönetim yetkisine sahip operatör')
+                    ON CONFLICT (id) DO NOTHING;
+
+                    INSERT INTO tbl_role (id, name, description)
+                    VALUES (5, 'Ulaşım Kullanıcısı', 'Güzergah ve durakları görüntüleme yetkisine sahip kullanıcı')
+                    ON CONFLICT (id) DO NOTHING;
+                ");
+
+                // 4. Rol-Yetki İlişkilerini Dinamik SQL ile Doğrudan Bağla
+                await context.Database.ExecuteSqlRawAsync(@"
+                    -- Admin: route.manage, stop.manage, route.view
+                    INSERT INTO tbl_role_permission (role_id, permission_id)
+                    SELECT r.id, p.id FROM tbl_role r, tbl_permission p
+                    WHERE (r.name = 'Admin' OR r.id = 1) AND p.code IN ('route.manage', 'stop.manage', 'route.view')
+                    ON CONFLICT DO NOTHING;
+
+                    -- Editor: route.view
+                    INSERT INTO tbl_role_permission (role_id, permission_id)
+                    SELECT r.id, p.id FROM tbl_role r, tbl_permission p
+                    WHERE (r.name = 'Editor' OR r.id = 2) AND p.code = 'route.view'
+                    ON CONFLICT DO NOTHING;
+
+                    -- Viewer: route.view
+                    INSERT INTO tbl_role_permission (role_id, permission_id)
+                    SELECT r.id, p.id FROM tbl_role r, tbl_permission p
+                    WHERE (r.name = 'Viewer' OR r.id = 3) AND p.code = 'route.view'
+                    ON CONFLICT DO NOTHING;
+
+                    -- Operatör: drawings.view_all, route.manage, stop.manage, route.view (Kesinlikle poi.create veya çizim ekleme yok!)
+                    INSERT INTO tbl_role_permission (role_id, permission_id)
+                    SELECT r.id, p.id FROM tbl_role r, tbl_permission p
+                    WHERE (r.name = 'Operatör' OR r.name = 'Operator' OR r.id = 4) 
+                      AND p.code IN ('drawings.view_all', 'route.manage', 'stop.manage', 'route.view')
+                    ON CONFLICT DO NOTHING;
+
+                    -- Ulaşım Kullanıcısı: drawings.view_all, route.view
+                    INSERT INTO tbl_role_permission (role_id, permission_id)
+                    SELECT r.id, p.id FROM tbl_role r, tbl_permission p
+                    WHERE (r.name = 'Ulaşım Kullanıcısı' OR r.id = 5) 
+                      AND p.code IN ('drawings.view_all', 'route.view')
+                    ON CONFLICT DO NOTHING;
+                ");
+                Console.WriteLine("[DbSeeder] İzinler, Roller ve Rol Yetkileri başarıyla senkronize edildi.");
+
+                // Seed Demo Routes and Stops if empty
+                if (!await context.Stops.AnyAsync())
+                {
+                    var wktReader = new NetTopologySuite.IO.WKTReader { DefaultSRID = 4326 };
+
+                    var route1 = await context.Routes.FirstOrDefaultAsync(r => r.Name.Contains("M4"));
+                    if (route1 == null)
+                    {
+                        route1 = new RouteFeature
+                        {
+                            Name = "M4 Kadıköy - Kartal Metro Hattı",
+                            Color = "#ef4444", // Kırmızı metro hattı
+                            Description = "Anadolu yakası ana metro güzergahı",
+                            IsActive = true
+                        };
+                        context.Routes.Add(route1);
+                        await context.SaveChangesAsync();
+                    }
+
+                    var stops1 = new List<(string Name, int Order, double Lon, double Lat)>
+                    {
+                        ("Kadıköy İstasyonu", 1, 29.0234, 40.9904),
+                        ("Ayrılık Çeşmesi", 2, 29.0305, 41.0001),
+                        ("Acıbadem", 3, 29.0450, 41.0040),
+                        ("Ünalan", 4, 29.0600, 40.9980),
+                        ("Göztepe", 5, 29.0750, 40.9920),
+                        ("Yenisahra", 6, 29.0920, 40.9880),
+                        ("Kozyatağı", 7, 29.1080, 40.9820),
+                        ("Bostancı", 8, 29.1240, 40.9750),
+                        ("Küçükyalı", 9, 29.1410, 40.9680),
+                        ("Maltepe", 10, 29.1580, 40.9520),
+                        ("Kartal İstasyonu", 11, 29.1890, 40.9020)
+                    };
+
+                    foreach (var s in stops1)
+                    {
+                        var wkt = $"POINT({s.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {s.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)})";
+                        var geom = (NetTopologySuite.Geometries.Point)wktReader.Read(wkt);
+                        context.Stops.Add(new StopFeature
+                        {
+                            Name = s.Name,
+                            OrderIndex = s.Order,
+                            RouteId = route1.Id,
+                            Wkt = wkt,
+                            Geometry = geom,
+                            IsActive = true
+                        });
+                    }
+
+                    // 2. 15F Sahil Otobüs Hattı (Beykoz - Kadıköy)
+                    var route2 = new RouteFeature
+                    {
+                        Name = "15F Beykoz - Kadıköy Sahil Hattı",
+                        Color = "#10b981", // Yeşil sahil hattı
+                        Description = "Boğaz sahil yolu toplu taşıma hattı",
+                        IsActive = true
+                    };
+                    context.Routes.Add(route2);
+                    await context.SaveChangesAsync();
+
+                    var stops2 = new List<(string Name, int Order, double Lon, double Lat)>
+                    {
+                        ("Beykoz Merkez", 1, 29.0965, 41.1340),
+                        ("Paşabahçe", 2, 29.0920, 41.1180),
+                        ("Çubuklu", 3, 29.0850, 41.1060),
+                        ("Kanlıca", 4, 29.0660, 41.0870),
+                        ("Anadoluhisarı", 5, 29.0680, 41.0820),
+                        ("Kandilli", 6, 29.0610, 41.0740),
+                        ("Çengelköy", 7, 29.0520, 41.0510),
+                        ("Beylerbeyi", 8, 29.0430, 41.0420),
+                        ("Kuzguncuk", 9, 29.0310, 41.0330),
+                        ("Üsküdar Meydan", 10, 29.0150, 41.0260),
+                        ("Kadıköy Rıhtım", 11, 29.0225, 40.9912)
+                    };
+
+                    foreach (var s in stops2)
+                    {
+                        var wkt = $"POINT({s.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {s.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)})";
+                        var geom = (NetTopologySuite.Geometries.Point)wktReader.Read(wkt);
+                        context.Stops.Add(new StopFeature
+                        {
+                            Name = s.Name,
+                            OrderIndex = s.Order,
+                            RouteId = route2.Id,
+                            Wkt = wkt,
+                            Geometry = geom,
+                            IsActive = true
+                        });
+                    }
+
+                    await context.SaveChangesAsync();
+                    Console.WriteLine("[DbSeeder] Örnek Güzergahlar ve Duraklar başarıyla eklendi.");
+                }
 
                 // Seed Default Hierarchical Categories if empty
                 if (!await context.PoiCategories.AnyAsync())
@@ -232,16 +435,16 @@ namespace GeoraphMap.Infrastructure
                     context.Permissions.Add(poiPerm);
                     await context.SaveChangesAsync();
 
-                    var adminRole = await context.Roles.FirstOrDefaultAsync(r => r.Id == 1 || r.Name == "Admin");
-                    if (adminRole != null && !await context.RolePermissions.AnyAsync(rp => rp.RoleId == adminRole.Id && rp.PermissionId == poiPerm.Id))
+                    var existingAdmin = await context.Roles.FirstOrDefaultAsync(r => r.Id == 1 || r.Name == "Admin");
+                    if (existingAdmin != null && !await context.RolePermissions.AnyAsync(rp => rp.RoleId == existingAdmin.Id && rp.PermissionId == poiPerm.Id))
                     {
-                        context.RolePermissions.Add(new RolePermission { RoleId = adminRole.Id, PermissionId = poiPerm.Id });
+                        context.RolePermissions.Add(new RolePermission { RoleId = existingAdmin.Id, PermissionId = poiPerm.Id });
                     }
 
-                    var editorRole = await context.Roles.FirstOrDefaultAsync(r => r.Id == 2 || r.Name == "Editor" || r.Name == "Editör");
-                    if (editorRole != null && !await context.RolePermissions.AnyAsync(rp => rp.RoleId == editorRole.Id && rp.PermissionId == poiPerm.Id))
+                    var existingEditor = await context.Roles.FirstOrDefaultAsync(r => r.Id == 2 || r.Name == "Editor" || r.Name == "Editör");
+                    if (existingEditor != null && !await context.RolePermissions.AnyAsync(rp => rp.RoleId == existingEditor.Id && rp.PermissionId == poiPerm.Id))
                     {
-                        context.RolePermissions.Add(new RolePermission { RoleId = editorRole.Id, PermissionId = poiPerm.Id });
+                        context.RolePermissions.Add(new RolePermission { RoleId = existingEditor.Id, PermissionId = poiPerm.Id });
                     }
                     await context.SaveChangesAsync();
                 }

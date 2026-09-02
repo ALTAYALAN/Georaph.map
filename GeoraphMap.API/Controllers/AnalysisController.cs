@@ -75,5 +75,26 @@ namespace GeoraphMap.API.Controllers
                 return StatusCode(500, new { Message = $"Sunucu analiz hatası: {ex.Message}" });
             }
         }
+
+        [HttpPost("location")]
+        [AllowAnonymous]
+        public async Task<IActionResult> AnalyzeLocation([FromBody] LocationAnalysisRequestDto dto)
+        {
+            try
+            {
+                int userId = GetUserId();
+                string userRole = GetUserRole();
+                var result = await _analysisService.AnalyzeLocationSuitabilityAsync(dto, userId, userRole);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Konum analizi hatası: {ex.Message}" });
+            }
+        }
     }
 }
