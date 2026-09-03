@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { transportApi } from '../../services/transportApi';
 import { simulationHubService } from '../../services/simulationHubService';
 import { translations } from '../../translations';
 import { ROUTE_CLASSES, getRouteClassInfo, RouteClassIcon } from '../../constants/routeClasses';
+import { TURKISH_SEAPORTS, generateMaritimeRouteWkt, cleanPortName } from '../../constants/seaports';
 
 const PRESET_COLORS = [
     { label: 'Mavi', hex: '#3b82f6' },
@@ -15,6 +16,197 @@ const PRESET_COLORS = [
     { label: 'Koyu Gri', hex: '#475569' }
 ];
 
+// Açılır ve Kendi İçinde Aranabilir Liman Seçim Bileşeni
+const SearchablePortSelect = ({
+    label,
+    selectedId,
+    onChange,
+    ports = [],
+    disabledId,
+    placeholder = "Liman seçiniz...",
+    isDarkMode
+}) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const containerRef = useRef(null);
+
+    const selectedPort = ports.find(p => p.id === selectedId || p.stopId === selectedId || p.name === selectedId);
+
+    // Dışarı tıklandığında menüyü kapat
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const filtered = useMemo(() => {
+        if (!search.trim()) return ports;
+        const q = search.toLowerCase();
+        return ports.filter(p =>
+            p.name.toLowerCase().includes(q) ||
+            p.shortName.toLowerCase().includes(q) ||
+            (p.city && p.city.toLowerCase().includes(q))
+        );
+    }, [ports, search]);
+
+    return (
+        <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+            {label && (
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '4px', color: isDarkMode ? '#cbd5e1' : '#334155' }}>
+                    {label}
+                </label>
+            )}
+
+            {/* Tıklanabilir Liman Seçim Kutusu */}
+            <div
+                onClick={() => {
+                    setIsOpen(!isOpen);
+                    setSearch('');
+                }}
+                style={{
+                    width: '100%',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    border: `1.5px solid ${isOpen ? '#0284c7' : (isDarkMode ? '#334155' : '#cbd5e1')}`,
+                    background: isDarkMode ? '#0f172a' : '#ffffff',
+                    color: selectedPort ? (isDarkMode ? '#ffffff' : '#0f172a') : '#94a3b8',
+                    fontSize: '12.5px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxShadow: isOpen ? '0 0 0 2px rgba(2, 132, 199, 0.2)' : 'none',
+                    transition: 'all 0.15s ease'
+                }}
+            >
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: selectedPort ? '600' : 'normal' }}>
+                    {selectedPort ? `${selectedPort.shortName} (${selectedPort.city || 'Kıyı Limanı'})` : placeholder}
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', color: '#0284c7', flexShrink: 0, marginLeft: '8px' }}>
+                    <path d="M6 9l6 6 6-6"/>
+                </svg>
+            </div>
+
+            {/* Açılır Arama ve Liman Listesi Pop-up */}
+            {isOpen && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 4px)',
+                        left: 0,
+                        right: 0,
+                        background: isDarkMode ? '#1e293b' : '#ffffff',
+                        border: `1.5px solid ${isDarkMode ? '#0284c7' : '#38bdf8'}`,
+                        borderRadius: '10px',
+                        boxShadow: '0 10px 25px -5px rgba(0,0,0,0.4)',
+                        zIndex: 99999,
+                        padding: '8px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px'
+                    }}
+                >
+                    {/* Arama Kutusu */}
+                    <div style={{ position: 'relative' }}>
+                        <input
+                            type="text"
+                            autoFocus
+                            placeholder="Liman ara..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                width: '100%',
+                                padding: '7px 28px 7px 30px',
+                                borderRadius: '6px',
+                                border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                                background: isDarkMode ? '#0f172a' : '#f8fafc',
+                                color: isDarkMode ? '#ffffff' : '#0f172a',
+                                fontSize: '12px',
+                                outline: 'none'
+                            }}
+                        />
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', opacity: 0.6, color: '#0284c7' }}>
+                            <circle cx="11" cy="11" r="8" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                        {search && (
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setSearch(''); }}
+                                style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '12px' }}
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Kaydırılabilir Liman Listesi */}
+                    <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        {filtered.length === 0 ? (
+                            <div style={{ padding: '10px', fontSize: '12px', color: '#94a3b8', textAlign: 'center' }}>
+                                Eşleşen liman bulunamadı
+                            </div>
+                        ) : (
+                            filtered.map(port => {
+                                const isSelected = port.id === selectedId || port.stopId === selectedId || port.name === selectedId;
+                                const isDisabled = disabledId && (port.id === disabledId || port.stopId === disabledId || port.name === disabledId);
+                                return (
+                                    <div
+                                        key={port.id}
+                                        onClick={() => {
+                                            if (isDisabled) return;
+                                            onChange(port.id);
+                                            setIsOpen(false);
+                                            setSearch('');
+                                        }}
+                                        style={{
+                                            padding: '8px 10px',
+                                            borderRadius: '6px',
+                                            fontSize: '12px',
+                                            cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                            opacity: isDisabled ? 0.4 : 1,
+                                            background: isSelected 
+                                                ? (isDarkMode ? 'rgba(2, 132, 199, 0.25)' : '#e0f2fe') 
+                                                : 'transparent',
+                                            color: isSelected 
+                                                ? '#0284c7' 
+                                                : (isDarkMode ? '#e2e8f0' : '#1e293b'),
+                                            fontWeight: isSelected ? '700' : '500',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            transition: 'background 0.12s ease'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            if (!isSelected && !isDisabled) {
+                                                e.currentTarget.style.background = isDarkMode ? '#334155' : '#f1f5f9';
+                                            }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (!isSelected && !isDisabled) {
+                                                e.currentTarget.style.background = 'transparent';
+                                            }
+                                        }}
+                                    >
+                                        <span>{port.shortName}</span>
+                                        <span style={{ fontSize: '11px', color: '#94a3b8', marginLeft: '6px' }}>{port.city}</span>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Türkiye Deniz Limanları ve Tüm Kıyı Durakları
 export const RouteManagement = ({ 
     token, 
     isDarkMode, 
@@ -29,9 +221,25 @@ export const RouteManagement = ({
 }) => {
     const trans = t || (translations[lang] || translations.tr);
     const [routes, setRoutes] = useState([]);
+    const [allStops, setAllStops] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
+
+    // Ana Görünüm Sekmesi (Güzergahlar / Duraklar)
+    const [activeMainTab, setActiveMainTab] = useState('routes'); // 'routes' | 'stops'
+
+    // Güzergah Türü Sınıflandırma ve Arama Filtresi
+    const [selectedTypeFilter, setSelectedTypeFilter] = useState('ALL');
+    const [searchQuery, setSearchQuery] = useState('');
+
+    // Durak Yönetimi Filtreleri
+    const [stopClassFilter, setStopClassFilter] = useState('ALL');
+    const [stopRouteFilter, setStopRouteFilter] = useState('ALL');
+    const [stopSearchQuery, setStopSearchQuery] = useState('');
+
+    // Liman Seçimi Arama Filtresi (Emoji ve bölge ayrımı olmadan düz arama)
+    const [portSearchQuery, setPortSearchQuery] = useState('');
 
     // Canlı Simülasyon Durumları (SignalR)
     const [internalActiveSimulations, setInternalActiveSimulations] = useState({});
@@ -53,12 +261,132 @@ export const RouteManagement = ({
     // Modals
     const [showRouteModal, setShowRouteModal] = useState(false);
     const [isEditingRoute, setIsEditingRoute] = useState(false);
-    const [routeForm, setRouteForm] = useState({ id: null, name: '', color: '#3b82f6', routeClass: 'araba', description: '', isActive: true });
+    const [routeForm, setRouteForm] = useState({ 
+        id: null, 
+        name: '', 
+        color: '#3b82f6', 
+        routeClass: 'araba', 
+        description: '', 
+        isActive: true,
+        departurePortId: TURKISH_SEAPORTS[0]?.id || '',
+        arrivalPortId: TURKISH_SEAPORTS[1]?.id || ''
+    });
 
     const [showStopModal, setShowStopModal] = useState(false);
     const [isEditingStop, setIsEditingStop] = useState(false);
-    const [stopForm, setStopForm] = useState({ id: null, name: '', routeId: null, description: '', orderIndex: 1, wkt: '', isActive: true });
+    const [stopForm, setStopForm] = useState({ 
+        id: null, 
+        name: '', 
+        stopCode: '',
+        stopClass: 'otobus', 
+        routeId: null, 
+        routeIds: [],
+        description: '', 
+        orderIndex: 1, 
+        wkt: '', 
+        isActive: true 
+    });
     const [isGeneratingRouteId, setIsGeneratingRouteId] = useState(null);
+
+    // Gemi güzergahları için Varış Ekle modalı
+    const [showArrivalModal, setShowArrivalModal] = useState(false);
+    const [arrivalForm, setArrivalForm] = useState({ arrivalPortId: '', routeName: '' });
+    const [isAddingArrival, setIsAddingArrival] = useState(false);
+
+    // Mevcut Durağı Güzergaha Bağlama Modalı ve Hızlı Menü State'leri
+    const [showAttachStopModal, setShowAttachStopModal] = useState(false);
+    const [attachSearchQuery, setAttachSearchQuery] = useState('');
+    const [quickRouteMenuStopId, setQuickRouteMenuStopId] = useState(null);
+
+    // Durak Yönetimi İçin Filtrelenmiş Duraklar Listesi
+    const filteredStops = useMemo(() => {
+        return (allStops || []).filter(stop => {
+            // Sınıf Filtresi
+            if (stopClassFilter !== 'ALL') {
+                if ((stop.stopClass || 'otobus').toLowerCase() !== stopClassFilter.toLowerCase()) {
+                    return false;
+                }
+            }
+            // Güzergah Filtresi
+            const hasAnyRoute = stop.routeId || (stop.routeIds && stop.routeIds.length > 0) || (stop.routes && stop.routes.length > 0);
+            if (stopRouteFilter === 'ASSIGNED' && !hasAnyRoute) return false;
+            if (stopRouteFilter === 'INDEPENDENT' && hasAnyRoute) return false;
+            if (stopRouteFilter !== 'ALL' && stopRouteFilter !== 'ASSIGNED' && stopRouteFilter !== 'INDEPENDENT') {
+                const targetNum = Number(stopRouteFilter);
+                const isMatch = stop.routeId === targetNum || 
+                                (stop.routeIds && stop.routeIds.includes(targetNum)) ||
+                                (stop.routes && stop.routes.some(r => r.id === targetNum));
+                if (!isMatch) return false;
+            }
+            // Arama Filtresi (İsim, Durak Kodu, Açıklama veya Hat Adı)
+            if (stopSearchQuery.trim()) {
+                const q = stopSearchQuery.toLowerCase();
+                const matchName = (stop.name || '').toLowerCase().includes(q);
+                const matchCode = (stop.stopCode || '').toLowerCase().includes(q);
+                const matchDesc = (stop.description || '').toLowerCase().includes(q);
+                const matchedRoute = routes.find(r => r.id === stop.routeId);
+                const matchRoute = matchedRoute ? matchedRoute.name.toLowerCase().includes(q) : false;
+                const matchMultiRoutes = stop.routes ? stop.routes.some(r => (r.name || '').toLowerCase().includes(q)) : false;
+                if (!matchName && !matchCode && !matchDesc && !matchRoute && !matchMultiRoutes) return false;
+            }
+            return true;
+        }).sort((a, b) => {
+            if (a.routeId && b.routeId && a.routeId !== b.routeId) return a.routeId - b.routeId;
+            if ((a.orderIndex || 0) !== (b.orderIndex || 0)) return (a.orderIndex || 0) - (b.orderIndex || 0);
+            return (a.name || '').localeCompare(b.name || '', 'tr');
+        });
+    }, [allStops, stopClassFilter, stopRouteFilter, stopSearchQuery, routes]);
+
+    // Dinamik ve Statik Tüm Limanları Birleştiren Alfabetik Liste
+    const allAvailablePorts = useMemo(() => {
+        const portMap = new Map();
+
+        // 1. Statik hazır limanları ekle
+        TURKISH_SEAPORTS.forEach(p => {
+            const cleanShort = p.shortName || cleanPortName(p.name);
+            portMap.set(p.id, {
+                id: p.id,
+                name: p.name,
+                shortName: cleanShort,
+                city: p.city || 'Kıyı Limanı',
+                coordinates: p.coordinates,
+                description: p.description || p.type || ''
+            });
+        });
+
+        // 2. Veritabanından gelen tüm 'gemi' sınıfı ve liman duraklarını ekle / eşleştir
+        (allStops || []).forEach(s => {
+            const isPort = (s.stopClass || '').toLowerCase() === 'gemi' ||
+                           (s.name || '').toLowerCase().includes('liman') ||
+                           (s.name || '').toLowerCase().includes('iskele') ||
+                           (s.name || '').toLowerCase().includes('port') ||
+                           (s.name || '').toLowerCase().includes('feribot');
+
+            if (isPort && s.longitude != null && s.latitude != null) {
+                const sNameClean = cleanPortName(s.name).toLowerCase();
+                const matchedStaticKey = Array.from(portMap.keys()).find(k => {
+                    const item = portMap.get(k);
+                    return item.name.toLowerCase() === s.name.toLowerCase() ||
+                           cleanPortName(item.name).toLowerCase() === sNameClean;
+                });
+
+                const customId = matchedStaticKey || `stop_${s.id}`;
+
+                portMap.set(customId, {
+                    id: customId,
+                    stopId: s.id,
+                    name: s.name,
+                    shortName: cleanPortName(s.name) || s.name,
+                    city: s.city || (s.name.includes('(') ? s.name.split('(')[1].replace(')', '').trim() : 'Kıyı Limanı'),
+                    coordinates: [s.longitude, s.latitude],
+                    description: s.description || 'Liman / İskele'
+                });
+            }
+        });
+
+        // Alfabetik olarak sırala
+        return Array.from(portMap.values()).sort((a, b) => a.shortName.localeCompare(b.shortName, 'tr'));
+    }, [allStops]);
 
     // SignalR Simülasyon Dinleyicileri
     useEffect(() => {
@@ -268,27 +596,41 @@ export const RouteManagement = ({
         }
     }, [successMsg]);
 
-    // Load Routes
+    // Load Routes & All Stops
     const loadRoutes = async (keepSelection = false) => {
         try {
             setLoading(true);
             setError('');
-            const data = await transportApi.getRoutes(token, true);
-            setRoutes(data || []);
+            const [rawData, stopsData] = await Promise.all([
+                transportApi.getRoutes(token, true),
+                transportApi.getAllStops(token).catch(() => [])
+            ]);
+
+            setAllStops(Array.isArray(stopsData) ? stopsData : []);
+            const allItems = Array.isArray(rawData) ? rawData : [];
+
+            // Limanlar duraktır; tekil liman sahte kayıtlarını (gemi olup wkt'si olmayan veya <=1 duraklı) temizle
+            const fakePortRoutes = allItems.filter(r => (r.routeClass || '').toLowerCase() === 'gemi' && !r.wkt && (r.stops ? r.stops.length : 0) <= 1);
+            if (fakePortRoutes.length > 0) {
+                // Arka planda veritabanından temizle
+                fakePortRoutes.forEach(fr => {
+                    transportApi.deleteRoute(fr.id, token).catch(() => {});
+                });
+            }
+
+            // Yalnızca geçerli gerçek hatları listele
+            const data = allItems.filter(r => !((r.routeClass || '').toLowerCase() === 'gemi' && !r.wkt && (r.stops ? r.stops.length : 0) <= 1));
+            setRoutes(data);
 
             if (data && data.length > 0) {
-                if (!keepSelection || !selectedRouteId) {
-                    setSelectedRouteId(data[0].id);
-                    setRouteStops(data[0].stops || []);
-                } else {
-                    const current = data.find(r => r.id === selectedRouteId);
-                    if (current) {
-                        setRouteStops(current.stops || []);
-                    } else {
-                        setSelectedRouteId(data[0].id);
-                        setRouteStops(data[0].stops || []);
-                    }
+                const targetId = keepSelection && selectedRouteId ? selectedRouteId : data[0].id;
+                const current = data.find(r => r.id === targetId) || data[0];
+                setSelectedRouteId(current.id);
+                let stops = current.stops || [];
+                if ((!stops || stops.length === 0) && Array.isArray(stopsData)) {
+                    stops = stopsData.filter(s => s.routeId === current.id || (s.routeIds && s.routeIds.includes(current.id)) || (s.routes && s.routes.some(r => r.id === current.id)));
                 }
+                setRouteStops(stops);
             } else {
                 setSelectedRouteId(null);
                 setRouteStops([]);
@@ -304,11 +646,29 @@ export const RouteManagement = ({
         loadRoutes();
     }, [token]);
 
-    // Handle Route Selection
-    const handleSelectRoute = (route) => {
-        setSelectedRouteId(route.id);
-        setRouteStops(route.stops || []);
+    // Handle Route Selection (Destekler: hem Route objesi hem de routeId int parametresi)
+    const handleSelectRoute = (routeOrId) => {
+        const rId = typeof routeOrId === 'object' && routeOrId !== null ? routeOrId.id : Number(routeOrId);
+        const targetRoute = typeof routeOrId === 'object' && routeOrId !== null ? routeOrId : routes.find(r => r.id === rId);
+        setSelectedRouteId(rId);
+
+        let stops = targetRoute?.stops || [];
+        if ((!stops || stops.length === 0) && rId && allStops.length > 0) {
+            stops = allStops.filter(s => s.routeId === rId || (s.routeIds && s.routeIds.includes(rId)) || (s.routes && s.routes.some(r => r.id === rId)));
+        }
+        setRouteStops(stops);
     };
+
+    useEffect(() => {
+        if (selectedRouteId) {
+            const current = routes.find(r => r.id === selectedRouteId);
+            let stops = current?.stops || [];
+            if ((!stops || stops.length === 0) && allStops.length > 0) {
+                stops = allStops.filter(s => s.routeId === selectedRouteId || (s.routeIds && s.routeIds.includes(selectedRouteId)) || (s.routes && s.routes.some(r => r.id === selectedRouteId)));
+            }
+            setRouteStops(stops);
+        }
+    }, [selectedRouteId, routes, allStops]);
 
     // --- DRAG & DROP REORDERING ---
     const handleDragStart = (e, index) => {
@@ -361,7 +721,16 @@ export const RouteManagement = ({
 
     // --- ROUTE CRUD ---
     const handleOpenCreateRoute = () => {
-        setRouteForm({ id: null, name: '', color: '#3b82f6', routeClass: 'araba', description: '', isActive: true });
+        setRouteForm({ 
+            id: null, 
+            name: '', 
+            color: '#3b82f6', 
+            routeClass: 'araba', 
+            description: '', 
+            isActive: true,
+            departurePortId: TURKISH_SEAPORTS[0]?.id || '',
+            arrivalPortId: TURKISH_SEAPORTS[1]?.id || ''
+        });
         setIsEditingRoute(false);
         setShowRouteModal(true);
     };
@@ -374,7 +743,9 @@ export const RouteManagement = ({
             color: route.color || '#3b82f6',
             routeClass: route.routeClass || 'araba',
             description: route.description || '',
-            isActive: route.isActive !== false
+            isActive: route.isActive !== false,
+            departurePortId: TURKISH_SEAPORTS[0]?.id || '',
+            arrivalPortId: TURKISH_SEAPORTS[1]?.id || ''
         });
         setIsEditingRoute(true);
         setShowRouteModal(true);
@@ -382,6 +753,74 @@ export const RouteManagement = ({
 
     const handleSaveRoute = async (e) => {
         e.preventDefault();
+
+        // 1. Deniz / Gemi Güzergahı: Yalnızca iki liman arasında oluşturulur
+        if (routeForm.routeClass === 'gemi' && !isEditingRoute) {
+            if (!routeForm.departurePortId || !routeForm.arrivalPortId) {
+                setError('Lütfen kalkış ve varış limanlarını seçiniz.');
+                return;
+            }
+            if (routeForm.departurePortId === routeForm.arrivalPortId) {
+                setError('Kalkış ve varış limanları birbirinden farklı olmalıdır.');
+                return;
+            }
+            const portA = allAvailablePorts.find(p => p.id === routeForm.departurePortId || p.stopId === routeForm.departurePortId || p.name === routeForm.departurePortId);
+            const portB = allAvailablePorts.find(p => p.id === routeForm.arrivalPortId || p.stopId === routeForm.arrivalPortId || p.name === routeForm.arrivalPortId);
+            if (!portA || !portB) {
+                setError('Seçilen limanlar bulunamadı.');
+                return;
+            }
+
+            try {
+                setLoading(true);
+                setError('');
+                const lineWkt = generateMaritimeRouteWkt(portA, portB);
+                const autoName = routeForm.name?.trim() || `${portA.shortName} - ${portB.shortName} Deniz Hattı`;
+                const autoDesc = routeForm.description?.trim() || `${portA.name} ile ${portB.name} arası deniz koridoru ve liman bağlantısı`;
+
+                const created = await transportApi.createRoute({
+                    name: autoName,
+                    color: routeForm.color || '#0284c7',
+                    routeClass: 'gemi',
+                    description: autoDesc,
+                    wkt: lineWkt,
+                    isActive: true
+                }, token);
+
+                // Kalkış Limanı Durağı
+                await transportApi.createStop({
+                    name: portA.name,
+                    description: portA.description || portA.type,
+                    stopClass: 'gemi',
+                    orderIndex: 1,
+                    routeId: created.id,
+                    wkt: `POINT(${portA.coordinates[0]} ${portA.coordinates[1]})`,
+                    isActive: true
+                }, token);
+
+                // Varış Limanı Durağı
+                await transportApi.createStop({
+                    name: portB.name,
+                    description: portB.description || portB.type,
+                    stopClass: 'gemi',
+                    orderIndex: 2,
+                    routeId: created.id,
+                    wkt: `POINT(${portB.coordinates[0]} ${portB.coordinates[1]})`,
+                    isActive: true
+                }, token);
+
+                setShowRouteModal(false);
+                setSuccessMsg(`${autoName} başarıyla oluşturuldu ve liman durakları bağlandı.`);
+                await loadRoutes(true);
+                setSelectedRouteId(created.id);
+            } catch (err) {
+                setError(err.message || 'Deniz rotası oluşturulurken hata oluştu.');
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
         if (!routeForm.name.trim()) {
             setError('Güzergah adı boş bırakılamaz.');
             return;
@@ -435,16 +874,32 @@ export const RouteManagement = ({
 
     // --- STOP CRUD ---
     const handleOpenCreateStop = () => {
-        if (!selectedRouteId) {
-            setError('Önce bir güzergah seçmelisiniz.');
+        // Eğer seçili hat bir deniz/gemi hattı ise yalnızca liman durakları eklenebilir
+        if (selectedRoute && (selectedRoute.routeClass || '').toLowerCase() === 'gemi') {
+            const existingPortNames = routeStops.map(s => s.name);
+            const availablePorts = allAvailablePorts.filter(p => !existingPortNames.includes(p.name));
+            const firstAvailable = availablePorts[0]?.id || allAvailablePorts[0]?.id || '';
+            setArrivalForm({
+                arrivalPortId: firstAvailable,
+                routeName: selectedRoute.name
+            });
+            setShowArrivalModal(true);
             return;
         }
+
+        const initialClass = selectedRoute ? (selectedRoute.routeClass || 'otobus') : 'otobus';
+        const defaultOrder = selectedRoute ? (routeStops.length + 1) : ((allStops || []).length + 1);
+        const initialRouteIds = selectedRouteId ? [selectedRouteId] : [];
+
         setStopForm({
             id: null,
             name: '',
-            routeId: selectedRouteId,
+            stopCode: '',
+            stopClass: initialClass,
+            routeId: selectedRouteId || null,
+            routeIds: initialRouteIds,
             description: '',
-            orderIndex: routeStops.length + 1,
+            orderIndex: defaultOrder,
             wkt: '',
             isActive: true
         });
@@ -453,17 +908,42 @@ export const RouteManagement = ({
     };
 
     const handleOpenEditStop = (stop) => {
+        const directRouteIds = stop.routeIds && stop.routeIds.length > 0 
+            ? stop.routeIds 
+            : (stop.routeId ? [stop.routeId] : (stop.routes ? stop.routes.map(r => r.id) : []));
+
         setStopForm({
             id: stop.id,
             name: stop.name,
-            routeId: stop.routeId,
+            stopCode: stop.stopCode || '',
+            stopClass: stop.stopClass || (selectedRoute?.routeClass || 'otobus'),
+            routeId: stop.routeId || (directRouteIds[0] || null),
+            routeIds: directRouteIds,
             description: stop.description || '',
-            orderIndex: stop.orderIndex,
-            wkt: stop.wkt || '',
+            orderIndex: stop.orderIndex || 1,
+            wkt: stop.wkt || (stop.longitude && stop.latitude ? `POINT(${stop.longitude} ${stop.latitude})` : ''),
             isActive: stop.isActive !== false
         });
         setIsEditingStop(true);
         setShowStopModal(true);
+    };
+
+    const handleUpdateStopRank = async (stop, delta, e) => {
+        if (e) e.stopPropagation();
+        const currentRank = stop.orderIndex || 1;
+        const newRank = Math.max(1, currentRank + delta);
+        if (newRank === currentRank) return;
+
+        try {
+            await transportApi.updateStop(stop.id, {
+                ...stop,
+                orderIndex: newRank
+            }, token);
+            setSuccessMsg(`"${stop.name}" durağının sırası ${newRank} olarak güncellendi.`);
+            await loadRoutes(true);
+        } catch (err) {
+            setError('Sıra güncellenemedi: ' + err.message);
+        }
     };
 
     const handleSaveStop = async (e) => {
@@ -475,11 +955,17 @@ export const RouteManagement = ({
 
         try {
             setLoading(true);
+            const activeRouteIds = (stopForm.routeIds || []).map(Number).filter(r => r > 0);
+            const primaryRouteId = activeRouteIds.length > 0 ? activeRouteIds[0] : (stopForm.routeId ? parseInt(stopForm.routeId, 10) : null);
+
             if (isEditingStop) {
                 await transportApi.updateStop(stopForm.id, {
-                    name: stopForm.name,
-                    routeId: stopForm.routeId,
-                    description: stopForm.description,
+                    name: stopForm.name.trim(),
+                    stopCode: stopForm.stopCode?.trim() || null,
+                    stopClass: stopForm.stopClass || 'otobus',
+                    routeId: primaryRouteId,
+                    routeIds: activeRouteIds,
+                    description: stopForm.description?.trim() || null,
                     orderIndex: stopForm.orderIndex,
                     wkt: stopForm.wkt,
                     isActive: stopForm.isActive
@@ -487,11 +973,14 @@ export const RouteManagement = ({
                 setSuccessMsg('Durak başarıyla güncellendi.');
             } else {
                 await transportApi.createStop({
-                    name: stopForm.name,
-                    routeId: stopForm.routeId,
-                    description: stopForm.description,
+                    name: stopForm.name.trim(),
+                    stopCode: stopForm.stopCode?.trim() || null,
+                    stopClass: stopForm.stopClass || 'otobus',
+                    routeId: primaryRouteId,
+                    routeIds: activeRouteIds,
+                    description: stopForm.description?.trim() || null,
                     orderIndex: stopForm.orderIndex,
-                    wkt: stopForm.wkt || 'POINT(29.0234 40.9904)' // Varsayılan nokta
+                    wkt: stopForm.wkt || 'POINT(32.8543 39.9208)' // Ankara Kızılay varsayılanı
                 }, token);
                 setSuccessMsg('Durak başarıyla eklendi.');
             }
@@ -514,6 +1003,134 @@ export const RouteManagement = ({
             await loadRoutes(true);
         } catch (err) {
             setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Gemi güzergahı için varış limanı ekleme
+    const handleOpenAddArrival = () => {
+        if (!selectedRouteId || !selectedRoute) return;
+        const existingPortNames = routeStops.map(s => s.name);
+        const availablePorts = allAvailablePorts.filter(p => !existingPortNames.includes(p.name));
+        const firstAvailable = availablePorts[0]?.id || allAvailablePorts[0]?.id || '';
+        setArrivalForm({ arrivalPortId: firstAvailable, routeName: '' });
+        setShowArrivalModal(true);
+    };
+
+    const handleAddArrivalPort = async (e) => {
+        e.preventDefault();
+        if (!arrivalForm.arrivalPortId || !selectedRoute) return;
+
+        const arrivalPort = allAvailablePorts.find(p => p.id === arrivalForm.arrivalPortId || p.stopId === arrivalForm.arrivalPortId || p.name === arrivalForm.arrivalPortId);
+        if (!arrivalPort) {
+            setError('Seçilen liman bulunamadı.');
+            return;
+        }
+
+        try {
+            setIsAddingArrival(true);
+            setError('');
+
+            const newOrderIndex = routeStops.length + 1;
+            await transportApi.createStop({
+                name: arrivalPort.name,
+                description: arrivalPort.description || arrivalPort.type,
+                stopClass: 'gemi',
+                orderIndex: newOrderIndex,
+                routeId: selectedRouteId,
+                wkt: `POINT(${arrivalPort.coordinates[0]} ${arrivalPort.coordinates[1]})`,
+                isActive: true
+            }, token);
+
+            const departureStop = routeStops[0];
+            if (departureStop) {
+                const departurePort = allAvailablePorts.find(p => p.name === departureStop.name || p.id === departureStop.id || p.stopId === departureStop.id);
+                if (departurePort) {
+                    const lineWkt = generateMaritimeRouteWkt(departurePort, arrivalPort);
+                    const depClean = cleanPortName(departurePort.shortName || departurePort.name);
+                    const arrClean = cleanPortName(arrivalPort.shortName || arrivalPort.name);
+                    const autoName = arrivalForm.routeName?.trim() || `${depClean} - ${arrClean}`;
+
+                    await transportApi.updateRoute(selectedRouteId, {
+                        ...selectedRoute,
+                        name: autoName,
+                        wkt: lineWkt
+                    }, token);
+                }
+            }
+
+            setShowArrivalModal(false);
+            setSuccessMsg('Varış limanı eklendi ve güzergâh oluşturuldu.');
+            await loadRoutes(true);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setIsAddingArrival(false);
+        }
+    };
+
+    // MEVCUT DURAĞI GÜZERGAHA BAĞLA (Güzergah Menüsünden)
+    const handleAttachExistingStopToRoute = async (stopId) => {
+        if (!selectedRouteId) return;
+        try {
+            setLoading(true);
+            const res = await transportApi.addStopToRoute(selectedRouteId, stopId, token);
+            const stopObj = (allStops || []).find(s => s.id === stopId);
+            setSuccessMsg(res.message || `"${stopObj?.name || 'Durak'}" durağı güzergaha başarıyla bağlandı.`);
+            setShowAttachStopModal(false);
+            await loadRoutes(true);
+        } catch (err) {
+            setError(err.message || 'Durak güzergaha bağlanamadı.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // DURAĞI SEÇİLİ GÜZERGAHTAN ÇIKAR (Diğer hatlar korunur)
+    const handleRemoveStopFromCurrentRoute = async (stop, e) => {
+        if (e) e.stopPropagation();
+        if (!selectedRouteId) return;
+        const isMulti = (stop.routeIds && stop.routeIds.length > 1) || (stop.routes && stop.routes.length > 1);
+        const confirmMsg = isMulti
+            ? `"${stop.name}" durağı yalnızca bu hattan (${selectedRoute?.name || 'seçili hat'}) çıkarılacaktır. Diğer hatlardaki bağlantısı devam eder. Onaylıyor musunuz?`
+            : `"${stop.name}" durağını bu hattan çıkarmak istediğinizden emin misiniz?`;
+        
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            setLoading(true);
+            const res = await transportApi.removeStopFromRoute(selectedRouteId, stop.id, token);
+            setSuccessMsg(res.message || 'Durak güzergahtan çıkarıldı.');
+            await loadRoutes(true);
+        } catch (err) {
+            setError(err.message || 'Durak hattan çıkarılamadı.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // DURAK KARTINDAN HIZLI GÜZERGAH BAĞLA / ÇIKAR (Durak Menüsünden)
+    const handleQuickToggleRouteForStop = async (stop, routeId, e) => {
+        if (e) e.stopPropagation();
+        const currentRouteIds = stop.routeIds && stop.routeIds.length > 0
+            ? stop.routeIds
+            : (stop.routeId ? [stop.routeId] : (stop.routes ? stop.routes.map(r => r.id) : []));
+
+        const isCurrentlyAttached = currentRouteIds.includes(routeId);
+
+        try {
+            setLoading(true);
+            if (isCurrentlyAttached) {
+                const res = await transportApi.removeStopFromRoute(routeId, stop.id, token);
+                setSuccessMsg(res.message || 'Hat bağlantısı kaldırıldı.');
+            } else {
+                const res = await transportApi.addStopToRoute(routeId, stop.id, token);
+                setSuccessMsg(res.message || 'Hat durağa başarıyla bağlandı.');
+            }
+            await loadRoutes(true);
+        } catch (err) {
+            setError(err.message || 'İşlem başarısız oldu.');
         } finally {
             setLoading(false);
         }
@@ -570,6 +1187,34 @@ export const RouteManagement = ({
     const selectedRoute = routes.find(r => r.id === selectedRouteId);
     const totalStopsCount = routes.reduce((acc, r) => acc + (r.stops ? r.stops.length : 0), 0);
 
+    // Sınıflandırma Sayımları ve Filtrelenmiş Liste
+    const typeCounts = {
+        ALL: routes.length,
+        otobus: routes.filter(r => (r.routeClass || '').toLowerCase() === 'otobus' || (r.routeClass || '').toLowerCase() === 'bus').length,
+        metro: routes.filter(r => (r.routeClass || '').toLowerCase() === 'metro').length,
+        gemi: routes.filter(r => (r.routeClass || '').toLowerCase() === 'gemi' || (r.routeClass || '').toLowerCase() === 'deniz' || (r.routeClass || '').toLowerCase() === 'liman').length,
+        tren: routes.filter(r => (r.routeClass || '').toLowerCase() === 'tren').length,
+        araba: routes.filter(r => (r.routeClass || '').toLowerCase() === 'araba' || !(r.routeClass)).length
+    };
+
+    const filteredRoutes = routes.filter(route => {
+        const rClass = (route.routeClass || 'araba').toLowerCase().trim();
+        if (selectedTypeFilter !== 'ALL') {
+            if (selectedTypeFilter === 'otobus' && (rClass !== 'otobus' && rClass !== 'bus')) return false;
+            if (selectedTypeFilter === 'gemi' && (rClass !== 'gemi' && rClass !== 'deniz' && rClass !== 'liman')) return false;
+            if (selectedTypeFilter === 'metro' && rClass !== 'metro') return false;
+            if (selectedTypeFilter === 'tren' && rClass !== 'tren') return false;
+            if (selectedTypeFilter === 'araba' && (rClass !== 'araba' && rClass !== '')) return false;
+        }
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase().trim();
+            const matchesName = (route.name || '').toLowerCase().includes(q);
+            const matchesDesc = (route.description || '').toLowerCase().includes(q);
+            if (!matchesName && !matchesDesc) return false;
+        }
+        return true;
+    });
+
     return (
         <div className="route-management-container" style={{ padding: '24px', height: '100%', overflowY: 'auto' }}>
             {/* Header & Stats */}
@@ -587,324 +1232,1034 @@ export const RouteManagement = ({
                     </h2>
                     <p style={{ margin: 0, color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: '13.5px' }}>
                         {lang === 'tr' 
-                            ? 'Akıllı Ulaşım Modülü: Hat tanımları, durak sıralama ve sürükle-bırak entegrasyonu' 
-                            : 'Smart Transport Module: Line definitions, stop sequencing, and drag-and-drop integration'}
+                            ? 'Akıllı Ulaşım Modülü: Tür sınıflandırması, liman koridorları ve hat yönetimi' 
+                            : 'Smart Transport Module: Type classification, port corridors, and line management'}
                     </p>
                 </div>
 
-                <button
-                    onClick={handleOpenCreateRoute}
-                    className="btn btn-primary"
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '9px 16px',
-                        borderRadius: '8px',
-                        fontWeight: '600',
-                        fontSize: '13.5px',
-                        backgroundColor: '#2563eb',
-                        color: '#fff',
-                        border: 'none',
-                        cursor: 'pointer',
-                        boxShadow: 'none'
-                    }}
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19" />
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                    {lang === 'tr' ? 'Yeni Güzergah Ekle' : 'Add New Route'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <button
+                        onClick={handleOpenCreateStop}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '9px 16px',
+                            borderRadius: '8px',
+                            fontWeight: '600',
+                            fontSize: '13.5px',
+                            backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
+                            color: isDarkMode ? '#ffffff' : '#0f172a',
+                            border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                            cursor: 'pointer',
+                            boxShadow: 'none'
+                        }}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                        {lang === 'tr' ? 'Durak Ekle' : 'Add Stop'}
+                    </button>
+                    <button
+                        onClick={handleOpenCreateRoute}
+                        className="btn btn-primary"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '9px 16px',
+                            borderRadius: '8px',
+                            fontWeight: '600',
+                            fontSize: '13.5px',
+                            backgroundColor: '#2563eb',
+                            color: '#fff',
+                            border: 'none',
+                            cursor: 'pointer',
+                            boxShadow: 'none'
+                        }}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                        {lang === 'tr' ? 'Yeni Güzergah Ekle' : 'Add New Route'}
+                    </button>
+                </div>
             </div>
 
             {/* Notification Alerts */}
             {error && (
                 <div style={{ padding: '12px 16px', borderRadius: '10px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>{error}</span>
-                    <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                    <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
                 </div>
             )}
             {successMsg && (
                 <div style={{ padding: '12px 16px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#10b981', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>{successMsg}</span>
-                    <button onClick={() => setSuccessMsg('')} style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                    <button onClick={() => setSuccessMsg('')} style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
                 </div>
             )}
 
             {/* Metric Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-                <div style={{ padding: '16px 20px', borderRadius: '12px', background: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                    <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Toplam Güzergah</div>
-                    <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#3b82f6' }}>{routes.length}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+                <div style={{ padding: '14px 18px', borderRadius: '12px', background: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}` }}>
+                    <div style={{ color: '#94a3b8', fontSize: '11.5px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>Toplam Güzergah</div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#3b82f6' }}>{routes.length}</div>
                 </div>
-                <div style={{ padding: '16px 20px', borderRadius: '12px', background: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                    <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Toplam Durak</div>
-                    <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#10b981' }}>{totalStopsCount}</div>
+                <div style={{ padding: '14px 18px', borderRadius: '12px', background: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}` }}>
+                    <div style={{ color: '#94a3b8', fontSize: '11.5px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>Toplam Durak</div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>{totalStopsCount}</div>
                 </div>
-                <div style={{ padding: '16px 20px', borderRadius: '12px', background: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                    <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Aktif Hatlar</div>
-                    <div style={{ fontSize: '26px', fontWeight: 'bold', color: '#f59e0b' }}>{routes.filter(r => r.isActive).length}</div>
+                <div style={{ padding: '14px 18px', borderRadius: '12px', background: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}` }}>
+                    <div style={{ color: '#94a3b8', fontSize: '11.5px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>Deniz / Gemi Hatları</div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#0284c7' }}>{typeCounts.gemi}</div>
                 </div>
             </div>
 
-            {/* 2-Column Split: Left = Route List, Right = Stop Reordering & Details */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(400px, 1.5fr)', gap: '24px' }}>
-                {/* Left: Routes List */}
-                <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: 0 }}>Güzergahlar</h3>
-                        <span style={{ fontSize: '12px', padding: '3px 8px', borderRadius: '20px', background: isDarkMode ? '#334155' : '#e2e8f0', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                            {routes.length} Hat
-                        </span>
-                    </div>
+            {/* Ana Mod Sekmeleri: Güzergah Yönetimi vs Durak Yönetimi */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, paddingBottom: '12px' }}>
+                <button
+                    type="button"
+                    onClick={() => setActiveMainTab('routes')}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '9px 18px',
+                        borderRadius: '10px',
+                        fontSize: '13.5px',
+                        fontWeight: activeMainTab === 'routes' ? 700 : 600,
+                        cursor: 'pointer',
+                        border: activeMainTab === 'routes' ? '1.5px solid #2563eb' : `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                        backgroundColor: activeMainTab === 'routes' ? (isDarkMode ? 'rgba(37, 99, 235, 0.2)' : '#eff6ff') : (isDarkMode ? '#1e293b' : '#ffffff'),
+                        color: activeMainTab === 'routes' ? (isDarkMode ? '#60a5fa' : '#2563eb') : (isDarkMode ? '#94a3b8' : '#64748b'),
+                        transition: 'all 0.15s ease'
+                    }}
+                >
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                        <rect x="4" y="4" width="16" height="13" rx="2" />
+                        <path d="M4 9h16" />
+                        <circle cx="7.5" cy="14" r="1.3" fill="currentColor" />
+                        <circle cx="16.5" cy="14" r="1.3" fill="currentColor" />
+                        <path d="M6 17v2.5M18 17v2.5" />
+                    </svg>
+                    <span>Güzergah Yönetimi ({routes.length})</span>
+                </button>
 
-                    {routes.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px', color: '#64748b' }}>
-                                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                                    <circle cx="12" cy="12" r="10" />
-                                    <line x1="12" y1="8" x2="12" y2="12" />
-                                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                                </svg>
-                            </div>
-                            <div>Henüz tanımlı güzergah bulunmuyor.</div>
-                            <button onClick={handleOpenCreateRoute} style={{ marginTop: '12px', background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', textDecoration: 'underline' }}>
-                                Yeni bir güzergah ekleyin
-                            </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveMainTab('stops')}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '9px 18px',
+                        borderRadius: '10px',
+                        fontSize: '13.5px',
+                        fontWeight: activeMainTab === 'stops' ? 700 : 600,
+                        cursor: 'pointer',
+                        border: activeMainTab === 'stops' ? '1.5px solid #10b981' : `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                        backgroundColor: activeMainTab === 'stops' ? (isDarkMode ? 'rgba(16, 185, 129, 0.2)' : '#ecfdf5') : (isDarkMode ? '#1e293b' : '#ffffff'),
+                        color: activeMainTab === 'stops' ? (isDarkMode ? '#34d399' : '#059669') : (isDarkMode ? '#94a3b8' : '#64748b'),
+                        transition: 'all 0.15s ease'
+                    }}
+                >
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                        <circle cx="12" cy="12" r="9" />
+                        <circle cx="12" cy="12" r="3" fill="currentColor" />
+                    </svg>
+                    <span>Durak Yönetimi ({allStops.length})</span>
+                </button>
+            </div>
+
+            {/* TAB 1: Güzergah Yönetimi (2-Column Split: Routes + Route Stops) */}
+            {activeMainTab === 'routes' && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 1.15fr) minmax(380px, 1.35fr)', gap: '24px' }}>
+                    {/* Left: Routes List & Classifier Filter */}
+                    <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        
+                        {/* Header & Count */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: 0 }}>Güzergahlar</h3>
+                            <span style={{ fontSize: '12px', padding: '3px 8px', borderRadius: '20px', background: isDarkMode ? '#334155' : '#e2e8f0', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                {filteredRoutes.length} / {routes.length} Hat
+                            </span>
                         </div>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {routes.map(route => {
-                                const isSelected = route.id === selectedRouteId;
+
+                        {/* Ulaşım Türü Sınıflandırma Filtre Sekmeleri */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {[
+                                { id: 'ALL', label: 'Tümü', count: typeCounts.ALL, color: '#64748b' },
+                                { id: 'gemi', label: 'Deniz / Gemi', count: typeCounts.gemi, color: '#0284c7' },
+                                { id: 'otobus', label: 'Otobüs', count: typeCounts.otobus, color: '#0ea5e9' },
+                                { id: 'metro', label: 'Metro', count: typeCounts.metro, color: '#ef4444' },
+                                { id: 'tren', label: 'Tren', count: typeCounts.tren, color: '#f59e0b' },
+                                { id: 'araba', label: 'Karayolu', count: typeCounts.araba, color: '#3b82f6' }
+                            ].map(t => {
+                                const isSelected = selectedTypeFilter === t.id;
                                 return (
-                                    <div
-                                        key={route.id}
-                                        onClick={() => handleSelectRoute(route)}
+                                    <button
+                                        key={t.id}
+                                        type="button"
+                                        onClick={() => setSelectedTypeFilter(t.id)}
                                         style={{
-                                            padding: '14px 16px',
-                                            borderRadius: '12px',
-                                            border: `2px solid ${isSelected ? (route.color || '#3b82f6') : (isDarkMode ? '#334155' : '#e2e8f0')}`,
-                                            background: isSelected ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#f0f7ff') : (isDarkMode ? '#0f172a' : '#f8fafc'),
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            padding: '5px 10px',
+                                            borderRadius: '6px',
+                                            fontSize: '11.5px',
+                                            fontWeight: isSelected ? '700' : '500',
+                                            border: `1px solid ${isSelected ? t.color : (isDarkMode ? '#334155' : '#cbd5e1')}`,
+                                            backgroundColor: isSelected ? (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff') : 'transparent',
+                                            color: isSelected ? (isDarkMode ? '#ffffff' : t.color) : (isDarkMode ? '#94a3b8' : '#64748b'),
                                             cursor: 'pointer',
-                                            transition: 'all 0.2s ease',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center'
+                                            transition: 'all 0.15s ease'
                                         }}
                                     >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
-                                            <span
-                                                style={{
-                                                    width: '14px',
-                                                    height: '14px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: route.color || '#3b82f6',
-                                                    flexShrink: 0,
-                                                    boxShadow: 'none'
-                                                }}
-                                            />
-                                            <div style={{ minWidth: 0, flex: 1 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    {(() => {
-                                                        const rClassInfo = getRouteClassInfo(route.routeClass);
-                                                        return (
-                                                            <span
-                                                                style={{
-                                                                    display: 'inline-flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '4px',
-                                                                    padding: '1px 6px',
-                                                                    borderRadius: '4px',
-                                                                    fontSize: '11px',
-                                                                    fontWeight: 600,
-                                                                    backgroundColor: rClassInfo.bg,
-                                                                    color: rClassInfo.color,
-                                                                    border: `1px solid ${rClassInfo.border}`,
-                                                                    flexShrink: 0
-                                                                }}
-                                                                title={`Ulaşım Sınıfı: ${rClassInfo.label}`}
-                                                            >
-                                                                <RouteClassIcon classKey={rClassInfo.id} size={13} color={rClassInfo.color} />
-                                                                <span>{rClassInfo.shortLabel}</span>
-                                                            </span>
-                                                        );
-                                                    })()}
-                                                    <span style={{ fontWeight: '600', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <span>{t.label}</span>
+                                        <span style={{
+                                            fontSize: '10px',
+                                            padding: '1px 5px',
+                                            borderRadius: '10px',
+                                            backgroundColor: isSelected ? t.color : (isDarkMode ? '#334155' : '#e2e8f0'),
+                                            color: isSelected ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#64748b')
+                                        }}>
+                                            {t.count}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Arama Kutusu */}
+                        <div style={{ position: 'relative' }}>
+                            <input
+                                type="text"
+                                placeholder="Güzergah adı veya açıklama ara..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px 8px 34px',
+                                    borderRadius: '8px',
+                                    border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                    backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+                                    color: isDarkMode ? '#ffffff' : '#0f172a',
+                                    fontSize: '13px'
+                                }}
+                            />
+                            <svg
+                                width="15"
+                                height="15"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#94a3b8"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' }}
+                            >
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                            </svg>
+                            {searchQuery && (
+                                <button
+                                    onClick={() => setSearchQuery('')}
+                                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Güzergahlar Kart Listesi */}
+                        {loading && routes.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>Güzergahlar yükleniyor...</div>
+                        ) : filteredRoutes.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                                {searchQuery ? 'Aramanıza uygun güzergah bulunamadı.' : 'Bu kategoride kayıtlı güzergah bulunmuyor.'}
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '520px', overflowY: 'auto', paddingRight: '4px' }}>
+                                {filteredRoutes.map(route => {
+                                    const isSelected = selectedRouteId === route.id;
+                                    const clsKey = route.routeClass || 'araba';
+                                    const clsInfo = getRouteClassInfo(clsKey);
+                                    return (
+                                        <div
+                                            key={route.id}
+                                            onClick={() => handleSelectRoute(route)}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: '12px 14px',
+                                                borderRadius: '10px',
+                                                cursor: 'pointer',
+                                                backgroundColor: isSelected ? (isDarkMode ? '#334155' : '#eff6ff') : (isDarkMode ? '#0f172a' : '#f8fafc'),
+                                                border: `1.5px solid ${isSelected ? (route.color || '#3b82f6') : (isDarkMode ? '#334155' : '#e2e8f0')}`,
+                                                transition: 'all 0.15s ease'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                                                <div style={{
+                                                    width: '32px',
+                                                    height: '32px',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: isSelected ? route.color : (isDarkMode ? 'rgba(255,255,255,0.06)' : '#e2e8f0'),
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    color: isSelected ? '#ffffff' : (clsInfo?.color || '#3b82f6'),
+                                                    flexShrink: 0
+                                                }}>
+                                                    <RouteClassIcon classKey={clsKey} size={16} color={isSelected ? '#ffffff' : (clsInfo?.color || '#3b82f6')} />
+                                                </div>
+                                                <div style={{ overflow: 'hidden' }}>
+                                                    <div style={{ fontWeight: '600', fontSize: '13.5px', color: isDarkMode ? '#ffffff' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                         {route.name}
+                                                    </div>
+                                                    <div style={{ fontSize: '11.5px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <span>{route.stops?.length || 0} Durak</span>
+                                                        <span>•</span>
+                                                        <span>{clsInfo?.label || clsKey}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                {(() => {
+                                                    const currentSim = activeSimulations[route.id] || activeSimulations[String(route.id)];
+                                                    const isRunning = Boolean(currentSim?.isRunning);
+                                                    const isPaused = Boolean(currentSim?.isPaused);
+
+                                                    if (isRunning) {
+                                                        return (
+                                                            <>
+                                                                {isPaused ? (
+                                                                    <button
+                                                                        onClick={(e) => handleResumeSimulationFromAdmin(route.id, e)}
+                                                                        disabled={simLoadingId === route.id}
+                                                                        title="Duraklatılan simülasyona kaldığı yerden devam et"
+                                                                        style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', padding: '5px 8px', cursor: 'pointer', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700 }}
+                                                                    >
+                                                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                                                        <span>Devam Et</span>
+                                                                    </button>
+                                                                ) : (
+                                                                    <button
+                                                                        onClick={(e) => handlePauseSimulationFromAdmin(route.id, e)}
+                                                                        disabled={simLoadingId === route.id}
+                                                                        title="Simülasyon hareketini anlık olarak duraklat"
+                                                                        style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid #f59e0b', color: '#f59e0b', padding: '5px 8px', cursor: 'pointer', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700 }}
+                                                                    >
+                                                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+                                                                        <span>Duraklat</span>
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    onClick={(e) => handleCancelSimulationFromAdmin(route.id, e)}
+                                                                    disabled={simLoadingId === route.id}
+                                                                    title="Simülasyonu anında kapat"
+                                                                    style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#ef4444', padding: '5px 8px', cursor: 'pointer', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700 }}
+                                                                >
+                                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
+                                                                    <span>İptal Et</span>
+                                                                </button>
+                                                            </>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <button
+                                                            onClick={(e) => handleStartSimulationFromAdmin(route.id, e)}
+                                                            disabled={simLoadingId === route.id || (!route.stops || route.stops.length < 2 && !route.wkt)}
+                                                            title="Güzergah üzerinde canlı araç simülasyonu başlat"
+                                                            style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', padding: '5px 8px', cursor: 'pointer', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700 }}
+                                                        >
+                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                                            <span>Simülasyon</span>
+                                                        </button>
+                                                    );
+                                                })()}
+
+                                                <button
+                                                    onClick={(e) => handleGenerateOsrmRoute(route.id, e)}
+                                                    disabled={isGeneratingRouteId === route.id || !route.stops || route.stops.length < 2}
+                                                    title={(!route.stops || route.stops.length < 2) ? 'Rota için en az 2 durak gereklidir' : 'OSRM ile Karayolu Rotasını Hesapla'}
+                                                    style={{ background: 'none', border: 'none', color: (!route.stops || route.stops.length < 2) ? '#64748b' : '#10b981', padding: '6px', cursor: (!route.stops || route.stops.length < 2) ? 'not-allowed' : 'pointer', borderRadius: '6px', opacity: (!route.stops || route.stops.length < 2) ? 0.4 : 1 }}
+                                                >
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => handleOpenEditRoute(route, e)}
+                                                    title="Düzenle"
+                                                    style={{ background: 'none', border: 'none', color: '#94a3b8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
+                                                >
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => handleDeleteRoute(route.id, e)}
+                                                    title="Sil"
+                                                    style={{ background: 'none', border: 'none', color: '#94a3b8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
+                                                >
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Selected Route Duraklar & Drag & Drop Reordering */}
+                    <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {selectedRoute ? (
+                            <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span style={{ width: '16px', height: '16px', borderRadius: '4px', backgroundColor: selectedRoute.color || '#3b82f6' }} />
+                                        <div>
+                                            <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>
+                                                {selectedRoute.name}
+                                            </h3>
+                                            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                                                Durakları sürükleyip bırakarak güzergah sırasını değiştirin
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        {/* Geometri Seçim Butonları */}
+                                        <div style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            backgroundColor: isDarkMode ? '#0f172a' : '#e2e8f0',
+                                            padding: '3px',
+                                            borderRadius: '8px',
+                                            gap: '2px',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`
+                                        }}>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleSwitchGeometryMode(selectedRoute.id, 'direct', e)}
+                                                disabled={isGeneratingRouteId === selectedRoute.id}
+                                                style={{ padding: '5px 10px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', cursor: 'pointer', backgroundColor: !selectedRoute.wkt ? '#2563eb' : 'transparent', color: !selectedRoute.wkt ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#475569'), display: 'flex', alignItems: 'center', gap: '5px' }}
+                                                title="Duraklar arası doğrudan düz çizgi (Kuş Bakışı)"
+                                            >
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><line x1="5" y1="12" x2="19" y2="12"/><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="12" r="2.5"/></svg>
+                                                {trans.modeDirect || 'Kuş Bakışı'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleGenerateOsrmRoute(selectedRoute.id, e)}
+                                                disabled={isGeneratingRouteId === selectedRoute.id || routeStops.length < 2}
+                                                style={{ padding: '5px 10px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', cursor: routeStops.length < 2 || isGeneratingRouteId === selectedRoute.id ? 'not-allowed' : 'pointer', backgroundColor: selectedRoute.geometryType === 'Osrm' && selectedRoute.wkt ? '#059669' : 'transparent', color: selectedRoute.geometryType === 'Osrm' && selectedRoute.wkt ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#475569'), display: 'flex', alignItems: 'center', gap: '5px' }}
+                                                title="OSRM ile karayolu rotası"
+                                            >
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                                                {isGeneratingRouteId === selectedRoute.id ? (lang === 'tr' ? 'Hesaplanıyor...' : 'Calculating...') : (trans.modeOsrm || 'OSRM Rota')}
+                                            </button>
+                                            {selectedRoute.customWkt && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => handleSwitchGeometryMode(selectedRoute.id, 'custom', e)}
+                                                    disabled={isGeneratingRouteId === selectedRoute.id}
+                                                    style={{ padding: '5px 10px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', cursor: 'pointer', backgroundColor: selectedRoute.geometryType === 'Custom' && selectedRoute.wkt === selectedRoute.customWkt ? '#7c3aed' : 'transparent', color: selectedRoute.geometryType === 'Custom' && selectedRoute.wkt === selectedRoute.customWkt ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#475569'), display: 'flex', alignItems: 'center', gap: '5px' }}
+                                                >
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+                                                    {trans.modeCustom || 'Özel Büküm'}
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {onEditRouteGeometryOnMap && (
+                                            <button
+                                                onClick={() => onEditRouteGeometryOnMap(selectedRoute)}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '7px', fontWeight: '600', fontSize: '12.5px', backgroundColor: isDarkMode ? '#334155' : '#e2e8f0', color: isDarkMode ? '#f8fafc' : '#0f172a', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, cursor: 'pointer' }}
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M3 12h4l3 8 4-16 3 8h4" /></svg>
+                                                {trans.btnBendRoute || 'Hattı Bük'}
+                                            </button>
+                                        )}
+
+                                        {((selectedRoute.routeClass || '').toLowerCase() === 'gemi') ? (
+                                            <button
+                                                onClick={handleOpenAddArrival}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '7px', fontWeight: '600', fontSize: '12.5px', backgroundColor: '#0891b2', color: '#ffffff', border: 'none', cursor: 'pointer' }}
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                                Varış Ekle
+                                            </button>
+                                        ) : (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <button
+                                                    onClick={() => {
+                                                        setAttachSearchQuery('');
+                                                        setShowAttachStopModal(true);
+                                                    }}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '7px', fontWeight: '600', fontSize: '12.5px', backgroundColor: isDarkMode ? '#334155' : '#e0f2fe', color: isDarkMode ? '#38bdf8' : '#0284c7', border: `1px solid ${isDarkMode ? '#475569' : '#bae6fd'}`, cursor: 'pointer' }}
+                                                    title="Sistemdeki mevcut duraklardan birini bu güzergaha bağla"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                                    <span>Mevcut Durak Bağla</span>
+                                                </button>
+                                                <button
+                                                    onClick={handleOpenCreateStop}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '7px', fontWeight: '600', fontSize: '12.5px', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', cursor: 'pointer' }}
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                                    Yeni Durak Ekle
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Drag & Drop Duraklar Listesi */}
+                                {routeStops.length === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                                        Bu hatta henüz durak eklenmemiş. Yukarıdaki "Mevcut Durak Bağla" veya "Yeni Durak Ekle" butonlarını kullanabilirsiniz.
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '520px', overflowY: 'auto', paddingRight: '4px' }}>
+                                        {routeStops.map((stop, index) => {
+                                            const isDragged = draggedIndex === index;
+                                            const otherRoutes = (stop.routes || []).filter(r => r.id !== selectedRouteId);
+                                            return (
+                                                <div
+                                                    key={stop.id}
+                                                    draggable
+                                                    onDragStart={(e) => handleDragStart(e, index)}
+                                                    onDragOver={(e) => handleDragOver(e, index)}
+                                                    onDrop={(e) => handleDrop(e, index)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        padding: '10px 14px',
+                                                        borderRadius: '10px',
+                                                        backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+                                                        border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+                                                        cursor: isReordering ? 'wait' : 'grab',
+                                                        opacity: isDragged ? 0.4 : 1,
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                >
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
+                                                            <button onClick={(e) => handleUpdateStopRank(stop, 1, e)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 0, fontSize: '9px' }}>▲</button>
+                                                            <span style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: selectedRoute.color || '#3b82f6', color: '#ffffff', fontWeight: 'bold', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                {stop.orderIndex || (index + 1)}
+                                                            </span>
+                                                            <button onClick={(e) => handleUpdateStopRank(stop, -1, e)} disabled={(stop.orderIndex || 1) <= 1} style={{ background: 'none', border: 'none', color: (stop.orderIndex || 1) <= 1 ? '#475569' : '#94a3b8', cursor: (stop.orderIndex || 1) <= 1 ? 'not-allowed' : 'pointer', padding: 0, fontSize: '9px' }}>▼</button>
+                                                        </div>
+                                                        <div style={{ minWidth: 0 }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                                                <span style={{ fontWeight: '600', fontSize: '13px', color: isDarkMode ? '#ffffff' : '#0f172a' }}>
+                                                                    {stop.name}
+                                                                </span>
+                                                                {stop.stopCode && (
+                                                                    <span style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: '700', padding: '1px 5px', borderRadius: '4px', backgroundColor: isDarkMode ? 'rgba(2, 132, 199, 0.2)' : '#e0f2fe', color: '#0284c7' }}>
+                                                                        {stop.stopCode}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+                                                                {stop.latitude && stop.longitude && (
+                                                                    <span>{stop.latitude.toFixed(4)}° N, {stop.longitude.toFixed(4)}° E</span>
+                                                                )}
+                                                                {otherRoutes.length > 0 && (
+                                                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                                        <span>• Diğer Hatlar:</span>
+                                                                        {otherRoutes.map(or => (
+                                                                            <span key={or.id} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '4px', background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#e2e8f0', color: or.color || '#3b82f6', fontWeight: 600 }}>
+                                                                                {or.name}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                                        {onRepositionStopOnMap && (
+                                                            <button
+                                                                onClick={() => onRepositionStopOnMap(stop)}
+                                                                title="Durağın Konumunu Haritada Taşı"
+                                                                style={{ background: 'none', border: 'none', color: '#38bdf8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
+                                                            >
+                                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                                    <polyline points="5 9 2 12 5 15" /><polyline points="9 5 12 2 15 5" /><polyline points="15 19 12 22 9 19" /><polyline points="19 9 22 12 19 15" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="12" y1="2" x2="12" y2="22" />
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => handleOpenEditStop(stop)}
+                                                            title="Durağı ve Bağlı Hatları Düzenle"
+                                                            style={{ background: 'none', border: 'none', color: '#94a3b8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
+                                                        >
+                                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => handleRemoveStopFromCurrentRoute(stop, e)}
+                                                            title="Durağı Bu Güzergahtan Çıkar"
+                                                            style={{ background: 'none', border: 'none', color: '#ef4444', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
+                                                        >
+                                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                                Soldaki listeden duraklarını yönetmek istediğiniz bir güzergah seçin.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* TAB 2: Durak Yönetimi (Full-Width Stop Management Panel) */}
+            {activeMainTab === 'stops' && (
+                <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, padding: '22px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                    {/* Header & Controls */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                        <div>
+                            <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.2">
+                                    <circle cx="12" cy="12" r="9" />
+                                    <circle cx="12" cy="12" r="3" fill="currentColor" />
+                                </svg>
+                                <span>Tüm Duraklar ve POI Yönetimi</span>
+                            </h3>
+                            <p style={{ margin: 0, fontSize: '12.5px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                Tüm bağımsız ve güzergaha bağlı durakların isim, rank (sıra), sınıf ve konumlarını doğrudan düzenleyin.
+                            </p>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '20px', background: isDarkMode ? '#334155' : '#e2e8f0', color: isDarkMode ? '#cbd5e1' : '#475569', fontWeight: '600' }}>
+                                {filteredStops.length} / {allStops.length} Durak Listeleniyor
+                            </span>
+                            <button
+                                onClick={handleOpenCreateStop}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 14px',
+                                    borderRadius: '8px',
+                                    fontWeight: '600',
+                                    fontSize: '12.5px',
+                                    backgroundColor: '#10b981',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                Yeni Durak Ekle
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Filtre ve Arama Çubuğu */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {/* Arama Input */}
+                            <div style={{ flex: '1 1 240px', position: 'relative' }}>
+                                <input
+                                    type="text"
+                                    placeholder="Durak adı, il, açıklama veya hat adı ara..."
+                                    value={stopSearchQuery}
+                                    onChange={(e) => setStopSearchQuery(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px 8px 34px',
+                                        borderRadius: '8px',
+                                        border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                        backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+                                        color: isDarkMode ? '#ffffff' : '#0f172a',
+                                        fontSize: '13px'
+                                    }}
+                                />
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' }}>
+                                    <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                </svg>
+                                {stopSearchQuery && (
+                                    <button onClick={() => setStopSearchQuery('')} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Bağlantı Filtresi */}
+                            <select
+                                value={stopRouteFilter}
+                                onChange={(e) => setStopRouteFilter(e.target.value)}
+                                style={{
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                    backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+                                    color: isDarkMode ? '#ffffff' : '#0f172a',
+                                    fontSize: '12.5px'
+                                }}
+                            >
+                                <option value="ALL">Tüm Duraklar (Bağlı + Bağımsız)</option>
+                                <option value="INDEPENDENT">Yalnızca Bağımsız Duraklar (POI)</option>
+                                <option value="ASSIGNED">Yalnızca Güzergaha Bağlı Duraklar</option>
+                                <optgroup label="Belirli Güzergah">
+                                    {routes.map(r => (
+                                        <option key={r.id} value={r.id}>{r.name} ({r.routeClass})</option>
+                                    ))}
+                                </optgroup>
+                            </select>
+                        </div>
+
+                        {/* Sınıf Filtre Butonları */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {[
+                                { id: 'ALL', label: 'Tüm Sınıflar', count: allStops.length, color: '#64748b' },
+                                { id: 'otobus', label: 'Otobüs', count: allStops.filter(s => (s.stopClass || 'otobus').toLowerCase() === 'otobus').length, color: '#0ea5e9' },
+                                { id: 'metro', label: 'Metro / Raylı', count: allStops.filter(s => (s.stopClass || '').toLowerCase() === 'metro').length, color: '#ef4444' },
+                                { id: 'gemi', label: 'Liman / İskele', count: allStops.filter(s => (s.stopClass || '').toLowerCase() === 'gemi').length, color: '#0284c7' },
+                                { id: 'tren', label: 'Tren / Gar', count: allStops.filter(s => (s.stopClass || '').toLowerCase() === 'tren').length, color: '#f59e0b' },
+                                { id: 'araba', label: 'Karayolu', count: allStops.filter(s => (s.stopClass || '').toLowerCase() === 'araba').length, color: '#3b82f6' }
+                            ].map(cls => {
+                                const isSelected = stopClassFilter === cls.id;
+                                return (
+                                    <button
+                                        key={cls.id}
+                                        type="button"
+                                        onClick={() => setStopClassFilter(cls.id)}
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            padding: '4px 9px',
+                                            borderRadius: '6px',
+                                            fontSize: '11.5px',
+                                            fontWeight: isSelected ? 700 : 500,
+                                            border: `1px solid ${isSelected ? cls.color : (isDarkMode ? '#334155' : '#cbd5e1')}`,
+                                            backgroundColor: isSelected ? (isDarkMode ? 'rgba(16, 185, 129, 0.2)' : '#ecfdf5') : 'transparent',
+                                            color: isSelected ? (isDarkMode ? '#ffffff' : cls.color) : (isDarkMode ? '#94a3b8' : '#64748b'),
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        <span>{cls.label}</span>
+                                        <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '10px', backgroundColor: isSelected ? cls.color : (isDarkMode ? '#334155' : '#e2e8f0'), color: isSelected ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#64748b') }}>
+                                            {cls.count}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Duraklar Tablosu / Listesi */}
+                    {filteredStops.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', fontSize: '13px' }}>
+                            Arama ve filtre kriterlerine uygun durak bulunamadı.
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto', paddingRight: '4px' }}>
+                            {filteredStops.map(stop => {
+                                const routeObj = routes.find(r => r.id === stop.routeId);
+                                const clsKey = (stop.stopClass || 'otobus').toLowerCase();
+                                const clsInfo = getRouteClassInfo(clsKey);
+                                return (
+                                    <div
+                                        key={stop.id}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            padding: '12px 14px',
+                                            borderRadius: '10px',
+                                            backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+                                            gap: '12px',
+                                            transition: 'all 0.15s ease'
+                                        }}
+                                    >
+                                        {/* Sol Taraf: Rank Badge + Rank +/- + İkon + İsim & Bilgi */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', minWidth: 0 }}>
+                                            {/* Sıra / Rank Düzenleyici */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                                <button
+                                                    onClick={(e) => handleUpdateStopRank(stop, 1, e)}
+                                                    title="Sırayı / Rank'i 1 artır"
+                                                    style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0', fontSize: '10px', lineHeight: '1' }}
+                                                >
+                                                    ▲
+                                                </button>
+                                                <span
+                                                    title="Durak Sırası / Rank (Düzenlemek için tıkla)"
+                                                    onClick={() => handleOpenEditStop(stop)}
+                                                    style={{
+                                                        width: '26px',
+                                                        height: '26px',
+                                                        borderRadius: '6px',
+                                                        backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff',
+                                                        color: '#3b82f6',
+                                                        fontWeight: '700',
+                                                        fontSize: '12px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        border: '1px solid rgba(59, 130, 246, 0.35)',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    {stop.orderIndex || 1}
+                                                </span>
+                                                <button
+                                                    onClick={(e) => handleUpdateStopRank(stop, -1, e)}
+                                                    title="Sırayı / Rank'i 1 azalt"
+                                                    disabled={(stop.orderIndex || 1) <= 1}
+                                                    style={{ background: 'none', border: 'none', color: (stop.orderIndex || 1) <= 1 ? '#475569' : '#94a3b8', cursor: (stop.orderIndex || 1) <= 1 ? 'not-allowed' : 'pointer', padding: '0', fontSize: '10px', lineHeight: '1' }}
+                                                >
+                                                    ▼
+                                                </button>
+                                            </div>
+
+                                            {/* Sınıf İkonu */}
+                                            <div
+                                                style={{
+                                                    width: '34px',
+                                                    height: '34px',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#e2e8f0',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    flexShrink: 0
+                                                }}
+                                            >
+                                                <RouteClassIcon classKey={clsKey} size={18} color={clsInfo?.color || '#3b82f6'} />
+                                            </div>
+
+                                            {/* İsim, Açıklama ve Koordinat */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                                    <span style={{ fontWeight: '700', fontSize: '13.5px', color: isDarkMode ? '#ffffff' : '#0f172a' }}>
+                                                        {stop.name}
                                                     </span>
-                                                    {activeSimulations[route.id]?.isRunning && (
-                                                        <span className="sim-live-indicator" style={{ padding: '1px 6px', fontSize: '9.5px', gap: '4px' }}>
-                                                            <span className="live-pulse-dot" style={{ width: '5px', height: '5px' }}></span>
-                                                            <span>CANLI SİMÜLASYON</span>
+                                                    {stop.stopCode && (
+                                                        <span style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: '700', padding: '1px 6px', borderRadius: '4px', backgroundColor: isDarkMode ? 'rgba(2, 132, 199, 0.2)' : '#e0f2fe', color: '#0284c7', border: '1px solid rgba(2, 132, 199, 0.4)' }}>
+                                                            {stop.stopCode}
                                                         </span>
                                                     )}
+                                                    <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '6px', backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#e2e8f0', color: clsInfo?.color || '#3b82f6', fontWeight: '600' }}>
+                                                        {clsInfo?.shortLabel || clsKey}
+                                                    </span>
                                                 </div>
-                                                <div style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px' }}>
-                                                    <span>{route.stops ? route.stops.length : 0} Durak</span>
-                                                    {route.description && (
-                                                        <>
-                                                            <span>•</span>
-                                                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{route.description}</span>
-                                                        </>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11.5px', color: '#94a3b8', flexWrap: 'wrap' }}>
+                                                    {stop.description && (
+                                                        <span>{stop.description}</span>
+                                                    )}
+                                                    {stop.latitude && stop.longitude && (
+                                                        <span>• {stop.latitude.toFixed(4)}° N, {stop.longitude.toFixed(4)}° E</span>
                                                     )}
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            {/* CANLI ARAÇ SİMÜLASYONU KONTROLLERİ */}
+                                        {/* Orta: Bağlı Güzergahlar (Çoklu Hat Rozetleri & Hızlı Hat Yönetimi) */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', maxWidth: '360px', justifyContent: 'flex-end', position: 'relative' }}>
                                             {(() => {
-                                                const currentSim = activeSimulations[route.id] || activeSimulations[Number(route.id)] || activeSimulations[String(route.id)];
-                                                const isRunning = Boolean(currentSim?.isRunning);
-                                                const isPaused = Boolean(currentSim?.isPaused);
+                                                const assignedRoutes = stop.routes && stop.routes.length > 0
+                                                    ? stop.routes
+                                                    : (routeObj ? [routeObj] : []);
 
-                                                if (isRunning) {
-                                                    return (
-                                                        <>
-                                                            {/* DURAKLAT VEYA DEVAM ET BUTONU */}
-                                                            {isPaused ? (
-                                                                <button
-                                                                    onClick={(e) => handleResumeSimulationFromAdmin(route.id, e)}
-                                                                    disabled={simLoadingId === route.id}
-                                                                    title="Duraklatılan simülasyona kaldığı yerden devam et"
-                                                                    style={{
-                                                                        background: 'rgba(16, 185, 129, 0.15)',
-                                                                        border: '1px solid #10b981',
-                                                                        color: '#10b981',
-                                                                        padding: '5px 8px',
-                                                                        cursor: 'pointer',
-                                                                        borderRadius: '6px',
-                                                                        display: 'inline-flex',
-                                                                        alignItems: 'center',
-                                                                        gap: '4px',
-                                                                        fontSize: '11px',
-                                                                        fontWeight: 700,
-                                                                        transition: 'all 0.15s ease'
-                                                                    }}
-                                                                >
-                                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                                                                        <polygon points="5 3 19 12 5 21 5 3" />
-                                                                    </svg>
-                                                                    <span>Devam Et</span>
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={(e) => handlePauseSimulationFromAdmin(route.id, e)}
-                                                                    disabled={simLoadingId === route.id}
-                                                                    title="Simülasyon hareketini anlık olarak duraklat"
-                                                                    style={{
-                                                                        background: 'rgba(245, 158, 11, 0.15)',
-                                                                        border: '1px solid #f59e0b',
-                                                                        color: '#f59e0b',
-                                                                        padding: '5px 8px',
-                                                                        cursor: 'pointer',
-                                                                        borderRadius: '6px',
-                                                                        display: 'inline-flex',
-                                                                        alignItems: 'center',
-                                                                        gap: '4px',
-                                                                        fontSize: '11px',
-                                                                        fontWeight: 700,
-                                                                        transition: 'all 0.15s ease'
-                                                                    }}
-                                                                >
-                                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                                                                        <rect x="6" y="4" width="4" height="16" rx="1" />
-                                                                        <rect x="14" y="4" width="4" height="16" rx="1" />
-                                                                    </svg>
-                                                                    <span>Duraklat</span>
-                                                                </button>
-                                                            )}
-
-                                                            {/* İPTAL ET / SİMÜLASYONU TAMAMEN KAPAT BUTONU */}
-                                                            <button
-                                                                onClick={(e) => handleCancelSimulationFromAdmin(route.id, e)}
-                                                                disabled={simLoadingId === route.id}
-                                                                title="Simülasyonu anında kapat ve aracı haritadan kaldır"
-                                                                style={{
-                                                                    background: 'rgba(239, 68, 68, 0.15)',
-                                                                    border: '1px solid #ef4444',
-                                                                    color: '#ef4444',
-                                                                    padding: '5px 8px',
-                                                                    cursor: 'pointer',
-                                                                    borderRadius: '6px',
-                                                                    display: 'inline-flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '4px',
-                                                                    fontSize: '11px',
-                                                                    fontWeight: 700,
-                                                                    transition: 'all 0.15s ease'
-                                                                }}
-                                                            >
-                                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                                                                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                                                                </svg>
-                                                                <span>İptal Et</span>
-                                                            </button>
-                                                        </>
-                                                    );
-                                                }
+                                                const assignedRouteIds = new Set(assignedRoutes.map(r => r.id));
+                                                const unassignedRoutes = routes.filter(r => !assignedRouteIds.has(r.id));
+                                                const isMenuOpen = quickRouteMenuStopId === stop.id;
 
                                                 return (
-                                                    <button
-                                                        onClick={(e) => handleStartSimulationFromAdmin(route.id, e)}
-                                                        disabled={simLoadingId === route.id || (!route.stops || route.stops.length < 2 && !route.wkt)}
-                                                        title="Güzergah üzerinde canlı araç simülasyonu başlat"
-                                                        style={{
-                                                        background: 'rgba(16, 185, 129, 0.15)',
-                                                        border: '1px solid #10b981',
-                                                        color: '#10b981',
-                                                        padding: '5px 8px',
-                                                        cursor: 'pointer',
-                                                        borderRadius: '6px',
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: '4px',
-                                                        fontSize: '11px',
-                                                        fontWeight: 700,
-                                                        transition: 'all 0.15s ease'
-                                                    }}
+                                                    <>
+                                                        {assignedRoutes.map(r => (
+                                                            <div
+                                                                key={r.id}
+                                                                style={{
+                                                                    display: 'inline-flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '5px',
+                                                                    padding: '3px 7px',
+                                                                    borderRadius: '6px',
+                                                                    background: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff',
+                                                                    border: `1px solid ${r.color || '#3b82f6'}`
+                                                                }}
+                                                            >
+                                                                <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: r.color || '#3b82f6' }} />
+                                                                <span style={{ fontSize: '11px', fontWeight: '600', color: isDarkMode ? '#93c5fd' : '#1d4ed8' }}>
+                                                                    {r.name}
+                                                                </span>
+                                                                <button
+                                                                    onClick={(e) => handleQuickToggleRouteForStop(stop, r.id, e)}
+                                                                    title={`Bu durağı "${r.name}" hattından çıkar`}
+                                                                    style={{
+                                                                        background: 'none',
+                                                                        border: 'none',
+                                                                        color: isDarkMode ? '#94a3b8' : '#64748b',
+                                                                        cursor: 'pointer',
+                                                                        padding: '0 0 0 2px',
+                                                                        fontSize: '11px',
+                                                                        fontWeight: 'bold',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center'
+                                                                    }}
+                                                                    onMouseOver={(e) => e.currentTarget.style.color = '#ef4444'}
+                                                                    onMouseOut={(e) => e.currentTarget.style.color = isDarkMode ? '#94a3b8' : '#64748b'}
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            </div>
+                                                        ))}
+
+                                                        {assignedRoutes.length === 0 && (
+                                                            <div style={{ padding: '4px 8px', borderRadius: '6px', background: isDarkMode ? '#334155' : '#e2e8f0', color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: '11.5px', fontWeight: '500' }}>
+                                                                Bağımsız Durak (POI)
+                                                            </div>
+                                                        )}
+
+                                                        {/* Hızlı Hat Ekleme Butonu */}
+                                                        {unassignedRoutes.length > 0 && (
+                                                            <div style={{ position: 'relative' }}>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setQuickRouteMenuStopId(isMenuOpen ? null : stop.id);
+                                                                    }}
+                                                                    title="Bu durağı başka bir hatta bağla"
+                                                                    style={{
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '3px',
+                                                                        padding: '3px 8px',
+                                                                        borderRadius: '6px',
+                                                                        background: isDarkMode ? '#334155' : '#e0f2fe',
+                                                                        border: `1px dashed ${isDarkMode ? '#64748b' : '#38bdf8'}`,
+                                                                        color: isDarkMode ? '#38bdf8' : '#0284c7',
+                                                                        fontSize: '11px',
+                                                                        fontWeight: '600',
+                                                                        cursor: 'pointer'
+                                                                    }}
+                                                                >
+                                                                    <span>+ Hat Bağla</span>
+                                                                </button>
+
+                                                                {isMenuOpen && (
+                                                                    <div
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        style={{
+                                                                            position: 'absolute',
+                                                                            top: 'calc(100% + 4px)',
+                                                                            right: 0,
+                                                                            background: isDarkMode ? '#1e293b' : '#ffffff',
+                                                                            border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                                                                            borderRadius: '8px',
+                                                                            boxShadow: '0 10px 25px -5px rgba(0,0,0,0.4)',
+                                                                            zIndex: 9999,
+                                                                            padding: '6px',
+                                                                            minWidth: '200px',
+                                                                            maxHeight: '180px',
+                                                                            overflowY: 'auto',
+                                                                            display: 'flex',
+                                                                            flexDirection: 'column',
+                                                                            gap: '2px'
+                                                                        }}
+                                                                    >
+                                                                        <div style={{ fontSize: '10.5px', fontWeight: '700', color: '#94a3b8', padding: '4px 6px' }}>
+                                                                            Hatta Bağla:
+                                                                        </div>
+                                                                        {unassignedRoutes.map(ur => (
+                                                                            <button
+                                                                                key={ur.id}
+                                                                                type="button"
+                                                                                onClick={(e) => {
+                                                                                    handleQuickToggleRouteForStop(stop, ur.id, e);
+                                                                                    setQuickRouteMenuStopId(null);
+                                                                                }}
+                                                                                style={{
+                                                                                    display: 'flex',
+                                                                                    alignItems: 'center',
+                                                                                    gap: '6px',
+                                                                                    padding: '6px 8px',
+                                                                                    borderRadius: '5px',
+                                                                                    background: 'none',
+                                                                                    border: 'none',
+                                                                                    color: isDarkMode ? '#ffffff' : '#0f172a',
+                                                                                    fontSize: '11.5px',
+                                                                                    cursor: 'pointer',
+                                                                                    textAlign: 'left'
+                                                                                }}
+                                                                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = isDarkMode ? '#334155' : '#eff6ff'}
+                                                                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                                                            >
+                                                                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: ur.color || '#3b82f6', flexShrink: 0 }} />
+                                                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ur.name}</span>
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+
+                                        {/* Sağ Taraf: Aksiyon Butonları */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                            {onRepositionStopOnMap && (
+                                                <button
+                                                    onClick={() => onRepositionStopOnMap(stop)}
+                                                    title="Haritada Sürükleyerek Konumlandır"
+                                                    style={{ background: 'none', border: 'none', color: '#38bdf8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
+                                                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.15)'}
+                                                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                                                 >
-                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                                                        <polygon points="5 3 19 12 5 21 5 3" />
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <polyline points="5 9 2 12 5 15" />
+                                                        <polyline points="9 5 12 2 15 5" />
+                                                        <polyline points="15 19 12 22 9 19" />
+                                                        <polyline points="19 9 22 12 19 15" />
+                                                        <line x1="2" y1="12" x2="22" y2="12" />
+                                                        <line x1="12" y1="2" x2="12" y2="22" />
                                                     </svg>
-                                                    <span>Simülasyonu Başlat</span>
                                                 </button>
-                                            );
-                                        })()}
+                                            )}
 
                                             <button
-                                                onClick={(e) => handleGenerateOsrmRoute(route.id, e)}
-                                                disabled={isGeneratingRouteId === route.id || !route.stops || route.stops.length < 2}
-                                                title={(!route.stops || route.stops.length < 2) ? 'Rota için en az 2 durak gereklidir' : 'OSRM ile Karayolu Rotasını Hesapla ve Kaydet'}
-                                                style={{
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    color: (!route.stops || route.stops.length < 2) ? '#64748b' : '#10b981',
-                                                    padding: '6px',
-                                                    cursor: (!route.stops || route.stops.length < 2) ? 'not-allowed' : 'pointer',
-                                                    borderRadius: '6px',
-                                                    opacity: (!route.stops || route.stops.length < 2) ? 0.4 : 1
-                                                }}
-                                                onMouseOver={(e) => { if (route.stops?.length >= 2) e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.15)'; }}
-                                                onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                                            >
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                                    <polygon points="3 11 22 2 13 21 11 13 3 11" />
-                                                </svg>
-                                            </button>
-                                            <button
-                                                onClick={(e) => handleOpenEditRoute(route, e)}
-                                                title="Düzenle"
+                                                onClick={() => handleOpenEditStop(stop)}
+                                                title="Durağı ve Rank'i Düzenle"
                                                 style={{ background: 'none', border: 'none', color: '#94a3b8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
                                                 onMouseOver={(e) => e.currentTarget.style.color = '#3b82f6'}
                                                 onMouseOut={(e) => e.currentTarget.style.color = '#94a3b8'}
                                             >
                                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                                             </button>
+
                                             <button
-                                                onClick={(e) => handleDeleteRoute(route.id, e)}
-                                                title="Sil"
+                                                onClick={() => handleDeleteStop(stop.id)}
+                                                title="Durağı Sil"
                                                 style={{ background: 'none', border: 'none', color: '#94a3b8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
                                                 onMouseOver={(e) => e.currentTarget.style.color = '#ef4444'}
                                                 onMouseOut={(e) => e.currentTarget.style.color = '#94a3b8'}
@@ -918,323 +2273,7 @@ export const RouteManagement = ({
                         </div>
                     )}
                 </div>
-
-                {/* Right: Selected Route Duraklar & Drag & Drop Reordering */}
-                <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {selectedRoute ? (
-                        <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <span style={{ width: '16px', height: '16px', borderRadius: '4px', backgroundColor: selectedRoute.color || '#3b82f6' }} />
-                                    <div>
-                                        <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>
-                                            {selectedRoute.name}
-                                        </h3>
-                                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-                                            Durakları sürükleyip bırakarak güzergah sırasını değiştirin
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                    {/* GEOMETRİ SEÇİM GRUBU (KUŞ BAKIŞI / OSRM / ÖZEL BÜKÜM) */}
-                                    <div style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        backgroundColor: isDarkMode ? '#0f172a' : '#e2e8f0',
-                                        padding: '3px',
-                                        borderRadius: '8px',
-                                        gap: '2px',
-                                        border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`
-                                    }}>
-                                        {/* KUŞ BAKIŞI / DOĞRUSAL BUTONU */}
-                                        <button
-                                            type="button"
-                                            onClick={(e) => handleSwitchGeometryMode(selectedRoute.id, 'direct', e)}
-                                            disabled={isGeneratingRouteId === selectedRoute.id}
-                                            style={{
-                                                padding: '5px 10px',
-                                                fontSize: '12px',
-                                                fontWeight: 600,
-                                                borderRadius: '6px',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                backgroundColor: !selectedRoute.wkt ? '#2563eb' : 'transparent',
-                                                color: !selectedRoute.wkt ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#475569'),
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '5px'
-                                            }}
-                                            title="Duraklar arası doğrudan düz çizgi (Kuş Bakışı / Şematik Metro)"
-                                        >
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><line x1="5" y1="12" x2="19" y2="12"/><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="12" r="2.5"/></svg>
-                                            {trans.modeDirect || 'Kuş Bakışı'}
-                                        </button>
-
-                                        {/* OSRM KARAYOLU BUTONU */}
-                                        <button
-                                            type="button"
-                                            onClick={(e) => handleGenerateOsrmRoute(selectedRoute.id, e)}
-                                            disabled={isGeneratingRouteId === selectedRoute.id || routeStops.length < 2}
-                                            style={{
-                                                padding: '5px 10px',
-                                                fontSize: '12px',
-                                                fontWeight: 600,
-                                                borderRadius: '6px',
-                                                border: 'none',
-                                                cursor: routeStops.length < 2 || isGeneratingRouteId === selectedRoute.id ? 'not-allowed' : 'pointer',
-                                                backgroundColor: selectedRoute.geometryType === 'Osrm' && selectedRoute.wkt ? '#059669' : 'transparent',
-                                                color: selectedRoute.geometryType === 'Osrm' && selectedRoute.wkt ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#475569'),
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '5px'
-                                            }}
-                                            title="Open Source Routing Machine ile sokakları ve caddeleri takip eden gerçek sürüş rotası"
-                                        >
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                                            {isGeneratingRouteId === selectedRoute.id ? (lang === 'tr' ? 'Hesaplanıyor...' : 'Calculating...') : (trans.modeOsrm || 'OSRM Rota')}
-                                        </button>
-
-                                        {/* ÖZEL BÜKÜM BUTONU */}
-                                        {selectedRoute.customWkt && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleSwitchGeometryMode(selectedRoute.id, 'custom', e)}
-                                                disabled={isGeneratingRouteId === selectedRoute.id}
-                                                style={{
-                                                    padding: '5px 10px',
-                                                    fontSize: '12px',
-                                                    fontWeight: 600,
-                                                    borderRadius: '6px',
-                                                    border: 'none',
-                                                    cursor: 'pointer',
-                                                    backgroundColor: selectedRoute.geometryType === 'Custom' && selectedRoute.wkt === selectedRoute.customWkt ? '#7c3aed' : 'transparent',
-                                                    color: selectedRoute.geometryType === 'Custom' && selectedRoute.wkt === selectedRoute.customWkt ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#475569'),
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '5px'
-                                                }}
-                                                title="Daha önce haritada elle bükülmüş özel geometriyi geri yükle"
-                                            >
-                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
-                                                {trans.modeCustom || 'Özel Büküm'}
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {/* GERİ AL (UNDO / REVERT) BUTONU */}
-                                    {selectedRoute.previousWkt !== undefined && (
-                                        <button
-                                            onClick={(e) => handleRevertGeometry(selectedRoute.id, e)}
-                                            disabled={isGeneratingRouteId === selectedRoute.id}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '5px',
-                                                padding: '7px 11px',
-                                                borderRadius: '7px',
-                                                fontWeight: '600',
-                                                fontSize: '12.5px',
-                                                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9',
-                                                color: isDarkMode ? '#e2e8f0' : '#334155',
-                                                border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
-                                                cursor: 'pointer'
-                                            }}
-                                            title="Güzergahın bir önceki çizim/geometri haline geri dön"
-                                        >
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-                                            {trans.modeRevert || 'Geri Al'}
-                                        </button>
-                                    )}
-
-                                    {onEditRouteGeometryOnMap && (
-                                        <button
-                                            onClick={() => onEditRouteGeometryOnMap(selectedRoute)}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '6px',
-                                                padding: '7px 12px',
-                                                borderRadius: '7px',
-                                                fontWeight: '600',
-                                                fontSize: '12.5px',
-                                                backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
-                                                color: isDarkMode ? '#f8fafc' : '#0f172a',
-                                                border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
-                                                cursor: 'pointer',
-                                                boxShadow: 'none'
-                                            }}
-                                            title="Bu güzergahın harita üzerindeki çizgisini fare ile bükün ve şekillendirin"
-                                        >
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="M3 12h4l3 8 4-16 3 8h4" />
-                                            </svg>
-                                            {trans.btnBendRoute || 'Hattı Bük'}
-                                        </button>
-                                    )}
-
-                                    <button
-                                        onClick={handleOpenCreateStop}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '6px',
-                                            padding: '7px 12px',
-                                            borderRadius: '7px',
-                                            fontWeight: '600',
-                                            fontSize: '12.5px',
-                                            backgroundColor: '#2563eb',
-                                            color: '#ffffff',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            boxShadow: 'none'
-                                        }}
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                        Durak Ekle
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Drag and Drop Instruction Banner */}
-                            <div style={{ padding: '10px 14px', borderRadius: '8px', background: isDarkMode ? '#0f172a' : '#f1f5f9', fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
-                                <span>Durakları taşımak için tutamacı (grip) veya kartı tutup yukarı/aşağı sürükleyin. Sıralama haritaya ve veritabanına anında yansır.</span>
-                            </div>
-
-                            {/* Stop List (Drag & Drop) */}
-                            {routeStops.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', border: `2px dashed ${isDarkMode ? '#334155' : '#cbd5e1'}`, borderRadius: '12px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px', color: '#64748b' }}>
-                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                                            <circle cx="12" cy="10" r="3" />
-                                        </svg>
-                                    </div>
-                                    <div>Bu güzergahta henüz kayıtlı durak bulunmuyor.</div>
-                                    <div style={{ fontSize: '13px', marginTop: '6px', color: '#64748b' }}>
-                                        Yukarıdaki "Durak Ekle" butonuyla veya haritadan "Durak Ekle" aracı ile nokta seçerek durak ekleyebilirsiniz.
-                                    </div>
-                                </div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {routeStops.map((stop, index) => {
-                                        const isDragging = draggedIndex === index;
-                                        return (
-                                            <div
-                                                key={stop.id}
-                                                draggable
-                                                onDragStart={(e) => handleDragStart(e, index)}
-                                                onDragOver={(e) => handleDragOver(e, index)}
-                                                onDrop={(e) => handleDrop(e, index)}
-                                                style={{
-                                                    padding: '12px 14px',
-                                                    borderRadius: '10px',
-                                                    border: `1px solid ${isDragging ? '#3b82f6' : (isDarkMode ? '#334155' : '#e2e8f0')}`,
-                                                    background: isDragging
-                                                        ? (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#dbeafe')
-                                                        : (isDarkMode ? '#0f172a' : '#f8fafc'),
-                                                    opacity: isDragging ? 0.5 : 1,
-                                                    cursor: 'grab',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    transition: 'transform 0.15s ease, background 0.15s ease'
-                                                }}
-                                            >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                    {/* Drag Handle */}
-                                                    <div style={{ color: '#94a3b8', cursor: 'grab', display: 'flex', alignItems: 'center' }} title="Sürükle">
-                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                            <circle cx="9" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/>
-                                                            <circle cx="15" cy="5" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="19" r="1.5"/>
-                                                        </svg>
-                                                    </div>
-
-                                                    {/* Sequence Number Badge */}
-                                                    <span
-                                                        style={{
-                                                            width: '26px',
-                                                            height: '26px',
-                                                            borderRadius: '50%',
-                                                            backgroundColor: isDarkMode ? '#1e293b' : '#e2e8f0',
-                                                            color: selectedRoute.color || '#3b82f6',
-                                                            border: `1.5px solid ${selectedRoute.color || '#3b82f6'}`,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            fontSize: '12px',
-                                                            fontWeight: 'bold',
-                                                            flexShrink: 0
-                                                        }}
-                                                    >
-                                                        {index + 1}
-                                                    </span>
-
-                                                    {/* Stop Info */}
-                                                    <div>
-                                                        <div style={{ fontWeight: '600', fontSize: '14px' }}>
-                                                            {stop.name}
-                                                        </div>
-                                                        {stop.latitude && stop.longitude && (
-                                                            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                                                {stop.latitude.toFixed(4)}° N, {stop.longitude.toFixed(4)}° E
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    {onRepositionStopOnMap && (
-                                                        <button
-                                                            onClick={() => onRepositionStopOnMap(stop)}
-                                                            title="Durağın Konumunu Haritada Sürükleyerek Değiştir"
-                                                            style={{ background: 'none', border: 'none', color: '#38bdf8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
-                                                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.15)'}
-                                                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                                        >
-                                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                                                <polyline points="5 9 2 12 5 15" />
-                                                                <polyline points="9 5 12 2 15 5" />
-                                                                <polyline points="15 19 12 22 9 19" />
-                                                                <polyline points="19 9 22 12 19 15" />
-                                                                <line x1="2" y1="12" x2="22" y2="12" />
-                                                                <line x1="12" y1="2" x2="12" y2="22" />
-                                                            </svg>
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        onClick={() => handleOpenEditStop(stop)}
-                                                        title="Durağı Düzenle"
-                                                        style={{ background: 'none', border: 'none', color: '#94a3b8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
-                                                        onMouseOver={(e) => e.currentTarget.style.color = '#3b82f6'}
-                                                        onMouseOut={(e) => e.currentTarget.style.color = '#94a3b8'}
-                                                    >
-                                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteStop(stop.id)}
-                                                        title="Durağı Kaldır"
-                                                        style={{ background: 'none', border: 'none', color: '#94a3b8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
-                                                        onMouseOver={(e) => e.currentTarget.style.color = '#ef4444'}
-                                                        onMouseOut={(e) => e.currentTarget.style.color = '#94a3b8'}
-                                                    >
-                                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </>
-                    ) : (
-                        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-                            Soldaki listeden duraklarını yönetmek istediğiniz bir güzergah seçin.
-                        </div>
-                    )}
-                </div>
-            </div>
+            )}
 
             {/* Modal: Create/Edit Route */}
             {showRouteModal && (
@@ -1244,7 +2283,9 @@ export const RouteManagement = ({
                             <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>
                                 {isEditingRoute ? 'Güzergahı Düzenle' : 'Yeni Güzergah Oluştur'}
                             </h3>
-                            <button onClick={() => setShowRouteModal(false)} style={{ background: 'none', border: 'none', fontSize: '18px', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+                            <button onClick={() => setShowRouteModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
                         </div>
 
                         <form onSubmit={handleSaveRoute} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1300,7 +2341,21 @@ export const RouteManagement = ({
                                             <button
                                                 key={cls.id}
                                                 type="button"
-                                                onClick={() => setRouteForm({ ...routeForm, routeClass: cls.id })}
+                                                onClick={() => {
+                                                    const isSwitchingToGemi = cls.id === 'gemi';
+                                                    let newName = routeForm.name;
+                                                    if (isSwitchingToGemi && !isEditingRoute) {
+                                                        const pA = TURKISH_SEAPORTS.find(p => p.id === routeForm.departurePortId) || TURKISH_SEAPORTS[0];
+                                                        const pB = TURKISH_SEAPORTS.find(p => p.id === routeForm.arrivalPortId) || TURKISH_SEAPORTS[1];
+                                                        newName = `${pA.shortName} - ${pB.shortName} Deniz Hattı`;
+                                                    }
+                                                    setRouteForm({ 
+                                                        ...routeForm, 
+                                                        routeClass: cls.id,
+                                                        name: newName,
+                                                        color: isSwitchingToGemi ? '#0284c7' : routeForm.color
+                                                    });
+                                                }}
                                                 style={{
                                                     padding: '8px 10px',
                                                     borderRadius: '8px',
@@ -1324,6 +2379,65 @@ export const RouteManagement = ({
                                     })}
                                 </div>
                             </div>
+
+                            {/* Gemi / Deniz Güzergahı Özel Alanları: Yalnızca İki Liman Arası */}
+                            {routeForm.routeClass === 'gemi' && !isEditingRoute && (
+                                <div style={{ background: isDarkMode ? 'rgba(2, 132, 199, 0.12)' : '#f0f9ff', padding: '16px', borderRadius: '12px', border: `1px solid ${isDarkMode ? 'rgba(2, 132, 199, 0.35)' : '#bae6fd'}`, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0284c7', fontSize: '13px', fontWeight: '700' }}>
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M20 21c-1.39 0-2.78-.47-4-1.32-2.44 1.71-5.56 1.71-8 0C6.78 20.53 5.39 21 4 21H2v2h2c1.38 0 2.74-.35 4-.99 2.52 1.29 5.48 1.29 8 0 1.26.65 2.62.99 4 .99h2v-2h-2zM3.95 19H4c1.6 0 3.02-.88 4-2 .98 1.12 2.4 2 4 2s3.02-.88 4-2c.98 1.12 2.4 2 4 2h.05l1.89-6.68c.08-.26.06-.54-.06-.78s-.33-.42-.6-.47L20 11V4c0-.55-.45-1-1-1h-2V1h-2v2h-6V1H7v2H5c-.55 0-1 .45-1 1v7l-1.28.27c-.27.05-.48.23-.6.47-.12.24-.14.52-.06.78L3.95 19zM6 5h12v6.2l-6-1.2-6 1.2V5z"/>
+                                            </svg>
+                                            <span>Limanlar Arası Deniz Güzergahı</span>
+                                        </div>
+                                        <span style={{ fontSize: '11px', fontWeight: '600', padding: '2px 8px', borderRadius: '10px', background: '#0284c7', color: '#ffffff' }}>
+                                            {allAvailablePorts.length} Liman
+                                        </span>
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: '11.5px', color: isDarkMode ? '#94a3b8' : '#0369a1', lineHeight: '1.4' }}>
+                                        Deniz hatları iki liman arasında rota çizgisi ve duraklarıyla birlikte oluşturulur. Liman kutusuna tıklayarak arama yapabilir ve seçebilirsiniz.
+                                    </p>
+
+                                    {/* Kalkış ve Varış Limanları Seçimi (Açılır Arama Menüleri) */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <SearchablePortSelect
+                                            label="1. Kalkış Limanı *"
+                                            selectedId={routeForm.departurePortId}
+                                            disabledId={routeForm.arrivalPortId}
+                                            ports={allAvailablePorts}
+                                            isDarkMode={isDarkMode}
+                                            placeholder="Kalkış limanı seçiniz..."
+                                            onChange={(newDepId) => {
+                                                const pA = allAvailablePorts.find(p => p.id === newDepId || p.stopId === newDepId);
+                                                const pB = allAvailablePorts.find(p => p.id === routeForm.arrivalPortId || p.stopId === routeForm.arrivalPortId);
+                                                setRouteForm({
+                                                    ...routeForm,
+                                                    departurePortId: newDepId,
+                                                    name: pA && pB ? `${pA.shortName} - ${pB.shortName} Deniz Hattı` : routeForm.name
+                                                });
+                                            }}
+                                        />
+
+                                        <SearchablePortSelect
+                                            label="2. Varış Limanı *"
+                                            selectedId={routeForm.arrivalPortId}
+                                            disabledId={routeForm.departurePortId}
+                                            ports={allAvailablePorts}
+                                            isDarkMode={isDarkMode}
+                                            placeholder="Varış limanı seçiniz..."
+                                            onChange={(newArrId) => {
+                                                const pA = allAvailablePorts.find(p => p.id === routeForm.departurePortId || p.stopId === routeForm.departurePortId);
+                                                const pB = allAvailablePorts.find(p => p.id === newArrId || p.stopId === newArrId);
+                                                setRouteForm({
+                                                    ...routeForm,
+                                                    arrivalPortId: newArrId,
+                                                    name: pA && pB ? `${pA.shortName} - ${pB.shortName} Deniz Hattı` : routeForm.name
+                                                });
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
 
                             <div>
                                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Açıklama</label>
@@ -1352,11 +2466,25 @@ export const RouteManagement = ({
             {/* Modal: Create/Edit Stop */}
             {showStopModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
-                    <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, width: '100%', maxWidth: '480px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>
-                                {isEditingStop ? 'Durağı Düzenle' : 'Güzergaha Durak Ekle'}
-                            </h3>
+                    <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, width: '100%', maxWidth: '500px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                        <rect x="4" y="4" width="16" height="13" rx="2" />
+                                        <path d="M4 9h16" />
+                                        <circle cx="7.5" cy="14" r="1.3" fill="currentColor" />
+                                        <circle cx="16.5" cy="14" r="1.3" fill="currentColor" />
+                                        <path d="M6 17v2.5M18 17v2.5" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 'bold' }}>
+                                        {isEditingStop ? 'Durağı Düzenle' : 'Yeni Durak Ekle'}
+                                    </h3>
+                                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Durak sınıfını belirleyin ve isteğe bağlı güzergah bağlayın</span>
+                                </div>
+                            </div>
                             <button onClick={() => setShowStopModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Kapat">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18" />
@@ -1365,51 +2493,162 @@ export const RouteManagement = ({
                             </button>
                         </div>
 
-                        <form onSubmit={handleSaveStop} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <form onSubmit={handleSaveStop} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            {/* Durak Adı ve Durak Kodu (StopCode) */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '10px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Durak Adı *</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="örn. 15 Temmuz Kızılay, Sıhhiye, Madenli Limanı"
+                                        value={stopForm.name}
+                                        onChange={(e) => setStopForm({ ...stopForm, name: e.target.value })}
+                                        style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Durak Kodu (ID)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="örn. BUS-1001, METRO-01"
+                                        value={stopForm.stopCode}
+                                        onChange={(e) => setStopForm({ ...stopForm, stopCode: e.target.value })}
+                                        style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: '#0284c7', fontFamily: 'monospace', fontWeight: '700', fontSize: '12.5px' }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Durak Sınıfı */}
                             <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Durak Adı *</label>
+                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Durak Sınıfı / Türü *</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                                    {[
+                                        { id: 'otobus', label: 'Otobüs' },
+                                        { id: 'metro', label: 'Metro / Raylı' },
+                                        { id: 'gemi', label: 'Liman / İskele' },
+                                        { id: 'tren', label: 'Tren / Gar' },
+                                        { id: 'araba', label: 'Karayolu / Diğer' }
+                                    ].map(item => {
+                                        const isSelected = (stopForm.stopClass || 'otobus').toLowerCase() === item.id;
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() => setStopForm({ ...stopForm, stopClass: item.id })}
+                                                style={{
+                                                    padding: '7px 8px',
+                                                    borderRadius: '8px',
+                                                    border: isSelected ? '2px solid #3b82f6' : `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                                                    backgroundColor: isSelected ? (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff') : (isDarkMode ? '#0f172a' : '#ffffff'),
+                                                    color: isSelected ? '#3b82f6' : (isDarkMode ? '#cbd5e1' : '#475569'),
+                                                    fontWeight: isSelected ? '700' : '500',
+                                                    fontSize: '11.5px',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '6px'
+                                                }}
+                                            >
+                                                <RouteClassIcon classKey={item.id} size={14} color={isSelected ? '#3b82f6' : (isDarkMode ? '#94a3b8' : '#64748b')} />
+                                                <span>{item.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Sıra / Rank (Order Index) */}
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                                    <label style={{ fontSize: '12.5px', fontWeight: '600' }}>Sıra / Rank (Order Index)</label>
+                                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>Güzergah ve liste önceliği</span>
+                                </div>
                                 <input
-                                    type="text"
-                                    required
-                                    placeholder="örn. Kadıköy Rıhtım"
-                                    value={stopForm.name}
-                                    onChange={(e) => setStopForm({ ...stopForm, name: e.target.value })}
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a' }}
+                                    type="number"
+                                    min="1"
+                                    value={stopForm.orderIndex || 1}
+                                    onChange={(e) => setStopForm({ ...stopForm, orderIndex: parseInt(e.target.value, 10) || 1 })}
+                                    style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '13px' }}
                                 />
                             </div>
 
+                            {/* Bağlı Olduğu Güzergahlar (Birden Fazla Güzergaha Bağlanabilir) */}
                             <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Bağlı Olduğu Güzergah</label>
-                                <select
-                                    value={stopForm.routeId || ''}
-                                    onChange={(e) => setStopForm({ ...stopForm, routeId: parseInt(e.target.value) })}
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a' }}
-                                >
-                                    {routes.map(r => (
-                                        <option key={r.id} value={r.id}>{r.name}</option>
-                                    ))}
-                                </select>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                                    <label style={{ fontSize: '12.5px', fontWeight: '600' }}>Bağlı Güzergahlar (Çoklu Hat Bağlantısı)</label>
+                                    <span style={{ fontSize: '11px', color: '#10b981', fontWeight: '600' }}>
+                                        {stopForm.routeIds?.length || 0} Hat Seçili
+                                    </span>
+                                </div>
+                                <div style={{ maxHeight: '130px', overflowY: 'auto', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, borderRadius: '8px', padding: '6px 8px', background: isDarkMode ? '#0f172a' : '#f8fafc', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {routes.length === 0 ? (
+                                        <span style={{ fontSize: '12px', color: '#94a3b8', padding: '6px' }}>Kayıtlı güzergah bulunmuyor.</span>
+                                    ) : (
+                                        routes.map(r => {
+                                            const isChecked = (stopForm.routeIds || []).includes(r.id);
+                                            return (
+                                                <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 6px', borderRadius: '6px', background: isChecked ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'transparent', cursor: 'pointer', fontSize: '12px', color: isDarkMode ? '#ffffff' : '#0f172a' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(e) => {
+                                                            const current = stopForm.routeIds || [];
+                                                            if (e.target.checked) {
+                                                                const updated = [...current, r.id];
+                                                                setStopForm({ ...stopForm, routeIds: updated, routeId: updated[0] || null });
+                                                            } else {
+                                                                const updated = current.filter(id => id !== r.id);
+                                                                setStopForm({ ...stopForm, routeIds: updated, routeId: updated[0] || null });
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: r.color || '#3b82f6', flexShrink: 0 }} />
+                                                    <span style={{ fontWeight: isChecked ? '700' : '500', flex: 1 }}>{r.name}</span>
+                                                    <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>({r.routeClass || 'araba'})</span>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', display: 'block' }}>
+                                    1 durak aynı anda birden fazla metro, otobüs veya deniz hattına bağlanabilir.
+                                </span>
                             </div>
 
+                            {/* Açıklama */}
                             <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Konum (WKT Point)</label>
+                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Açıklama & Not (Opsiyonel)</label>
                                 <input
                                     type="text"
-                                    placeholder="POINT(29.0234 40.9904)"
+                                    placeholder="örn. Ana aktarma merkezi, taksi durağı yanı"
+                                    value={stopForm.description}
+                                    onChange={(e) => setStopForm({ ...stopForm, description: e.target.value })}
+                                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '12.5px' }}
+                                />
+                            </div>
+
+                            {/* Konum (WKT Point) */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Konum (WKT Point)</label>
+                                <input
+                                    type="text"
+                                    placeholder="POINT(32.8543 39.9208)"
                                     value={stopForm.wkt}
                                     onChange={(e) => setStopForm({ ...stopForm, wkt: e.target.value })}
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a' }}
+                                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '12.5px' }}
                                 />
-                                <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', display: 'block' }}>
                                     Haritadan eklemek için harita ekranındaki "Durak Ekle" aracını da kullanabilirsiniz.
                                 </span>
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                                <button type="button" onClick={() => setShowStopModal(false)} style={{ padding: '10px 16px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: 'none', color: isDarkMode ? '#ffffff' : '#0f172a', cursor: 'pointer' }}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                                <button type="button" onClick={() => setShowStopModal(false)} style={{ padding: '8px 15px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: 'none', color: isDarkMode ? '#ffffff' : '#0f172a', cursor: 'pointer', fontSize: '13px' }}>
                                     İptal
                                 </button>
-                                <button type="submit" disabled={loading} style={{ padding: '10px 20px', borderRadius: '8px', background: '#3b82f6', color: '#ffffff', border: 'none', fontWeight: '600', cursor: 'pointer' }}>
+                                <button type="submit" disabled={loading} style={{ padding: '8px 18px', borderRadius: '8px', background: '#3b82f6', color: '#ffffff', border: 'none', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>
                                     {loading ? 'Kaydediliyor...' : 'Kaydet'}
                                 </button>
                             </div>
@@ -1417,6 +2656,221 @@ export const RouteManagement = ({
                     </div>
                 </div>
             )}
+
+            {/* Modal: Gemi Güzergahına Varış Limanı Ekle */}
+            {showArrivalModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
+                    <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, width: '100%', maxWidth: '480px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>
+                                Varış Ekle
+                            </h3>
+                            <button onClick={() => setShowArrivalModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Kapat">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleAddArrivalPort} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            <SearchablePortSelect
+                                label="Varış Limanı *"
+                                selectedId={arrivalForm.arrivalPortId}
+                                disabledId={routeStops[0]?.name}
+                                ports={allAvailablePorts.filter(p => !routeStops.some(s => s.name === p.name))}
+                                isDarkMode={isDarkMode}
+                                placeholder="Varış limanı seçiniz..."
+                                onChange={(newArrId) => {
+                                    setArrivalForm({ ...arrivalForm, arrivalPortId: newArrId });
+                                }}
+                            />
+
+                            <div>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Güzergâh Adı</label>
+                                <input
+                                    type="text"
+                                    placeholder={(() => {
+                                        const dep = routeStops[0];
+                                        const arr = allAvailablePorts.find(p => p.id === arrivalForm.arrivalPortId || p.stopId === arrivalForm.arrivalPortId);
+                                        if (dep && arr) {
+                                            const depPort = allAvailablePorts.find(p => p.name === dep.name || p.id === dep.id);
+                                            if (depPort) return `${cleanPortName(depPort.shortName || depPort.name)} - ${cleanPortName(arr.shortName || arr.name)}`;
+                                        }
+                                        return 'örn: Mersin - Girne';
+                                    })()}
+                                    value={arrivalForm.routeName}
+                                    onChange={(e) => setArrivalForm({ ...arrivalForm, routeName: e.target.value })}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a' }}
+                                />
+                                <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
+                                    Boş bırakılırsa otomatik oluşturulur
+                                </span>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                                <button type="button" onClick={() => setShowArrivalModal(false)} style={{ padding: '10px 16px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: 'none', color: isDarkMode ? '#ffffff' : '#0f172a', cursor: 'pointer' }}>
+                                    İptal
+                                </button>
+                                <button type="submit" disabled={isAddingArrival} style={{ padding: '10px 20px', borderRadius: '8px', background: '#0891b2', color: '#ffffff', border: 'none', fontWeight: '600', cursor: 'pointer' }}>
+                                    {isAddingArrival ? 'Oluşturuluyor...' : 'Varış Ekle ve Güzergâh Oluştur'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Mevcut Durağı Güzergaha Bağla */}
+            {showAttachStopModal && selectedRoute && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
+                    <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, width: '100%', maxWidth: '540px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+                        {/* Header */}
+                        <div style={{ padding: '20px 24px 16px 24px', borderBottom: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: selectedRoute.color || '#3b82f6' }} />
+                                    <span>Mevcut Durağı "{selectedRoute.name}" Hattına Bağla</span>
+                                </h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                                    Sistemde kayıtlı bir durağı seçerek bu hatta bağlayın (Çoklu hat aktarması)
+                                </p>
+                            </div>
+                            <button onClick={() => setShowAttachStopModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+
+                        {/* Search Box */}
+                        <div style={{ padding: '16px 24px 12px 24px' }}>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    placeholder="Durak adı veya durak kodu ara (örn. Kızılay, Sıhhiye, AŞTİ)..."
+                                    value={attachSearchQuery}
+                                    onChange={(e) => setAttachSearchQuery(e.target.value)}
+                                    style={{ width: '100%', padding: '9px 12px 9px 34px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#f8fafc', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '13px' }}
+                                />
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' }}>
+                                    <circle cx="11" cy="11" r="8" />
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                </svg>
+                            </div>
+                        </div>
+
+                        {/* Stop List */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 16px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {(() => {
+                                const currentStopIds = new Set(routeStops.map(s => s.id));
+                                const available = (allStops || []).filter(s => {
+                                    if (currentStopIds.has(s.id)) return false;
+                                    if (attachSearchQuery.trim()) {
+                                        const q = attachSearchQuery.toLowerCase();
+                                        const matchName = (s.name || '').toLowerCase().includes(q);
+                                        const matchCode = (s.stopCode || '').toLowerCase().includes(q);
+                                        const matchDesc = (s.description || '').toLowerCase().includes(q);
+                                        if (!matchName && !matchCode && !matchDesc) return false;
+                                    }
+                                    return true;
+                                });
+
+                                if (available.length === 0) {
+                                    return (
+                                        <div style={{ textAlign: 'center', padding: '30px 20px', color: '#94a3b8', fontSize: '13px' }}>
+                                            {attachSearchQuery ? 'Aramanıza uygun bağlanabilir durak bulunamadı.' : 'Tüm duraklar zaten bu hatta bağlı veya sisteme henüz durak eklenmemiş.'}
+                                        </div>
+                                    );
+                                }
+
+                                return available.map(stop => {
+                                    const clsInfo = getRouteClassInfo(stop.stopClass || 'otobus');
+                                    const connectedRoutes = stop.routes || [];
+                                    return (
+                                        <div
+                                            key={stop.id}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: '10px 14px',
+                                                borderRadius: '10px',
+                                                background: isDarkMode ? '#0f172a' : '#f8fafc',
+                                                border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+                                                gap: '12px'
+                                            }}
+                                        >
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                                    <span style={{ fontWeight: 700, fontSize: '13px', color: isDarkMode ? '#ffffff' : '#0f172a' }}>
+                                                        {stop.name}
+                                                    </span>
+                                                    {stop.stopCode && (
+                                                        <span style={{ fontFamily: 'monospace', fontSize: '10.5px', fontWeight: '700', padding: '1px 5px', borderRadius: '4px', backgroundColor: isDarkMode ? 'rgba(2, 132, 199, 0.2)' : '#e0f2fe', color: '#0284c7' }}>
+                                                            {stop.stopCode}
+                                                        </span>
+                                                    )}
+                                                    <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '4px', background: isDarkMode ? 'rgba(255,255,255,0.06)' : '#e2e8f0', color: clsInfo?.color || '#3b82f6', fontWeight: 600 }}>
+                                                        {clsInfo?.shortLabel || stop.stopClass || 'otobus'}
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                                    {connectedRoutes.length > 0 ? (
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                            <span>Bağlı:</span>
+                                                            {connectedRoutes.map(cr => (
+                                                                <span key={cr.id} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '4px', background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#e2e8f0', color: cr.color || '#3b82f6', fontWeight: 600 }}>
+                                                                    {cr.name}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <span>Bağımsız Durak (Henüz hatta bağlı değil)</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                onClick={() => handleAttachExistingStopToRoute(stop.id)}
+                                                disabled={loading}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '5px',
+                                                    padding: '7px 12px',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: '#2563eb',
+                                                    color: '#ffffff',
+                                                    border: 'none',
+                                                    fontWeight: '600',
+                                                    fontSize: '12px',
+                                                    cursor: 'pointer',
+                                                    flexShrink: 0
+                                                }}
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                                                <span>Bu Hatta Bağla</span>
+                                            </button>
+                                        </div>
+                                    );
+                                });
+                            })()}
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{ padding: '12px 24px', borderTop: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                                type="button"
+                                onClick={() => setShowAttachStopModal(false)}
+                                style={{ padding: '8px 16px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: 'none', color: isDarkMode ? '#ffffff' : '#0f172a', cursor: 'pointer', fontSize: '12.5px' }}
+                            >
+                                Kapat
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
+

@@ -1525,7 +1525,9 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
 
         const draw = new Draw({
             source: vectorSourceRef.current,
-            type: 'Polygon'
+            type: 'Polygon',
+            freehand: false,
+            freehandCondition: () => false
         });
 
         draw.on('drawend', (event) => {

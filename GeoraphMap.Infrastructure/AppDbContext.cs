@@ -25,6 +25,7 @@ namespace GeoraphMap.Infrastructure
         public DbSet<Poi> Pois { get; set; }
         public DbSet<RouteFeature> Routes { get; set; }
         public DbSet<StopFeature> Stops { get; set; }
+        public DbSet<RouteStopFeature> RouteStops { get; set; }
         public DbSet<UserSavedRoute> UserSavedRoutes { get; set; }
         public DbSet<UserFavoritePoi> UserFavoritePois { get; set; }
 
@@ -46,6 +47,14 @@ namespace GeoraphMap.Infrastructure
                 .HasColumnName("route_class")
                 .HasDefaultValue("araba");
             modelBuilder.Entity<StopFeature>().ToTable("tbl_stop");
+            modelBuilder.Entity<StopFeature>()
+                .Property(s => s.StopClass)
+                .HasColumnName("stop_class")
+                .HasDefaultValue("otobus");
+            modelBuilder.Entity<StopFeature>()
+                .Property(s => s.StopCode)
+                .HasColumnName("stop_code");
+            modelBuilder.Entity<RouteStopFeature>().ToTable("tbl_route_stop");
             modelBuilder.Entity<UserSavedRoute>().ToTable("tbl_user_saved_route");
             modelBuilder.Entity<UserFavoritePoi>().ToTable("tbl_user_favorite_poi");
 
@@ -56,11 +65,25 @@ namespace GeoraphMap.Infrastructure
             modelBuilder.Entity<UserPermission>().ToTable("tbl_user_permission");
             modelBuilder.Entity<EditorCollaboration>().ToTable("tbl_editor_collaboration");
 
-            // Route & Stop 1-N Relation
+            // Route & Stop 1-N Relation (Direct/Primary)
             modelBuilder.Entity<StopFeature>()
                 .HasOne(s => s.Route)
                 .WithMany(r => r.Stops)
                 .HasForeignKey(s => s.RouteId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Route & Stop N-N Junction Relation (Multiple Routes per Stop)
+            modelBuilder.Entity<RouteStopFeature>()
+                .HasOne(rs => rs.Route)
+                .WithMany(r => r.RouteStops)
+                .HasForeignKey(rs => rs.RouteId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<RouteStopFeature>()
+                .HasOne(rs => rs.Stop)
+                .WithMany(s => s.RouteStops)
+                .HasForeignKey(rs => rs.StopId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // POI Category Self-Referencing Relation

@@ -10,13 +10,16 @@ import WKT from 'ol/format/WKT';
 import Feature from 'ol/Feature';
 import Modify from 'ol/interaction/Modify';
 import Draw from 'ol/interaction/Draw';
+import Snap from 'ol/interaction/Snap';
+import Collection from 'ol/Collection';
 import { Style, Stroke, Fill, Text } from 'ol/style';
 import { fromLonLat, toLonLat } from 'ol/proj';
 
 import * as turf from '@turf/turf';
 import { adminApi } from '../../services/adminApi';
-import { BASEMAP_LAYERS } from '../../constants/mapLayers';
+import { BASEMAP_LAYERS, getBasemapConfig } from '../../constants/mapLayers';
 import { MapLayerSwitcher } from '../common/MapLayerSwitcher';
+import { HistoricalTimelineSlider } from '../common/HistoricalTimelineSlider';
 
 // Safe helper to parse WKT into OpenLayers feature
 const readWktFeatureSafely = (wktStr, wktFormat) => {
@@ -43,13 +46,20 @@ const REGION_OPTIONS = [
     'Güneydoğu Anadolu Bölgesi'
 ];
 
-const PUBLISHED_STORAGE_KEY = 'admin_turkey_cities_published_v36';
-const BACKUPS_STORAGE_KEY = 'admin_turkey_cities_backups_v36';
-const DELETED_PLATES_KEY = 'admin_deleted_plates_v36';
+const PUBLISHED_STORAGE_KEY = 'admin_turkey_cities_published_v38';
+const MARITIME_STORAGE_KEY = 'admin_turkey_maritime_published_v38';
+const BACKUPS_STORAGE_KEY = 'admin_turkey_cities_backups_v38';
+const DELETED_PLATES_KEY = 'admin_deleted_plates_v38';
 
 // Purge all old legacy storage keys to eliminate any incomplete/corrupt saved payloads
 const purgeAllLegacyStorageKeys = () => {
     const KEYS_TO_PURGE = [
+        'admin_turkey_cities_published_v37',
+        'admin_turkey_maritime_published_v37',
+        'admin_turkey_cities_backups_v37',
+        'admin_deleted_plates_v37',
+        'admin_turkey_cities_published_v36',
+        'admin_deleted_plates_v36',
         'admin_turkey_cities_published_v35',
         'admin_turkey_cities_published_v30',
         'admin_turkey_cities_published_v25',
@@ -293,10 +303,12 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
     const isTr = lang === 'tr';
 
     const [cities, setCities] = useState([]);
+    const [maritimeZones, setMaritimeZones] = useState([]);
     const [filteredCities, setFilteredCities] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedRegion, setSelectedRegion] = useState('ALL');
     const [statusFilter, setStatusFilter] = useState('ACTIVE'); // 'ALL' | 'ACTIVE' | 'DELETED'
+    const [geoEntityFilter, setGeoEntityFilter] = useState('ALL'); // 'ALL' | 'LAND' | 'MARITIME'
     
     // Save & Backup state management
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -309,6 +321,11 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
 
     // Single & Multi Selection State
     const [selectedCity, setSelectedCity] = useState(null);
+    const selectedCityRef = useRef(selectedCity);
+    useEffect(() => {
+        selectedCityRef.current = selectedCity;
+    }, [selectedCity]);
+
     const [selectedCities, setSelectedCities] = useState([]); // Multiple selection for merging
 
     // Undo / Redo Stacks for Polygon Editing
@@ -352,7 +369,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
     const handleSelectBaseLayer = (layerId) => {
         setSelectedBaseLayer(layerId);
         localStorage.setItem('geo_admin_basemap', layerId);
-        const layerConfig = BASEMAP_LAYERS.find(l => l.id === layerId) || BASEMAP_LAYERS[0];
+        const layerConfig = getBasemapConfig(layerId);
         if (baseTileLayerRef.current) {
             baseTileLayerRef.current.setSource(
                 new XYZ({
@@ -369,21 +386,207 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
     const vectorSourceRef = useRef(null);
     const modifyInteractionRef = useRef(null);
     const drawInteractionRef = useRef(null);
+    const snapInteractionRef = useRef(null);
     const draftFeatureRef = useRef(null);
     const citiesRef = useRef(cities);
 
+    // Deniz Sınırları & Kıyı Şeritleri (Maritime Coastal Boundaries) Katmanı
+    const [showMaritimeLayer, setShowMaritimeLayer] = useState(true);
+    const maritimeVectorSourceRef = useRef(null);
+    const maritimeVectorLayerRef = useRef(null);
 
+    // Sınır Düzenleme Modu (Sağdaki il paneli listesindeki "Sınır Düzenle" butonuna tıklandığında açılır)
+    const [editingBoundaryCity, setEditingBoundaryCity] = useState(null);
+    const editingVectorSourceRef = useRef(null);
+    const editingVectorLayerRef = useRef(null);
 
+    // Shift tuşu basılı olma durumu (Komşu il sınırlarına hassas yapışma / Snapping için)
+    const [isShiftDown, setIsShiftDown] = useState(false);
+    // Sınır Düzenleme Hedef Katmanı ('LAND': Sadece İller, 'MARITIME': Sadece Denizler)
+    const [modifyTargetType, setModifyTargetType] = useState('LAND');
+    const modifyTargetTypeRef = useRef(modifyTargetType);
+    const geoEntityFilterRef = useRef(geoEntityFilter);
+    const maritimeZonesRef = useRef(maritimeZones);
+
+    useEffect(() => {
+        modifyTargetTypeRef.current = modifyTargetType;
+    }, [modifyTargetType]);
+
+    useEffect(() => {
+        geoEntityFilterRef.current = geoEntityFilter;
+    }, [geoEntityFilter]);
+
+    useEffect(() => {
+        maritimeZonesRef.current = maritimeZones;
+    }, [maritimeZones]);
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Shift') {
+                setIsShiftDown(true);
+            }
+        };
+        const handleKeyUp = (e) => {
+            if (e.key === 'Shift') {
+                setIsShiftDown(false);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, []);
+
+    // Shift tuşuna basıldığında hem il hem deniz poligon köşe noktalarına yapışmayı (Snap) dinamik olarak etkinleştir/kaldır
+    useEffect(() => {
+        if (!mapRef.current || !vectorSourceRef.current) return;
+
+        if (snapInteractionRef.current) {
+            mapRef.current.removeInteraction(snapInteractionRef.current);
+            snapInteractionRef.current = null;
+        }
+
+        if (isShiftDown) {
+            const snapFeatures = new Collection();
+            if (vectorSourceRef.current) {
+                snapFeatures.extend(vectorSourceRef.current.getFeatures());
+            }
+            if (maritimeVectorSourceRef.current) {
+                snapFeatures.extend(maritimeVectorSourceRef.current.getFeatures());
+            }
+
+            const snap = new Snap({
+                features: snapFeatures,
+                pixelTolerance: 18,
+                edge: false,
+                vertex: true
+            });
+            mapRef.current.addInteraction(snap);
+            snapInteractionRef.current = snap;
+        }
+    }, [isShiftDown]);
+
+    // Sınır Noktalarını Düzenle (Modify) Aracı:
+    // Deniz ve il poligonları birbirinden bağımsızdır; seçilen türe göre SADECE ilgili katman düzenlenir.
+    useEffect(() => {
+        if (!mapRef.current || !vectorSourceRef.current) return;
+
+        if (modifyInteractionRef.current) {
+            mapRef.current.removeInteraction(modifyInteractionRef.current);
+            modifyInteractionRef.current = null;
+        }
+
+        if (activeMapTool === 'modify') {
+            const modifyFeatures = new Collection();
+
+            // 1. Öncelik: Eğer tekil bir il veya deniz seçilmişse, SADECE o varlığın poligonunu düzenle
+            if (selectedCity) {
+                if (selectedCity.isMaritime && maritimeVectorSourceRef.current) {
+                    const feat = maritimeVectorSourceRef.current.getFeatures().find(f => 
+                        f.get('plate') === selectedCity.plate || f.get('id') === selectedCity.id || f.get('name') === selectedCity.name
+                    );
+                    if (feat) modifyFeatures.push(feat);
+                } else if (vectorSourceRef.current) {
+                    const feat = vectorSourceRef.current.getFeatures().find(f => 
+                        f.get('plate') === selectedCity.plate || f.get('name') === selectedCity.name
+                    );
+                    if (feat) modifyFeatures.push(feat);
+                }
+            } else {
+                // 2. Mod Seçimi (İl vs Deniz): Çakışan kıyı noktalarında birini sürüklerken diğerinin bozulmasını engeller
+                const isMaritimeActive = modifyTargetType === 'MARITIME' || (modifyTargetType === 'AUTO' && geoEntityFilter === 'MARITIME');
+
+                if (isMaritimeActive && maritimeVectorSourceRef.current) {
+                    // YALNIZCA DENİZ ALANLARI DÜZENLENİR (Kara illeri asla etkilenmez)
+                    modifyFeatures.extend(maritimeVectorSourceRef.current.getFeatures());
+                } else if (vectorSourceRef.current) {
+                    // YALNIZCA KARA İLLERİ DÜZENLENİR (Deniz alanları asla etkilenmez)
+                    modifyFeatures.extend(vectorSourceRef.current.getFeatures());
+                }
+            }
+
+            const modify = new Modify({
+                features: modifyFeatures,
+                pixelTolerance: 14,
+                insertVertexCondition: () => true,
+                deleteCondition: (e) => e.originalEvent.altKey
+            });
+
+            modify.on('modifystart', () => {
+                pushStateToUndo(citiesRef.current, maritimeZonesRef.current);
+            });
+
+            modify.on('modifyend', (evt) => {
+                try {
+                    const modifiedFeatures = evt.features.getArray();
+                    const wktFormat = new WKT();
+                    const geojsonFormat = new GeoJSON();
+
+                    modifiedFeatures.forEach(feat => {
+                        const isMaritime = feat.get('isMaritime') || (feat.get('plate') >= 900);
+                        const plate = feat.get('plate');
+                        const name = feat.get('name');
+                        const id = feat.get('id');
+
+                        const clonedGeom = feat.getGeometry().clone();
+                        clonedGeom.transform('EPSG:3857', 'EPSG:4326');
+                        const newWkt = wktFormat.writeGeometry(clonedGeom);
+                        const geojsonObj = geojsonFormat.writeFeatureObject(new Feature({ geometry: clonedGeom }), {
+                            dataProjection: 'EPSG:4326',
+                            featureProjection: 'EPSG:4326'
+                        });
+
+                        if (isMaritime) {
+                            setMaritimeZones(prev => {
+                                const updated = prev.map(m => {
+                                    if (m.plate === plate || m.id === id || m.name === name) {
+                                        return { ...m, wkt: newWkt, geometry: geojsonObj.geometry };
+                                    }
+                                    return m;
+                                });
+                                savePublishedMaritimeImmediately(updated);
+                                return updated;
+                            });
+                            showToast(`"${name}" deniz alanının sınır köşe noktaları güncellendi ve kaydedildi!`);
+                        } else {
+                            setCities(prev => {
+                                const updated = prev.map(c => {
+                                    if (c.plate === plate || c.name === name) {
+                                        return { ...c, wkt: newWkt, geometry: geojsonObj.geometry };
+                                    }
+                                    return c;
+                                });
+                                savePublishedStateImmediately(updated);
+                                return updated;
+                            });
+                            showToast(`"${name}" ilinin sınır köşe noktaları güncellendi ve kaydedildi!`);
+                        }
+                    });
+                } catch (err) {
+                    console.error('Sınır Düzenleme Hatası:', err);
+                    showToast('Poligon sınırı güncellenirken hata oluştu.', 'error');
+                }
+            });
+
+            mapRef.current.addInteraction(modify);
+            modifyInteractionRef.current = modify;
+        }
+    }, [activeMapTool, selectedCity, geoEntityFilter, modifyTargetType]);
 
     // Keep citiesRef continuously synchronized with latest cities state
     useEffect(() => {
         citiesRef.current = cities;
     }, [cities]);
 
-    // Push state snapshot to undo stack
-    const pushStateToUndo = (currentCities) => {
-        const snapshot = currentCities || citiesRef.current;
-        setUndoStack(prev => [...prev.slice(-15), JSON.stringify(snapshot)]);
+    // Push state snapshot to undo stack (captures BOTH land cities and maritime zones)
+    const pushStateToUndo = (currentCities, currentMaritime) => {
+        const snapshot = {
+            cities: currentCities || citiesRef.current || [],
+            maritime: currentMaritime || maritimeZonesRef.current || []
+        };
+        setUndoStack(prev => [...prev.slice(-20), JSON.stringify(snapshot)]);
         setRedoStack([]);
         setHasUnsavedChanges(true);
     };
@@ -560,6 +763,38 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         }
     };
 
+    // Helper: Save published maritime state immediately
+    const savePublishedMaritimeImmediately = (updatedMaritimeList) => {
+        try {
+            const nowStr = new Date().toLocaleString('tr-TR');
+            const geojsonFormat = new GeoJSON();
+            const wktFormat = new WKT();
+            const compact = (updatedMaritimeList || []).map(m => {
+                let wktStr = m.wkt || '';
+                if (!wktStr && m.geometry) {
+                    try {
+                        const feat = geojsonFormat.readFeature({ type: 'Feature', geometry: m.geometry });
+                        wktStr = wktFormat.writeGeometry(feat.getGeometry());
+                    } catch (e) {}
+                }
+                return {
+                    ...m,
+                    isDeleted: !!m.isDeleted,
+                    wkt: m.isDeleted ? '' : wktStr,
+                    geometry: m.isDeleted ? null : m.geometry
+                };
+            });
+            const payloadStr = JSON.stringify({
+                maritimeZones: compact,
+                savedAt: nowStr
+            });
+            safeLocalStorageSet(MARITIME_STORAGE_KEY, payloadStr);
+            setHasUnsavedChanges(false);
+        } catch (err) {
+            console.error('Deniz Alanları Kalıcı Kayıt Hatası:', err);
+        }
+    };
+
     // Load GeoJSON data: Prioritize PostgreSQL database (tbl_city), fallback to turkey-cities.json
     useEffect(() => {
         purgeAllLegacyStorageKeys();
@@ -578,7 +813,10 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         adminApi.getCities(true, token)
             .then(dbCities => {
                 if (dbCities && Array.isArray(dbCities) && dbCities.length > 0) {
-                    const loadedCities = dbCities.map(c => {
+                    const loadedCities = [];
+                    const loadedMaritime = [];
+
+                    dbCities.forEach(c => {
                         let geomObj = null;
                         if (c.wkt) {
                             try {
@@ -586,23 +824,48 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 geomObj = geojsonFormat.writeFeatureObject(feat).geometry;
                             } catch (e) {}
                         }
-                        return {
-                            id: c.id || c.plate,
-                            plate: c.plate,
-                            name: c.name,
-                            region: c.region,
-                            wkt: c.wkt,
-                            geometry: geomObj,
-                            isActive: c.isActive !== false,
-                            isDeleted: c.isDeleted === true
-                        };
+
+                        // Plaka 1..81 olan iller (Karadeniz Bölgesi, Akdeniz Bölgesi dahil) ASLA deniz değildir; illerdir.
+                        const isMaritimeItem = (c.isMaritime === true || (typeof c.plate === 'number' && c.plate >= 900) || (typeof c.id === 'string' && c.id.startsWith('MAR-')) || c.region === 'Deniz Yetki Alanı') && (c.plate > 81);
+
+                        if (isMaritimeItem) {
+                            loadedMaritime.push({
+                                id: c.id || `MAR-${c.plate}`,
+                                plate: c.plate,
+                                name: c.name,
+                                region: c.region || 'Deniz Yetki Alanı',
+                                sea: c.region || 'Karasuları',
+                                wkt: c.wkt,
+                                geometry: geomObj,
+                                isActive: c.isActive !== false,
+                                isDeleted: c.isDeleted === true,
+                                isMaritime: true
+                            });
+                        } else {
+                            loadedCities.push({
+                                id: c.id || c.plate,
+                                plate: c.plate,
+                                name: c.name,
+                                region: c.region,
+                                wkt: c.wkt,
+                                geometry: geomObj,
+                                isActive: c.isActive !== false,
+                                isDeleted: c.isDeleted === true,
+                                isMaritime: false
+                            });
+                        }
                     });
 
                     loadedCities.sort((a, b) => a.plate - b.plate);
                     applyCitiesToStateAndMap(loadedCities);
                     setFilteredCities(loadedCities);
+
+                    if (loadedMaritime.length > 0) {
+                        setMaritimeZones(loadedMaritime);
+                    }
+
                     setHasUnsavedChanges(false);
-                    console.log(`[GeoManagement] ${loadedCities.length} adet il ve bölge sınırı PostgreSQL veritabanından başarıyla yüklendi.`);
+                    console.log(`[GeoManagement] ${loadedCities.length} adet il ve ${loadedMaritime.length} adet deniz yetki alanı PostgreSQL veritabanından başarıyla yüklendi.`);
                     return;
                 }
                 throw new Error('Database empty, fallback to JSON');
@@ -689,6 +952,72 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         }
     }, [cities]);
 
+    // Update OpenLayers Map Maritime Features with Unique IDs for every sea zone
+    const updateMaritimeVectorFeatures = (updatedMaritime) => {
+        if (!maritimeVectorSourceRef.current) return;
+        maritimeVectorSourceRef.current.clear();
+
+        const activeMaritime = (updatedMaritime || []).filter(m => !m.isDeleted);
+        const format = new GeoJSON();
+        const wktFormat = new WKT();
+
+        const features = activeMaritime.map((m, idx) => {
+            if (!m.geometry && !m.wkt) return null;
+            try {
+                let feat = null;
+                const uniqueId = m.id || (m.plate ? `MAR-${m.plate}` : `mar_${idx + 1}`);
+
+                if (m.geometry) {
+                    feat = format.readFeature({
+                        type: 'Feature',
+                        geometry: m.geometry,
+                        properties: {
+                            id: uniqueId,
+                            plate: m.plate,
+                            name: m.name,
+                            sea: m.sea || m.region,
+                            region: m.region,
+                            wkt: m.wkt,
+                            isMaritime: true
+                        }
+                    }, {
+                        dataProjection: 'EPSG:4326',
+                        featureProjection: 'EPSG:3857'
+                    });
+                } else if (m.wkt) {
+                    feat = wktFormat.readFeature(m.wkt, {
+                        dataProjection: 'EPSG:4326',
+                        featureProjection: 'EPSG:3857'
+                    });
+                    feat.set('id', uniqueId);
+                    feat.set('plate', m.plate);
+                    feat.set('name', m.name);
+                    feat.set('sea', m.sea || m.region);
+                    feat.set('region', m.region);
+                    feat.set('wkt', m.wkt);
+                    feat.set('isMaritime', true);
+                }
+
+                if (feat) {
+                    feat.setId(uniqueId);
+                }
+                return feat;
+            } catch (e) {
+                console.warn('Maritime feature render hatası:', e);
+                return null;
+            }
+        }).filter(Boolean);
+
+        maritimeVectorSourceRef.current.addFeatures(features);
+    };
+
+    // Guarantee map features are ALWAYS rendered on OpenLayers maritime vector source whenever maritimeZones state updates
+    useEffect(() => {
+        if (maritimeVectorSourceRef.current && maritimeZones.length > 0) {
+            updateMaritimeVectorFeatures(maritimeZones);
+        }
+    }, [maritimeZones]);
+
     // Save Action: Extract live features directly from OpenLayers map canvas, save as permanent DEFAULT and create automatic backup
     const handleSaveChanges = async () => {
         try {
@@ -717,6 +1046,27 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 });
             }
 
+            // 1.b Extract live maritime geometries directly from canvas
+            let liveMaritimeMap = new Map();
+            if (maritimeVectorSourceRef.current) {
+                const mFeatures = maritimeVectorSourceRef.current.getFeatures();
+                mFeatures.forEach(feat => {
+                    const plate = feat.get('plate');
+                    const name = feat.get('name');
+                    const id = feat.get('id');
+                    if (feat.getGeometry()) {
+                        const clonedGeom = feat.getGeometry().clone();
+                        clonedGeom.transform('EPSG:3857', 'EPSG:4326');
+                        const wktStr = wktFormat.writeGeometry(clonedGeom);
+                        const geojsonObj = geojsonFormat.writeFeatureObject(new Feature({ geometry: clonedGeom }), {
+                            dataProjection: 'EPSG:4326',
+                            featureProjection: 'EPSG:4326'
+                        });
+                        liveMaritimeMap.set(plate || id || name, { wkt: wktStr, geometry: geojsonObj.geometry });
+                    }
+                });
+            }
+
             // 2. Sync state array with live canvas geometries
             const syncedCities = cities.map(c => {
                 const liveData = liveCitiesMap.get(c.plate) || liveCitiesMap.get(c.name);
@@ -730,7 +1080,21 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 return c;
             });
 
+            const syncedMaritime = maritimeZones.map(m => {
+                const liveData = liveMaritimeMap.get(m.plate) || liveMaritimeMap.get(m.id) || liveMaritimeMap.get(m.name);
+                if (liveData && !m.isDeleted) {
+                    return {
+                        ...m,
+                        wkt: liveData.wkt || m.wkt,
+                        geometry: liveData.geometry || m.geometry
+                    };
+                }
+                return m;
+            });
+
             setCities(syncedCities);
+            setMaritimeZones(syncedMaritime);
+            savePublishedMaritimeImmediately(syncedMaritime);
 
             const compactCurrentCities = compressCitiesForStorage(syncedCities);
 
@@ -763,8 +1127,21 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
 
             // 3. Persist to PostgreSQL Database table tbl_city AND server disk backup
             try {
-                await adminApi.saveBulkCities(syncedCities, token);
-                console.log('[DB Persist] Tüm il verileri PostgreSQL veritabanına (tbl_city) başarıyla kaydedildi.');
+                const allEntitiesToSave = [
+                    ...syncedCities,
+                    ...syncedMaritime.map(m => ({
+                        id: m.id || m.plate,
+                        plate: m.plate,
+                        name: m.name,
+                        region: m.sea || m.region || 'Deniz Yetki Alanı',
+                        wkt: m.wkt || '',
+                        geometry: m.geometry || null,
+                        isActive: !m.isDeleted,
+                        isDeleted: !!m.isDeleted
+                    }))
+                ];
+                await adminApi.saveBulkCities(allEntitiesToSave, token);
+                console.log('[DB Persist] Tüm il ve deniz yetki alanı verileri PostgreSQL veritabanına (tbl_city) başarıyla kaydedildi.');
             } catch (dbErr) {
                 console.warn('[DB Persist] Veritabanı kaydetme uyarısı:', dbErr);
             }
@@ -839,7 +1216,6 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
     };
 
     // Undo action (Geri Al)
-
     const handleUndo = () => {
         try {
             if (undoStack.length === 0) {
@@ -849,13 +1225,28 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             const previousStateRaw = undoStack[undoStack.length - 1];
             const newUndoStack = undoStack.slice(0, -1);
             
-            setRedoStack(prev => [...prev, JSON.stringify(cities)]);
+            setRedoStack(prev => [...prev, JSON.stringify({
+                cities: citiesRef.current || [],
+                maritime: maritimeZonesRef.current || []
+            })]);
             setUndoStack(newUndoStack);
 
-            const restoredCities = JSON.parse(previousStateRaw);
-            applyCitiesToStateAndMap(restoredCities);
-            savePublishedStateImmediately(restoredCities);
-            showToast('Son poligon değişikliği geri alındı (Undo)!');
+            const parsed = JSON.parse(previousStateRaw);
+            if (Array.isArray(parsed)) {
+                applyCitiesToStateAndMap(parsed);
+                savePublishedStateImmediately(parsed);
+            } else {
+                if (parsed.cities) {
+                    applyCitiesToStateAndMap(parsed.cities);
+                    savePublishedStateImmediately(parsed.cities);
+                }
+                if (parsed.maritime) {
+                    setMaritimeZones(parsed.maritime);
+                    savePublishedMaritimeImmediately(parsed.maritime);
+                    updateMaritimeVectorFeatures(parsed.maritime);
+                }
+            }
+            showToast('Son sınır / poligon değişikliği geri alındı (Undo)!');
         } catch (err) {
             console.error('Undo Hatası:', err);
             showToast('İşlem geri alınırken hata oluştu.', 'error');
@@ -872,12 +1263,27 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             const nextStateRaw = redoStack[redoStack.length - 1];
             const newRedoStack = redoStack.slice(0, -1);
 
-            setUndoStack(prev => [...prev, JSON.stringify(cities)]);
+            setUndoStack(prev => [...prev, JSON.stringify({
+                cities: citiesRef.current || [],
+                maritime: maritimeZonesRef.current || []
+            })]);
             setRedoStack(newRedoStack);
 
-            const restoredCities = JSON.parse(nextStateRaw);
-            applyCitiesToStateAndMap(restoredCities);
-            savePublishedStateImmediately(restoredCities);
+            const parsed = JSON.parse(nextStateRaw);
+            if (Array.isArray(parsed)) {
+                applyCitiesToStateAndMap(parsed);
+                savePublishedStateImmediately(parsed);
+            } else {
+                if (parsed.cities) {
+                    applyCitiesToStateAndMap(parsed.cities);
+                    savePublishedStateImmediately(parsed.cities);
+                }
+                if (parsed.maritime) {
+                    setMaritimeZones(parsed.maritime);
+                    savePublishedMaritimeImmediately(parsed.maritime);
+                    updateMaritimeVectorFeatures(parsed.maritime);
+                }
+            }
             showToast('Geri alınan değişiklik tekrar uygulandı (Redo)!');
         } catch (err) {
             console.error('Redo Hatası:', err);
@@ -898,9 +1304,21 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             .toLowerCase().trim();
     };
 
-    // Filter cities with Turkish character tolerance & padded plate code matching
+    // Filter cities & maritime zones with Turkish character tolerance & category view
     useEffect(() => {
-        let result = cities;
+        let combined = [];
+
+        if (geoEntityFilter === 'LAND') {
+            combined = cities;
+        } else if (geoEntityFilter === 'MARITIME') {
+            combined = maritimeZones;
+        } else {
+            // 'ALL'
+            combined = [...cities, ...maritimeZones];
+        }
+
+        let result = combined;
+
         if (searchQuery && searchQuery.trim()) {
             const q = searchQuery.trim();
             const qNorm = normalizeTR(q);
@@ -911,34 +1329,41 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 const nameLower = (c.name || '').toLowerCase();
                 const plateStr = (c.plate || '').toString();
                 const platePadded = plateStr.padStart(2, '0');
+                const seaStr = (c.sea || '').toLowerCase();
+                const regStr = (c.region || '').toLowerCase();
 
                 return (
                     nameNorm.includes(qNorm) ||
                     nameLower.includes(qLower) ||
                     plateStr.includes(q) ||
-                    platePadded.includes(q)
+                    platePadded.includes(q) ||
+                    seaStr.includes(qLower) ||
+                    regStr.includes(qLower)
                 );
             });
 
-            // If search matches exactly 1 active city, automatically fly camera to it on map!
+            // If search matches exactly 1 active item, automatically fly camera to it!
             if (result.length === 1 && !result[0].isDeleted) {
                 zoomToCityOnMap(result[0]);
             }
         }
+
         if (selectedRegion !== 'ALL') {
             if (selectedRegion === 'NONE') {
                 result = result.filter(c => !c.region || !c.region.trim());
             } else {
-                result = result.filter(c => (c.region || '').trim() === selectedRegion);
+                result = result.filter(c => (c.region || '').trim() === selectedRegion || (c.sea || '').trim() === selectedRegion);
             }
         }
+
         if (statusFilter === 'ACTIVE') {
             result = result.filter(c => !c.isDeleted);
         } else if (statusFilter === 'DELETED') {
             result = result.filter(c => c.isDeleted);
         }
+
         setFilteredCities(result);
-    }, [searchQuery, selectedRegion, statusFilter, cities]);
+    }, [searchQuery, selectedRegion, statusFilter, geoEntityFilter, cities, maritimeZones]);
 
 
     // Update OpenLayers Map Vector Features with Unique IDs for every shape
@@ -994,12 +1419,19 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         vectorSourceRef.current.addFeatures(features);
     };
 
-    // Smoothly fly/zoom map view to clicked city
+    // Smoothly fly/zoom map view to clicked city or maritime zone
     const zoomToCityOnMap = (city) => {
         try {
-            if (!city || !mapRef.current || !vectorSourceRef.current) return;
-            const features = vectorSourceRef.current.getFeatures();
-            const matched = features.find(f => f.get('plate') === city.plate || f.get('name') === city.name);
+            if (!city || !mapRef.current) return;
+            let matched = null;
+            if (vectorSourceRef.current) {
+                const features = vectorSourceRef.current.getFeatures();
+                matched = features.find(f => f.get('plate') === city.plate || f.get('name') === city.name);
+            }
+            if (!matched && maritimeVectorSourceRef.current) {
+                const maritimeFeatures = maritimeVectorSourceRef.current.getFeatures();
+                matched = maritimeFeatures.find(f => f.get('plate') === city.plate || f.get('id') === city.id || f.get('name') === city.name);
+            }
             if (matched && matched.getGeometry()) {
                 const extent = matched.getGeometry().getExtent();
                 mapRef.current.getView().fit(extent, {
@@ -1013,22 +1445,23 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         }
     };
 
-    // Handle City Click (Normal click replaces selection; Shift key enables multi-selection)
+    // Handle City / Maritime Click (Normal click replaces selection and enables boundary editing; Shift key enables multi-selection)
     const handleCityClick = (city, isShiftPressed = false, shouldZoom = true) => {
         if (city.isDeleted) return;
 
         if (isShiftPressed) {
             setSelectedCities(prev => {
-                const exists = prev.some(c => c.plate === city.plate);
+                const prevClean = prev.filter(c => !!c.isMaritime === !!city.isMaritime);
+                const exists = prevClean.some(c => (c.plate === city.plate && c.id === city.id) || c.plate === city.plate || c.id === city.id);
                 if (exists) {
-                    return prev.filter(c => c.plate !== city.plate);
+                    return prevClean.filter(c => c.plate !== city.plate && c.id !== city.id);
                 } else {
-                    return [...prev, city];
+                    return [...prevClean, city];
                 }
             });
             setSelectedCity(city);
         } else {
-            if (selectedCity && selectedCity.plate === city.plate && selectedCities.length === 1) {
+            if (selectedCity && (selectedCity.plate === city.plate || selectedCity.id === city.id) && selectedCities.length === 1) {
                 setSelectedCity(null);
                 setSelectedCities([]);
             } else {
@@ -1037,8 +1470,17 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             }
         }
 
+        if (maritimeVectorSourceRef.current) {
+            maritimeVectorSourceRef.current.changed();
+        }
+
         if (shouldZoom) {
             zoomToCityOnMap(city);
+        }
+
+        // Eğer sol menüdeki Sınır Düzenleme (Modify) butonu aktifse, tıklanan ilin sınırlarını düzenlemeye aç
+        if (activeMapToolRef.current === 'modify') {
+            handleStartBoundaryEditing(city);
         }
     };
 
@@ -1188,6 +1630,37 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 mergedWkt = wktFormat.writeGeometry(olFeature.getGeometry());
             }
 
+            if (primaryCity.isMaritime) {
+                const secondaryPlates = secondaryCities.map(c => c.plate || c.id);
+                const updatedMaritime = maritimeZones.map(m => {
+                    if (m.plate === primaryCity.plate || m.id === primaryCity.id) {
+                        return {
+                            ...m,
+                            geometry: mergedGeometry,
+                            wkt: mergedWkt
+                        };
+                    } else if (secondaryPlates.includes(m.plate) || secondaryPlates.includes(m.id)) {
+                        return {
+                            ...m,
+                            isDeleted: true,
+                            geometry: null,
+                            wkt: ''
+                        };
+                    }
+                    return m;
+                });
+
+                setMaritimeZones(updatedMaritime);
+                savePublishedMaritimeImmediately(updatedMaritime);
+                updateMaritimeVectorFeatures(updatedMaritime);
+
+                const updatedPrimary = updatedMaritime.find(m => m.plate === primaryCity.plate || m.id === primaryCity.id) || primaryCity;
+                setSelectedCities([updatedPrimary]);
+                setSelectedCity(updatedPrimary);
+                showToast(`[${secondaryNames}] deniz alanları "${primaryCity.name}" altında başarıyla birleştirildi ve kaydedildi!`);
+                return;
+            }
+
             const secondaryPlates = secondaryCities.map(c => c.plate);
 
             const updatedCities = cities.map(c => {
@@ -1223,10 +1696,34 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         }
     };
 
-    // Permanent Soft Delete City Action
+    // Permanent Soft Delete City / Maritime Action
     const handleSoftDeleteCity = (cityToDelete) => {
         try {
-            if (!window.confirm(`"${cityToDelete.name}" ilini pasife alıp (Soft Delete) haritadan silmek istediğinize emin misiniz? (Çıkış yapılsa da bir daha gelmez)`)) {
+            const entityLabel = cityToDelete.isMaritime ? 'deniz alanını' : 'ilini';
+            if (!window.confirm(`"${cityToDelete.name}" ${entityLabel} pasife alıp (Soft Delete) silmek istediğinize emin misiniz?`)) {
+                return;
+            }
+
+            if (cityToDelete.isMaritime) {
+                const updatedMaritime = maritimeZones.map(m => {
+                    if (m.plate === cityToDelete.plate || m.id === cityToDelete.id || m.name === cityToDelete.name) {
+                        return {
+                            ...m,
+                            isDeleted: true,
+                            geometry: null,
+                            wkt: ''
+                        };
+                    }
+                    return m;
+                });
+                setMaritimeZones(updatedMaritime);
+                savePublishedMaritimeImmediately(updatedMaritime);
+                updateMaritimeVectorFeatures(updatedMaritime);
+                if (selectedCity && (selectedCity.plate === cityToDelete.plate || selectedCity.id === cityToDelete.id)) {
+                    setSelectedCity(null);
+                }
+                setSelectedCities(prev => prev.filter(c => c.plate !== cityToDelete.plate && c.id !== cityToDelete.id));
+                showToast(`"${cityToDelete.name}" deniz alanı silindi ve kaydedildi.`, 'warning');
                 return;
             }
 
@@ -1261,9 +1758,23 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         }
     };
 
-    // Restore Soft-Deleted City Action
+    // Restore Deleted City / Maritime Action
     const handleRestoreCity = (cityToRestore) => {
         try {
+            if (cityToRestore.isMaritime) {
+                const updatedMaritime = maritimeZones.map(m => {
+                    if (m.plate === cityToRestore.plate || m.id === cityToRestore.id) {
+                        return { ...m, isDeleted: false };
+                    }
+                    return m;
+                });
+                setMaritimeZones(updatedMaritime);
+                savePublishedMaritimeImmediately(updatedMaritime);
+                updateMaritimeVectorFeatures(updatedMaritime);
+                showToast(`"${cityToRestore.name}" deniz alanı geri yüklendi ve kaydedildi!`);
+                return;
+            }
+
             pushStateToUndo(cities);
 
             const updatedCities = cities.map(c => {
@@ -1295,8 +1806,139 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         const vectorSource = new VectorSource();
         vectorSourceRef.current = vectorSource;
 
+        // Deniz Sınırları & Kıyı Şeritleri (Maritime Boundaries) Vektör Katmanı
+        const maritimeVectorSource = new VectorSource();
+        maritimeVectorSourceRef.current = maritimeVectorSource;
+
+        const maritimeVectorLayer = new VectorLayer({
+            source: maritimeVectorSource,
+            visible: showMaritimeLayer,
+            zIndex: 8,
+            style: (feature) => {
+                const props = feature.getProperties() || {};
+                const isSelected = selectedCity && (selectedCity.plate === props.plate || selectedCity.id === props.id);
+
+                if (isSelected) {
+                    return new Style({
+                        fill: new Fill({
+                            color: 'rgba(14, 165, 233, 0.45)'
+                        }),
+                        stroke: new Stroke({
+                            color: '#38bdf8',
+                            width: 3.5,
+                            lineDash: [10, 4]
+                        }),
+                        text: new Text({
+                            text: props.name || props.zoneName || '',
+                            font: 'bold 12.5px Inter, sans-serif',
+                            fill: new Fill({ color: '#ffffff' }),
+                            stroke: new Stroke({ color: '#0369a1', width: 4 }),
+                            offsetY: -8
+                        })
+                    });
+                }
+
+                return new Style({
+                    fill: new Fill({
+                        color: props.fillColor || 'rgba(2, 132, 199, 0.14)'
+                    }),
+                    stroke: new Stroke({
+                        color: props.strokeColor || '#0284c7',
+                        width: 2.2,
+                        lineDash: [6, 4]
+                    }),
+                    text: new Text({
+                        text: props.name || props.zoneName || '',
+                        font: 'bold 11px Inter, sans-serif',
+                        fill: new Fill({ color: props.strokeColor || '#0284c7' }),
+                        stroke: new Stroke({ color: '#ffffff', width: 3 }),
+                        offsetY: -6
+                    })
+                });
+            }
+        });
+        maritimeVectorLayerRef.current = maritimeVectorLayer;
+
+        // Deniz Yetki Alanları Verisini Yükle (Öncelik: Kaydedilmiş LocalStorage, Yoksa: turkey-coastal-maritime.json)
+        const savedMaritimeRaw = localStorage.getItem(MARITIME_STORAGE_KEY);
+        if (savedMaritimeRaw) {
+            try {
+                const parsed = JSON.parse(savedMaritimeRaw);
+                if (parsed && parsed.maritimeZones && parsed.maritimeZones.length > 0) {
+                    const format = new GeoJSON();
+                    const wktFmt = new WKT();
+                    const hydratedZones = parsed.maritimeZones.map(m => {
+                        let geom = m.geometry || null;
+                        let wktStr = m.wkt || '';
+                        if (!geom && wktStr && !m.isDeleted) {
+                            try {
+                                const feat = wktFmt.readFeature(wktStr);
+                                geom = format.writeFeatureObject(feat).geometry;
+                            } catch (e) {}
+                        }
+                        if (geom && !wktStr && !m.isDeleted) {
+                            try {
+                                const feat = format.readFeature({ type: 'Feature', geometry: geom });
+                                wktStr = wktFmt.writeGeometry(feat.getGeometry());
+                            } catch (e) {}
+                        }
+                        return {
+                            ...m,
+                            isDeleted: !!m.isDeleted,
+                            wkt: m.isDeleted ? '' : wktStr,
+                            geometry: m.isDeleted ? null : geom,
+                            isMaritime: true
+                        };
+                    });
+
+                    setMaritimeZones(hydratedZones);
+                    updateMaritimeVectorFeatures(hydratedZones);
+                }
+            } catch (mErr) {
+                console.warn('Kaydedilmiş deniz alanları okuma hatası:', mErr);
+            }
+        } else {
+            fetch(`/data/turkey-coastal-maritime.json?v=${Date.now()}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.features) {
+                        const format = new GeoJSON();
+                        const wktFmt = new WKT();
+
+                        const zonesList = data.features.map((f, idx) => {
+                            let wktStr = '';
+                            try {
+                                const olFeat = format.readFeature(f);
+                                wktStr = wktFmt.writeGeometry(olFeat.getGeometry());
+                            } catch (e) {}
+                            return {
+                                ...f.properties,
+                                id: f.properties.id || `MAR-${idx + 1}`,
+                                plate: f.properties.plate || (901 + idx),
+                                name: f.properties.name,
+                                region: f.properties.region || 'Deniz Yetki Alanı',
+                                sea: f.properties.sea || 'Karasuları',
+                                coastalProvinces: f.properties.coastalProvinces || [],
+                                areaKm2: f.properties.areaKm2 || 0,
+                                coastlineKm: f.properties.coastlineKm || 0,
+                                majorPorts: f.properties.majorPorts || [],
+                                description: f.properties.description || '',
+                                wkt: wktStr,
+                                geometry: f.geometry,
+                                isMaritime: true,
+                                isDeleted: false
+                            };
+                        });
+                        setMaritimeZones(zonesList);
+                        updateMaritimeVectorFeatures(zonesList);
+                    }
+                })
+                .catch(err => console.warn('Deniz sınırları yüklenemedi:', err));
+        }
+
         const vectorLayer = new VectorLayer({
             source: vectorSource,
+            zIndex: 10,
             style: (feature) => {
                 const plate = feature.get('plate');
                 const isPrimary = selectedCity && selectedCity.plate === plate;
@@ -1339,7 +1981,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             }
         });
 
-        const activeBaseConfig = BASEMAP_LAYERS.find(l => l.id === selectedBaseLayer) || BASEMAP_LAYERS[0];
+        const activeBaseConfig = getBasemapConfig(selectedBaseLayer);
         const baseTileLayer = new TileLayer({
             source: new XYZ({
                 url: activeBaseConfig.url,
@@ -1353,6 +1995,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             target: mapElementRef.current,
             layers: [
                 baseTileLayer,
+                maritimeVectorLayer,
                 vectorLayer
             ],
             view: new View({
@@ -1360,50 +2003,6 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 zoom: 6
             })
         });
-
-        // Modify Interaction (Created but NOT added to map until user clicks location pin button)
-        const modify = new Modify({ source: vectorSource });
-        modify.on('modifystart', () => {
-            pushStateToUndo(citiesRef.current);
-        });
-        modify.on('modifyend', (evt) => {
-            try {
-                const modifiedFeatures = evt.features.getArray();
-                const wktFormat = new WKT();
-                const geojsonFormat = new GeoJSON();
-
-                modifiedFeatures.forEach(feat => {
-                    const plate = feat.get('plate');
-                    const name = feat.get('name');
-
-                    // Convert OpenLayers EPSG:3857 geometry to EPSG:4326 WGS84 for accurate WKT saving
-                    const clonedGeom = feat.getGeometry().clone();
-                    clonedGeom.transform('EPSG:3857', 'EPSG:4326');
-                    const newWkt = wktFormat.writeGeometry(clonedGeom);
-                    const geojsonObj = geojsonFormat.writeFeatureObject(new Feature({ geometry: clonedGeom }), {
-                        dataProjection: 'EPSG:4326',
-                        featureProjection: 'EPSG:4326'
-                    });
-
-                    setCities(prev => {
-                        const updated = prev.map(c => {
-                            if (c.plate === plate || c.name === name) {
-                                return { ...c, wkt: newWkt, geometry: geojsonObj.geometry };
-                            }
-                            return c;
-                        });
-                        savePublishedStateImmediately(updated);
-                        return updated;
-                    });
-                    showToast(`"${name}" ilinin haritadaki köşe noktaları düzenlendi ve kaydedildi!`);
-                });
-            } catch (err) {
-                console.error('Sınır Düzenleme Hatası:', err);
-                showToast('Poligon sınırı güncellenirken hata oluştu.', 'error');
-            }
-        });
-        modifyInteractionRef.current = modify;
-
 
         // Pointer move handler
         map.on('pointermove', (evt) => {
@@ -1517,18 +2116,75 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 }
             }
 
-            // 2. NORMAL NAVIGATION MODE: Click city to select
+            // 2. NORMAL NAVIGATION & SELECTION MODE: Click city or maritime zone to select
+            const currentFilter = geoEntityFilterRef.current;
+            const currentTargetType = modifyTargetTypeRef.current;
+            const currentTool = activeMapToolRef.current;
+            const currentSelected = selectedCityRef.current;
+
+            // Sıkı Mod Belirleme:
+            const isMaritimeStrict = (currentTool === 'modify' && currentTargetType === 'MARITIME') || 
+                                     (currentFilter === 'MARITIME') || 
+                                     (currentSelected && currentSelected.isMaritime && currentTool === 'modify');
+
+            const isLandStrict = (currentTool === 'modify' && currentTargetType === 'LAND') || 
+                                 (currentFilter === 'LAND') || 
+                                 (currentSelected && !currentSelected.isMaritime && currentTool === 'modify');
+
             let clickedCity = null;
+            let clickedMaritime = null;
+
             map.forEachFeatureAtPixel(evt.pixel, (feature) => {
+                const isMaritime = feature.get('isMaritime');
                 const plate = feature.get('plate');
                 const name = feature.get('name');
-                const matched = citiesRef.current.find(c => (c.plate === plate || c.name === name) && !c.isDeleted);
-                if (matched) {
-                    clickedCity = matched;
+                const id = feature.get('id');
+
+                if (isMaritime || plate >= 900) {
+                    if (!clickedMaritime && !isLandStrict) {
+                        const matched = (maritimeZonesRef.current || []).find(m => m.plate === plate || m.id === id || m.name === name);
+                        if (matched) clickedMaritime = matched;
+                    }
+                } else {
+                    if (!clickedCity && !isMaritimeStrict) {
+                        const matched = (citiesRef.current || []).find(c => (c.plate === plate || c.name === name) && !c.isDeleted);
+                        if (matched) clickedCity = matched;
+                    }
+                }
+            }, {
+                layerFilter: (layer) => {
+                    if (isMaritimeStrict) {
+                        return layer === maritimeVectorLayerRef.current;
+                    }
+                    if (isLandStrict) {
+                        return layer !== maritimeVectorLayerRef.current;
+                    }
+                    return true;
                 }
             });
 
-            if (clickedCity) {
+            if (isMaritimeStrict) {
+                // DENİZ MODUNDA / DENİZ SINIRLARI DÜZENLERKEN:
+                // SADECE VE SADECE DENİZ ALANLARI SEÇİLEBİLİR. İLLERE ASLA GEÇİLMEZ!
+                if (clickedMaritime) {
+                    handleCityClick(clickedMaritime, false, false);
+                }
+                return;
+            }
+
+            if (isLandStrict) {
+                // İL MODUNDA / İL SINIRLARI DÜZENLERKEN:
+                // SADECE VE SADECE İLLER SEÇİLEBİLİR. DENİZLERE ASLA GEÇİLMEZ!
+                if (clickedCity) {
+                    handleCityClick(clickedCity, evt.originalEvent.shiftKey, false);
+                }
+                return;
+            }
+
+            // TÜMÜ / SERBEST MOD: Tıklanan varlığa geçilir
+            if (clickedMaritime) {
+                handleCityClick(clickedMaritime, false, false);
+            } else if (clickedCity) {
                 handleCityClick(clickedCity, evt.originalEvent.shiftKey, false);
             }
         });
@@ -1538,12 +2194,45 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         viewport.addEventListener('contextmenu', (evt) => {
             evt.preventDefault();
             const pixel = map.getEventPixel(evt);
+            const currentFilter = geoEntityFilterRef.current;
+            const currentTargetType = modifyTargetTypeRef.current;
+            const currentTool = activeMapToolRef.current;
+            const currentSelected = selectedCityRef.current;
+
+            const isMaritimeStrict = (currentTool === 'modify' && currentTargetType === 'MARITIME') || 
+                                     (currentFilter === 'MARITIME') || 
+                                     (currentSelected && currentSelected.isMaritime && currentTool === 'modify');
+
+            const isLandStrict = (currentTool === 'modify' && currentTargetType === 'LAND') || 
+                                 (currentFilter === 'LAND') || 
+                                 (currentSelected && !currentSelected.isMaritime && currentTool === 'modify');
+
             map.forEachFeatureAtPixel(pixel, (feature) => {
                 const plate = feature.get('plate');
                 const name = feature.get('name');
-                const matched = cities.find(c => (c.plate === plate || c.name === name) && !c.isDeleted);
-                if (matched) {
-                    handleCityClick(matched, true, false);
+                const id = feature.get('id');
+                const isMaritime = feature.get('isMaritime');
+
+                if (isMaritime || plate >= 900) {
+                    if (!isLandStrict) {
+                        const matched = (maritimeZonesRef.current || []).find(m => m.plate === plate || m.id === id || m.name === name);
+                        if (matched) {
+                            handleCityClick(matched, false, false);
+                        }
+                    }
+                } else {
+                    if (!isMaritimeStrict) {
+                        const matched = (citiesRef.current || []).find(c => (c.plate === plate || c.name === name) && !c.isDeleted);
+                        if (matched) {
+                            handleCityClick(matched, true, false);
+                        }
+                    }
+                }
+            }, {
+                layerFilter: (layer) => {
+                    if (isMaritimeStrict) return layer === maritimeVectorLayerRef.current;
+                    if (isLandStrict) return layer !== maritimeVectorLayerRef.current;
+                    return true;
                 }
             });
         });
@@ -1565,7 +2254,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         // Toggle tool: If clicking the active tool, revert to 'pan' navigation mode
         const targetTool = (activeMapTool === toolName && toolName !== 'pan') ? 'pan' : toolName;
 
-        // Always clean up existing draw and modify interactions first
+        // Always clean up existing draw, modify, and snap interactions first
         if (drawInteractionRef.current) {
             mapRef.current.removeInteraction(drawInteractionRef.current);
             drawInteractionRef.current = null;
@@ -1573,18 +2262,22 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         if (modifyInteractionRef.current) {
             mapRef.current.removeInteraction(modifyInteractionRef.current);
         }
+        if (snapInteractionRef.current) {
+            mapRef.current.removeInteraction(snapInteractionRef.current);
+            snapInteractionRef.current = null;
+        }
 
         setActiveMapTool(targetTool);
 
         if (targetTool === 'modify') {
-            if (modifyInteractionRef.current) {
-                mapRef.current.addInteraction(modifyInteractionRef.current);
-            }
-            showToast('Konum İğnesi / Sınır Düzenleme (Modify) Modu Aktif: Köşe noktalarını sürükleyebilirsiniz. Çıkmak için iğneye tekrar basın.');
+            showToast('Sınır Noktalarını Düzenle (Modify) Modu Aktif: Haritada herhangi bir ilin köşe noktasını sürükleyebilirsiniz. Shift ile komşu il sınırlarına yapışabilirsiniz.');
         } else if (targetTool === 'draw') {
             const draw = new Draw({
                 source: vectorSourceRef.current,
-                type: 'Polygon'
+                type: 'Polygon',
+                freehand: false,
+                freehandCondition: () => false, // Kalem/serbest el çizimini tamamen kapat
+                condition: (event) => event.originalEvent.button === 0 // Shift basılıyken de sol tık ile köşe noktası oluşturulmasını sağla
             });
             draw.on('drawstart', (evt) => {
                 draftFeatureRef.current = evt.feature;
@@ -1614,15 +2307,37 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                         mapRef.current.removeInteraction(drawInteractionRef.current);
                         drawInteractionRef.current = null;
                     }
+                    if (snapInteractionRef.current && mapRef.current) {
+                        mapRef.current.removeInteraction(snapInteractionRef.current);
+                        snapInteractionRef.current = null;
+                    }
                     showToast('Poligon çizimi tamamlandı! Lütfen il adı ve plaka kodunu (ID) girerek kaydediniz.');
                 } catch (err) {
                     console.error('Poligon Çizim Hatası:', err);
                     showToast('Yeni poligon çizilirken hata oluştu.', 'error');
                 }
             });
+
+            // Draw interaction ekleniyor (Shift basıldığında dinamik Snap devreye girer)
             mapRef.current.addInteraction(draw);
             drawInteractionRef.current = draw;
-            showToast('Çizim modu aktif: Haritada tıklayarak poligon çizin, tamamlamak için çift tıklayın.');
+
+            // Snap etkileşiminin Draw'dan önce koordinat yakalaması için Draw'dan sonra eklenmesini garantiye alıyoruz
+            if (isShiftDown) {
+                if (snapInteractionRef.current) {
+                    mapRef.current.removeInteraction(snapInteractionRef.current);
+                }
+                const snap = new Snap({
+                    source: vectorSourceRef.current,
+                    pixelTolerance: 20,
+                    edge: false,
+                    vertex: true
+                });
+                mapRef.current.addInteraction(snap);
+                snapInteractionRef.current = snap;
+            }
+
+            showToast('Çizim modu aktif: Haritada tıklayarak poligon çizin. Shift tuşuna basılı tutarak komşu il köşe noktalarına yapışabilirsiniz (Snap).');
         } else if (targetTool === 'erase_selection') {
             showToast('Tıklayarak Silme Modu Aktif: Silmek istediğiniz adaya / poligona haritada DOĞRUDAN TIKLAYIN.', 'warning');
         } else {
@@ -1638,6 +2353,13 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             vectorSourceRef.current.changed();
         }
     }, [selectedCity, selectedCities]);
+
+    // Synchronize maritime vector layer visibility
+    useEffect(() => {
+        if (maritimeVectorLayerRef.current) {
+            maritimeVectorLayerRef.current.setVisible(showMaritimeLayer);
+        }
+    }, [showMaritimeLayer]);
 
     // Save Edit Form with Strict Unique ID/Name Validation
     const handleSaveEdit = () => {
@@ -1659,6 +2381,31 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             }
 
             const inputNameClean = formData.name.trim();
+
+            if (selectedCity.isMaritime) {
+                const updatedMaritime = maritimeZones.map(m => {
+                    if (m.plate === selectedCity.plate || m.id === selectedCity.id) {
+                        return {
+                            ...m,
+                            plate: newPlate,
+                            id: m.id || `MAR-${newPlate}`,
+                            name: inputNameClean,
+                            sea: formData.region,
+                            region: formData.region,
+                            wkt: formData.wkt || m.wkt
+                        };
+                    }
+                    return m;
+                });
+                setMaritimeZones(updatedMaritime);
+                savePublishedMaritimeImmediately(updatedMaritime);
+                updateMaritimeVectorFeatures(updatedMaritime);
+                const updatedSelected = updatedMaritime.find(m => m.plate === newPlate) || null;
+                setSelectedCity(updatedSelected);
+                setIsEditModalOpen(false);
+                showToast(`"${inputNameClean}" deniz alanı güncellendi ve kaydedildi!`);
+                return;
+            }
 
             // Rule: Two different city names CANNOT share the same ID / Plate code!
             const duplicatePlateCity = cities.find(c => 
@@ -1730,11 +2477,11 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         setFormData({ plate: '', name: '', region: 'Marmara Bölgesi', wkt: '' });
     };
 
-    // Add New City/Region with Strict Unique ID/Name Validation & Automatic Previous Map Backup
+    // Add New City / Maritime Zone with Strict Unique ID/Name Validation
     const handleSaveAdd = async () => {
         try {
             if (!formData.name || !formData.name.trim() || !formData.plate) {
-                showToast('Lütfen il adı ve plaka kodunu (ID) giriniz!', 'error');
+                showToast('Lütfen alan adını ve plaka/kod numarasını giriniz!', 'error');
                 return;
             }
             const newPlate = parseInt(formData.plate, 10);
@@ -1744,20 +2491,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             }
 
             const inputNameClean = formData.name.trim();
-
-            // Rule 1: ID / Plate must be unique across all active cities!
-            const duplicatePlateCity = cities.find(c => c.plate === newPlate && !c.isDeleted);
-            if (duplicatePlateCity) {
-                showToast(`HATA: İki farklı şehir aynı ID'ye (Plaka Kodu: ${newPlate}) sahip olamaz! Bu ID zaten "${duplicatePlateCity.name}" iline ait.`, 'error');
-                return;
-            }
-
-            // Rule 2: City name must be unique across all active cities!
-            const duplicateNameCity = cities.find(c => c.name.toLowerCase() === inputNameClean.toLowerCase() && !c.isDeleted);
-            if (duplicateNameCity) {
-                showToast(`HATA: "${inputNameClean}" ismi zaten Plaka Kodu ${duplicateNameCity.plate} ile kayıtlı!`, 'error');
-                return;
-            }
+            const isMaritimeEntity = formData.entityType === 'MARITIME' || formData.isMaritime;
 
             const wktFormat = new WKT();
             const geojsonFormat = new GeoJSON();
@@ -1772,34 +2506,76 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 }
             }
 
+            // Clean up draft feature from map if any
+            if (draftFeatureRef.current) {
+                if (vectorSourceRef.current) {
+                    try { vectorSourceRef.current.removeFeature(draftFeatureRef.current); } catch (e) {}
+                }
+                if (maritimeVectorSourceRef.current) {
+                    try { maritimeVectorSourceRef.current.removeFeature(draftFeatureRef.current); } catch (e) {}
+                }
+                draftFeatureRef.current = null;
+            }
+
+            // MARITIME ENTITY PERSISTENCE
+            if (isMaritimeEntity) {
+                const duplicateMaritime = maritimeZones.find(m => m.plate === newPlate && !m.isDeleted);
+                if (duplicateMaritime) {
+                    showToast(`HATA: ${newPlate} kodu zaten "${duplicateMaritime.name}" deniz alanına ait!`, 'error');
+                    return;
+                }
+
+                const newMaritime = {
+                    id: `MAR-${newPlate}`,
+                    plate: newPlate,
+                    name: inputNameClean,
+                    sea: formData.region || 'Akdeniz',
+                    region: formData.region || 'Akdeniz',
+                    areaKm2: Number(formData.areaKm2) || 25000,
+                    coastlineKm: Number(formData.coastlineKm) || 200,
+                    coastalProvinces: formData.coastalProvinces ? formData.coastalProvinces.split(',').map(s => s.trim()) : [],
+                    majorPorts: formData.majorPorts ? formData.majorPorts.split(',').map(s => s.trim()) : [],
+                    description: formData.description || `${inputNameClean} deniz yetki alanı.`,
+                    color: '#0284c7',
+                    fillColor: 'rgba(2, 132, 199, 0.18)',
+                    strokeColor: '#0284c7',
+                    wkt: formData.wkt ? formData.wkt.trim() : '',
+                    geometry: parsedGeometry,
+                    isActive: true,
+                    isDeleted: false,
+                    isMaritime: true
+                };
+
+                const updated = [...maritimeZones, newMaritime];
+                setMaritimeZones(updated);
+                savePublishedMaritimeImmediately(updated);
+                updateMaritimeVectorFeatures(updated);
+
+                setIsAddModalOpen(false);
+                setFormData({ plate: '', name: '', region: 'Marmara Bölgesi', wkt: '', entityType: 'LAND' });
+                showToast(`"${inputNameClean}" deniz alanı (Kod: ${newPlate}) başarıyla eklendi ve kaydedildi!`);
+                return;
+            }
+
+            // LAND CITY PERSISTENCE
+            // Rule 1: ID / Plate must be unique across all active cities!
+            const duplicatePlateCity = cities.find(c => c.plate === newPlate && !c.isDeleted);
+            if (duplicatePlateCity) {
+                showToast(`HATA: İki farklı şehir aynı ID'ye (Plaka Kodu: ${newPlate}) sahip olamaz! Bu ID zaten "${duplicatePlateCity.name}" iline ait.`, 'error');
+                return;
+            }
+
+            // Rule 2: City name must be unique across all active cities!
+            const duplicateNameCity = cities.find(c => c.name.toLowerCase() === inputNameClean.toLowerCase() && !c.isDeleted);
+            if (duplicateNameCity) {
+                showToast(`HATA: "${inputNameClean}" ismi zaten Plaka Kodu ${duplicateNameCity.plate} ile kayıtlı!`, 'error');
+                return;
+            }
+
             // 1. Push current state snapshot to undo stack
             pushStateToUndo(cities);
 
-            // 2. AUTOMATIC MAP BACKUP BEFORE PERSISTING NEW CITY (Take backup of previous map state)
-            const currentPublishedRaw = localStorage.getItem(PUBLISHED_STORAGE_KEY);
-            const now = new Date();
-            const dateStr = now.toLocaleString('tr-TR');
-            let updatedBackups = [...backupsList];
-
-            if (currentPublishedRaw) {
-                try {
-                    const oldData = JSON.parse(currentPublishedRaw);
-                    const newBackup = {
-                        id: Date.now(),
-                        dateStr: oldData.savedAt || dateStr,
-                        citiesCount: (oldData.cities || []).filter(c => !c.isDeleted).length,
-                        note: `${oldData.savedAt || dateStr} tarihli harita yedeği ("${inputNameClean}" eklenmeden önce)`,
-                        cities: oldData.cities || []
-                    };
-                    updatedBackups = [newBackup, ...updatedBackups].slice(0, 10);
-                    setBackupsList(updatedBackups);
-                    safeLocalStorageSet(BACKUPS_STORAGE_KEY, JSON.stringify(updatedBackups));
-                } catch (bErr) {
-                    console.error('Yedek alma hatası:', bErr);
-                }
-            }
-
-            // 3. Create new city object
+            // 2. Create new city object
             const newCity = {
                 id: newPlate,
                 plate: newPlate,
@@ -1953,6 +2729,21 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                         <span>{isTr ? 'Sıfırla' : 'Reset'}</span>
                     </button>
 
+                    {/* DENİZ SINIRLARI & KIYI ŞERİTLERİ TOGGLE BUTONU */}
+                    <button
+                        className={`btn btn-sm ${showMaritimeLayer ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setShowMaritimeLayer(prev => !prev)}
+                        title={isTr ? "Kıyı Şeritleri & Deniz Karasuları Yetki Sınırlarını Göster / Gizle" : "Toggle Maritime Coastal & Territorial Boundaries"}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                            <path d="M2 12c.6.5 1.2.8 2.5.8 2.5 0 2.5-1.6 5-1.6 2.5 0 2.5 1.6 5 1.6 2.5 0 2.5-1.6 5-1.6 1.3 0 1.9.3 2.5.8"/>
+                            <path d="M2 18c.6.5 1.2.8 2.5.8 2.5 0 2.5-1.6 5-1.6 2.5 0 2.5 1.6 5 1.6 2.5 0 2.5-1.6 5-1.6 1.3 0 1.9.3 2.5.8"/>
+                            <path d="M2 6c.6.5 1.2.8 2.5.8 2.5 0 2.5-1.6 5-1.6 2.5 0 2.5 1.6 5 1.6 2.5 0 2.5-1.6 5-1.6 1.3 0 1.9.3 2.5.8"/>
+                        </svg>
+                        <span>{showMaritimeLayer ? (isTr ? 'Deniz Sınırları (Açık)' : 'Maritime (On)') : (isTr ? 'Deniz Sınırları (Kapalı)' : 'Maritime (Off)')}</span>
+                    </button>
+
                     <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => setIsRightDrawerOpen(!isRightDrawerOpen)}
@@ -1997,13 +2788,20 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             <div className={`geo-main-grid-large ${isRightDrawerOpen ? 'drawer-open' : 'drawer-closed'}`}>
                 {/* Full Screen Interactive Map Container */}
                 <div className="geo-map-wrapper-full">
+                    {/* GOOGLE EARTH TARZI TARİHSEL ZAMAN ÇİZELGESİ (ESRI WAYBACK) */}
+                    <HistoricalTimelineSlider
+                        selectedLayerId={selectedBaseLayer}
+                        onSelectLayer={handleSelectBaseLayer}
+                        onClose={() => handleSelectBaseLayer('google_hybrid')}
+                        isSidebarOpen={false}
+                    />
                     
                     {/* TOP FLOATING NOTIFICATION BANNER INSIDE MAP VIEWPORT */}
                     {selectedCities.length > 0 && (
                         <div className="geo-top-alert-banner compact-banner">
                             <div className="alert-banner-content">
                                 <div className="banner-text">
-                                    <strong>SEÇİLİ İLLER ({selectedCities.length}):</strong>{' '}
+                                    <strong>{selectedCities.some(c => c.isMaritime) ? 'SEÇİLİ DENİZ ALANLARI' : 'SEÇİLİ İLLER'} ({selectedCities.length}):</strong>{' '}
                                     {selectedCities.map(c => `[${c.plate.toString().padStart(2, '0')}] ${c.name}`).join(', ')}
                                 </div>
                             </div>
@@ -2011,7 +2809,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 {selectedCities.length >= 2 && (
                                     <button className="banner-btn btn-merge btn-sm-action" onClick={handleMergeSelectedPolygons}>
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                                        <span>2. İli 1. İle Bağla</span>
+                                        <span>{selectedCities.some(c => c.isMaritime) ? 'Seçili Deniz Alanlarını Birleştir' : '2. İli 1. İle Bağla'}</span>
                                     </button>
                                 )}
                                 <button className="banner-btn btn-clear btn-sm-action" onClick={handleClearSelection} title="Seçimi Temizle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }}>
@@ -2119,6 +2917,148 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                         </div>
                     </div>
 
+                    {/* SINIR NOKTALARINI DÜZENLEME MODU BİLGİ & MOD SEÇİM BARI */}
+                    {activeMapTool === 'modify' && (
+                        <div
+                            className="city-boundary-edit-banner"
+                            style={{
+                                position: 'absolute',
+                                top: '20px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                zIndex: 1000,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                backgroundColor: '#0f172a',
+                                border: '1.5px solid #0284c7',
+                                borderRadius: '12px',
+                                padding: '6px 16px',
+                                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.55)',
+                                color: '#ffffff',
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#38bdf8' }} />
+                                <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#f8fafc' }}>
+                                    {selectedCity ? `Seçili Alan: ${selectedCity.name}` : 'Sınır Düzenleme:'}
+                                </span>
+                            </div>
+
+                            {/* DÜZENLEME HEDEF KATMAN SEÇİCİ (İL / DENİZ) */}
+                            {!selectedCity && (
+                                <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.35)', padding: '3px', borderRadius: '7px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setModifyTargetType('LAND'); setGeoEntityFilter('LAND'); }}
+                                        style={{
+                                            padding: '3px 9px',
+                                            fontSize: '11px',
+                                            fontWeight: (modifyTargetType === 'LAND' || (modifyTargetType === 'AUTO' && geoEntityFilter !== 'MARITIME')) ? '700' : '500',
+                                            borderRadius: '5px',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            background: (modifyTargetType === 'LAND' || (modifyTargetType === 'AUTO' && geoEntityFilter !== 'MARITIME')) ? '#2563eb' : 'transparent',
+                                            color: '#ffffff'
+                                        }}
+                                    >
+                                        İl Sınırları
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setModifyTargetType('MARITIME'); setGeoEntityFilter('MARITIME'); }}
+                                        style={{
+                                            padding: '3px 9px',
+                                            fontSize: '11px',
+                                            fontWeight: (modifyTargetType === 'MARITIME' || (modifyTargetType === 'AUTO' && geoEntityFilter === 'MARITIME')) ? '700' : '500',
+                                            borderRadius: '5px',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            background: (modifyTargetType === 'MARITIME' || (modifyTargetType === 'AUTO' && geoEntityFilter === 'MARITIME')) ? '#0284c7' : 'transparent',
+                                            color: '#ffffff'
+                                        }}
+                                    >
+                                        Deniz Sınırları
+                                    </button>
+                                </div>
+                            )}
+
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                                {isShiftDown ? 'Shift: Yapışma Aktif' : 'Noktayı sürükleyin (Alt+Tık ile nokta silin)'}
+                            </span>
+
+                            <button
+                                type="button"
+                                onClick={() => toggleMapTool('pan')}
+                                style={{
+                                    padding: '4px 10px',
+                                    fontSize: '11.5px',
+                                    borderRadius: '6px',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                    color: '#cbd5e1',
+                                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Tamamla
+                            </button>
+                        </div>
+                    )}
+
+                    {/* YENİ İL ÇİZİM BARI (SHIFT SNAPPING BİLGİLENDİRME) */}
+                    {activeMapTool === 'draw' && (
+                        <div
+                            className="city-boundary-edit-banner"
+                            style={{
+                                position: 'absolute',
+                                top: '20px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                zIndex: 1000,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '14px',
+                                backgroundColor: '#131b2e',
+                                border: '1.5px solid #2563eb',
+                                borderRadius: '12px',
+                                padding: '8px 18px',
+                                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+                                color: '#ffffff',
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e' }} />
+                                <span style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc' }}>
+                                    Yeni İl Çizimi
+                                </span>
+                            </div>
+
+                            <span style={{ fontSize: '11.5px', color: isShiftDown ? '#38bdf8' : '#cbd5e1' }}>
+                                {isShiftDown
+                                    ? 'Shift Aktif: Komşu il poligon köşe noktasına otomatik yapışma (Snap) devrede'
+                                    : 'Haritada tıklayarak poligon çizin. Shift + Sol Tık ile komşu il sınırlarına yapışabilirsiniz.'}
+                            </span>
+
+                            <button
+                                type="button"
+                                onClick={() => toggleMapTool('pan')}
+                                style={{
+                                    padding: '5px 10px',
+                                    fontSize: '12px',
+                                    borderRadius: '6px',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                                    color: '#cbd5e1',
+                                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Vazgeç
+                            </button>
+                        </div>
+                    )}
+
                     <div ref={mapElementRef} className="geo-map-element-full" />
                 </div>
 
@@ -2126,7 +3066,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 {isRightDrawerOpen && (
                     <div className="geo-right-drawer compact-drawer">
                         <div className="drawer-header compact-drawer-header">
-                            <span>İLLER LİSTESİ ({filteredCities.length})</span>
+                            <span>COĞRAFİ YETKİ ALANLARI ({filteredCities.length})</span>
                             <button className="drawer-close-btn" onClick={() => setIsRightDrawerOpen(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }} title="Kapat">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18" />
@@ -2135,11 +3075,192 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                             </button>
                         </div>
 
+                        {/* MODERN SEGMENTED PILL BAR: TÜMÜ / İLLER / DENİZLER */}
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            background: '#090d1a',
+                            padding: '4px',
+                            borderRadius: '10px',
+                            margin: '8px 8px 4px 8px',
+                            border: '1px solid rgba(56, 189, 248, 0.2)',
+                            boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.5)',
+                            gap: '4px'
+                        }}>
+                            <button
+                                type="button"
+                                onClick={() => setGeoEntityFilter('ALL')}
+                                style={{
+                                    flex: 1,
+                                    padding: '7px 6px',
+                                    fontSize: '11.5px',
+                                    fontWeight: geoEntityFilter === 'ALL' ? '700' : '500',
+                                    borderRadius: '7px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    background: geoEntityFilter === 'ALL' ? 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' : 'transparent',
+                                    color: geoEntityFilter === 'ALL' ? '#ffffff' : '#94a3b8',
+                                    boxShadow: geoEntityFilter === 'ALL' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '5px'
+                                }}
+                            >
+                                <span>Tümü</span>
+                                <span style={{
+                                    fontSize: '10px',
+                                    fontWeight: '700',
+                                    padding: '1px 5px',
+                                    borderRadius: '8px',
+                                    background: geoEntityFilter === 'ALL' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                                    color: '#ffffff'
+                                }}>
+                                    {cities.filter(c => !c.isDeleted).length + maritimeZones.filter(m => !m.isDeleted).length}
+                                </span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setGeoEntityFilter('LAND')}
+                                style={{
+                                    flex: 1,
+                                    padding: '7px 6px',
+                                    fontSize: '11.5px',
+                                    fontWeight: geoEntityFilter === 'LAND' ? '700' : '500',
+                                    borderRadius: '7px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    background: geoEntityFilter === 'LAND' ? 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' : 'transparent',
+                                    color: geoEntityFilter === 'LAND' ? '#ffffff' : '#94a3b8',
+                                    boxShadow: geoEntityFilter === 'LAND' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '5px'
+                                }}
+                            >
+                                <span>İller</span>
+                                <span style={{
+                                    fontSize: '10px',
+                                    fontWeight: '700',
+                                    padding: '1px 5px',
+                                    borderRadius: '8px',
+                                    background: geoEntityFilter === 'LAND' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                                    color: '#ffffff'
+                                }}>
+                                    {cities.filter(c => !c.isDeleted).length}
+                                </span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setGeoEntityFilter('MARITIME')}
+                                style={{
+                                    flex: 1,
+                                    padding: '7px 6px',
+                                    fontSize: '11.5px',
+                                    fontWeight: geoEntityFilter === 'MARITIME' ? '700' : '500',
+                                    borderRadius: '7px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    background: geoEntityFilter === 'MARITIME' ? 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)' : 'transparent',
+                                    color: geoEntityFilter === 'MARITIME' ? '#ffffff' : '#94a3b8',
+                                    boxShadow: geoEntityFilter === 'MARITIME' ? '0 2px 8px rgba(2, 132, 199, 0.45)' : 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '5px'
+                                }}
+                            >
+                                <span>Denizler</span>
+                                <span style={{
+                                    fontSize: '10px',
+                                    fontWeight: '700',
+                                    padding: '1px 5px',
+                                    borderRadius: '8px',
+                                    background: geoEntityFilter === 'MARITIME' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                                    color: '#ffffff'
+                                }}>
+                                    {maritimeZones.filter(m => !m.isDeleted).length}
+                                </span>
+                            </button>
+                        </div>
+
+                        {/* BASİTLEŞTİRİLMİŞ DENİZ ALANI BİLGİ KARTI */}
+                        {selectedCity && selectedCity.isMaritime && (
+                            <div style={{
+                                margin: '6px 8px 4px 8px',
+                                padding: '10px 12px',
+                                borderRadius: '8px',
+                                background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.15) 0%, rgba(3, 105, 161, 0.25) 100%)',
+                                border: '1px solid rgba(56, 189, 248, 0.3)',
+                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                                    <div>
+                                        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: '700', color: '#38bdf8' }}>{selectedCity.name}</h4>
+                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{selectedCity.sea || selectedCity.region} • Kod: {selectedCity.plate}</span>
+                                    </div>
+                                    <button
+                                        onClick={() => setSelectedCity(null)}
+                                        style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px 4px', fontSize: '12px' }}
+                                        title="Kapat"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '8px', fontSize: '11px' }}>
+                                    <div style={{ padding: '4px 6px', borderRadius: '5px', background: 'rgba(0,0,0,0.25)' }}>
+                                        <span style={{ color: '#94a3b8', display: 'block', fontSize: '9px' }}>YÜZÖLÇÜMÜ</span>
+                                        <strong style={{ color: '#f8fafc' }}>{selectedCity.areaKm2 ? `${selectedCity.areaKm2.toLocaleString('tr-TR')} km²` : 'Belirtilmemiş'}</strong>
+                                    </div>
+                                    <div style={{ padding: '4px 6px', borderRadius: '5px', background: 'rgba(0,0,0,0.25)' }}>
+                                        <span style={{ color: '#94a3b8', display: 'block', fontSize: '9px' }}>KIYI ŞERİDİ</span>
+                                        <strong style={{ color: '#f8fafc' }}>{selectedCity.coastlineKm ? `${selectedCity.coastlineKm} km` : 'Belirtilmemiş'}</strong>
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button
+                                        className="btn btn-xs btn-secondary"
+                                        style={{ flex: 1, fontSize: '11px', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                                        onClick={() => {
+                                            setFormData({
+                                                plate: selectedCity.plate.toString(),
+                                                name: selectedCity.name,
+                                                region: selectedCity.region || selectedCity.sea || '',
+                                                wkt: selectedCity.wkt || '',
+                                                entityType: 'MARITIME',
+                                                isMaritime: true
+                                            });
+                                            setIsEditModalOpen(true);
+                                        }}
+                                    >
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        Düzenle
+                                    </button>
+                                    <button
+                                        className="btn btn-xs btn-danger"
+                                        style={{ flex: 1, fontSize: '11px', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}
+                                        onClick={() => handleSoftDeleteCity(selectedCity)}
+                                    >
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                        Sil
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="geo-filter-bar compact-filter-bar">
                             <div style={{ position: 'relative', flex: 1.5, display: 'flex', alignItems: 'center' }}>
                                 <input
                                     type="text"
-                                    placeholder="Şehir veya Plaka..."
+                                    placeholder="İl, Deniz Alanı, Plaka..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     className="geo-search-input compact-search"
@@ -2175,7 +3296,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 onChange={(e) => setSelectedRegion(e.target.value)}
                                 className="geo-region-select compact-select"
                             >
-                                <option value="ALL">Bölgeler (Tümü)</option>
+                                <option value="ALL">Bölgeler & Denizler (Tümü)</option>
                                 <option value="NONE">Bölgesiz / Belirtilmemiş</option>
                                 {availableRegions.map(r => (
                                     <option key={r} value={r}>{r}</option>
@@ -2196,28 +3317,42 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                             <table className="geo-table compact-table">
                                 <thead>
                                     <tr>
-                                        <th style={{ width: '38px' }}>Plk</th>
-                                        <th>İl Adı</th>
-                                        <th>Bölge</th>
-                                        <th style={{ width: '50px' }}>İşlem</th>
+                                        <th style={{ width: '42px' }}>Kod</th>
+                                        <th>Alan / İl Adı</th>
+                                        <th>Bölge / Deniz</th>
+                                        <th style={{ width: '54px' }}>İşlem</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filteredCities.map(city => {
                                         const isSelected = selectedCities.some(c => c.plate === city.plate);
-                                        const isPrimary = selectedCity && selectedCity.plate === city.plate;
+                                        const isPrimary = selectedCity && (selectedCity.plate === city.plate || selectedCity.id === city.id);
+                                        const isMaritime = city.isMaritime;
 
                                         return (
                                             <tr
-                                                key={city.plate}
+                                                key={city.id || city.plate}
                                                 className={`${isSelected ? 'row-selected' : ''} ${isPrimary ? 'row-primary' : ''} ${city.isDeleted ? 'row-deleted' : ''}`}
+                                                style={isMaritime ? { background: isPrimary ? 'rgba(2, 132, 199, 0.35)' : 'rgba(2, 132, 199, 0.08)' } : undefined}
                                                 onClick={(e) => !city.isDeleted && handleCityClick(city, e.shiftKey, true)}
                                             >
-                                                <td><span className="plate-badge compact-badge">{city.plate.toString().padStart(2, '0')}</span></td>
-                                                <td className="city-name compact-city">
+                                                <td>
+                                                    {isMaritime ? (
+                                                        <span className="plate-badge compact-badge" style={{ background: '#0284c7', color: '#ffffff', fontWeight: '700', fontSize: '10px' }}>
+                                                            {city.plate}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="plate-badge compact-badge">{city.plate.toString().padStart(2, '0')}</span>
+                                                    )}
+                                                </td>
+                                                <td className="city-name compact-city" style={isMaritime ? { color: '#38bdf8', fontWeight: '600' } : undefined}>
                                                     {city.name}
                                                 </td>
-                                                <td><span className="region-tag compact-tag">{city.region || 'Belirtilmemiş'}</span></td>
+                                                <td>
+                                                    <span className="region-tag compact-tag" style={isMaritime ? { background: 'rgba(2, 132, 199, 0.25)', color: '#38bdf8' } : undefined}>
+                                                        {city.sea || city.region || 'Belirtilmemiş'}
+                                                    </span>
+                                                </td>
                                                 <td>
                                                     <div className="row-actions compact-row-actions">
                                                         {city.isDeleted ? (
@@ -2235,15 +3370,17 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                                             <>
                                                                 <button
                                                                     className="icon-btn edit-btn compact-icon"
-                                                                    title="Düzenle"
+                                                                    title="Bilgileri Düzenle"
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         setSelectedCity(city);
                                                                         setFormData({
                                                                             plate: city.plate.toString(),
                                                                             name: city.name,
-                                                                            region: city.region,
-                                                                            wkt: city.wkt || ''
+                                                                            region: city.region || city.sea || '',
+                                                                            wkt: city.wkt || '',
+                                                                            entityType: city.isMaritime ? 'MARITIME' : 'LAND',
+                                                                            isMaritime: city.isMaritime
                                                                         });
                                                                         setIsEditModalOpen(true);
                                                                     }}
@@ -2339,114 +3476,182 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 </div>
             )}
 
-            {/* Modal: Edit City */}
+            {/* Modal: Edit City / Maritime Zone */}
             {isEditModalOpen && (
                 <div className="admin-modal-overlay">
                     <div className="admin-modal-content">
-                        <h3>İl / Bölge Düzenle: {formData.name}</h3>
-                        <div className="form-group">
-                            <label>Plaka Kodu (Değiştirilebilir):</label>
-                            <input
-                                type="number"
-                                value={formData.plate}
-                                onChange={(e) => setFormData({ ...formData, plate: e.target.value })}
-                                className="form-control"
-                                placeholder="Plaka Kodu"
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>İl Adı:</label>
-                            <input
-                                type="text"
-                                value={formData.name}
-                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                className="form-control"
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Coğrafi Bölge (İsteğe Bağlı):</label>
-                            <input
-                                type="text"
-                                list="region-options-list-edit"
-                                value={formData.region || ''}
-                                onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                                className="form-control"
-                                placeholder="Listeden seçin veya yeni bölge adı yazın..."
-                            />
-                            <datalist id="region-options-list-edit">
-                                {availableRegions.map(r => (
-                                    <option key={r} value={r} />
-                                ))}
-                            </datalist>
-                            <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', display: 'block' }}>
-                                İsteğe bağlıdır. Mevcut bölgelerden seçebilir veya doğrudan yeni bir bölge ismi yazabilirsiniz.
-                            </small>
-                        </div>
-                        <div className="form-group">
-                            <label>Sınır WKT Dizgisi (Well-Known Text):</label>
-                            <textarea
-                                rows="4"
-                                value={formData.wkt}
-                                onChange={(e) => setFormData({ ...formData, wkt: e.target.value })}
-                                className="form-control code-text"
-                                placeholder="POLYGON((lon lat, ...))"
-                            />
-                        </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-secondary btn-sm" onClick={() => setIsEditModalOpen(false)}>İptal</button>
-                            <button className="btn btn-primary btn-sm" onClick={handleSaveEdit}>Değişiklikleri Kaydet</button>
-                        </div>
+                        {(() => {
+                            const isMaritime = formData.isMaritime || formData.entityType === 'MARITIME' || (selectedCity && selectedCity.isMaritime);
+                            return (
+                                <>
+                                    <h3>{isMaritime ? `Deniz Yetki Alanı Düzenle: ${formData.name}` : `İl / Bölge Düzenle: ${formData.name}`}</h3>
+                                    <div className="form-group">
+                                        <label>{isMaritime ? 'Deniz Alan Kodu / No (901-999):' : 'Plaka Kodu (Değiştirilebilir):'}</label>
+                                        <input
+                                            type="number"
+                                            value={formData.plate}
+                                            onChange={(e) => setFormData({ ...formData, plate: e.target.value })}
+                                            className="form-control"
+                                            placeholder={isMaritime ? 'Deniz Alan Kodu (901-999)' : 'Plaka Kodu'}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>{isMaritime ? 'Deniz Alanı / Havza Adı:' : 'İl Adı:'}</label>
+                                        <input
+                                            type="text"
+                                            value={formData.name}
+                                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                            className="form-control"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>{isMaritime ? 'Deniz Havzası:' : 'Coğrafi Bölge (İsteğe Bağlı):'}</label>
+                                        {isMaritime ? (
+                                            <select
+                                                value={formData.region || 'Karadeniz'}
+                                                onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                                                className="form-control"
+                                            >
+                                                <option value="Karadeniz">Karadeniz</option>
+                                                <option value="Marmara Denizi">Marmara Denizi</option>
+                                                <option value="Boğazlar">Boğazlar</option>
+                                                <option value="Ege Denizi">Ege Denizi</option>
+                                                <option value="Akdeniz">Akdeniz</option>
+                                                <option value="Körfezler">Körfezler</option>
+                                            </select>
+                                        ) : (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    list="region-options-list-edit"
+                                                    value={formData.region || ''}
+                                                    onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                                                    className="form-control"
+                                                    placeholder="Listeden seçin veya yeni bölge adı yazın..."
+                                                />
+                                                <datalist id="region-options-list-edit">
+                                                    {availableRegions.map(r => (
+                                                        <option key={r} value={r} />
+                                                    ))}
+                                                </datalist>
+                                                <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', display: 'block' }}>
+                                                    İsteğe bağlıdır. Mevcut bölgelerden seçebilir veya doğrudan yeni bir bölge ismi yazabilirsiniz.
+                                                </small>
+                                            </>
+                                        )}
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Sınır WKT Dizgisi (Well-Known Text):</label>
+                                        <textarea
+                                            rows="4"
+                                            value={formData.wkt}
+                                            onChange={(e) => setFormData({ ...formData, wkt: e.target.value })}
+                                            className="form-control code-text"
+                                            placeholder="POLYGON((lon lat, ...))"
+                                        />
+                                    </div>
+                                    <div className="modal-footer">
+                                        <button className="btn btn-secondary btn-sm" onClick={() => setIsEditModalOpen(false)}>İptal</button>
+                                        <button className="btn btn-primary btn-sm" onClick={handleSaveEdit}>
+                                            {isMaritime ? 'Deniz Alanını Güncelle' : 'Değişiklikleri Kaydet'}
+                                        </button>
+                                    </div>
+                                </>
+                            );
+                        })()}
                     </div>
                 </div>
             )}
 
             {/* Modal: Add New City */}
+            {/* Modal: Add New City / Maritime Zone */}
             {isAddModalOpen && (
                 <div className="admin-modal-overlay">
                     <div className="admin-modal-content">
-                        <h3>{formData.wkt ? 'Yeni İl / Bölge Poligonunu Kaydet' : 'Yeni İl / Bölge Ekle'}</h3>
+                        <h3>{formData.entityType === 'MARITIME' ? (formData.wkt ? 'Yeni Deniz Alanı Poligonunu Kaydet' : 'Yeni Deniz Yetki Alanı Ekle') : (formData.wkt ? 'Yeni İl / Bölge Poligonunu Kaydet' : 'Yeni İl / Bölge Ekle')}</h3>
+                        
+                        {/* POLİGON TÜRÜ SEÇİCİ (İL / DENİZ) */}
+                        <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', background: '#090d1a', padding: '4px', borderRadius: '8px', border: '1px solid #334155' }}>
+                            <button
+                                type="button"
+                                className={`btn btn-xs ${formData.entityType !== 'MARITIME' ? 'btn-primary' : 'btn-secondary'}`}
+                                style={{ flex: 1, padding: '7px 8px', fontSize: '11.5px', fontWeight: formData.entityType !== 'MARITIME' ? '700' : '500' }}
+                                onClick={() => {
+                                    const nextPlate = Math.max(0, ...cities.filter(c => !c.isDeleted).map(c => Number(c.plate) || 0)) + 1;
+                                    setFormData({ ...formData, entityType: 'LAND', plate: nextPlate.toString(), region: 'Marmara Bölgesi' });
+                                }}
+                            >
+                                İl / Kara Bölgesi
+                            </button>
+                            <button
+                                type="button"
+                                className={`btn btn-xs ${formData.entityType === 'MARITIME' ? 'btn-primary' : 'btn-secondary'}`}
+                                style={{ flex: 1, padding: '7px 8px', fontSize: '11.5px', fontWeight: formData.entityType === 'MARITIME' ? '700' : '500' }}
+                                onClick={() => {
+                                    const nextPlate = Math.max(900, ...maritimeZones.filter(m => !m.isDeleted).map(m => Number(m.plate) || 0)) + 1;
+                                    setFormData({ ...formData, entityType: 'MARITIME', plate: nextPlate.toString(), region: 'Karadeniz' });
+                                }}
+                            >
+                                Deniz Yetki Alanı
+                            </button>
+                        </div>
+
                         <div className="form-group">
-                            <label>Plaka Kodu / ID (Benzersiz Olmalıdır):</label>
+                            <label>{formData.entityType === 'MARITIME' ? 'Deniz Alan Kodu / No (901-999):' : 'Plaka Kodu / ID (Benzersiz Olmalıdır):'}</label>
                             <input
                                 type="number"
                                 value={formData.plate}
                                 onChange={(e) => setFormData({ ...formData, plate: e.target.value })}
                                 className="form-control"
-                                placeholder="Örn: 82"
+                                placeholder={formData.entityType === 'MARITIME' ? 'Örn: 913' : 'Örn: 82'}
                             />
                             <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', display: 'block' }}>
-                                Not: Bu ID diğer kayıtlı illerle aynı olamaz.
+                                {formData.entityType === 'MARITIME' ? 'Deniz alanları için 901-999 arası benzersiz kod kullanılır.' : 'Not: Bu ID diğer kayıtlı illerle aynı olamaz.'}
                             </small>
                         </div>
                         <div className="form-group">
-                            <label>İl Adı:</label>
+                            <label>{formData.entityType === 'MARITIME' ? 'Deniz Alanı / Havza Adı:' : 'İl Adı:'}</label>
                             <input
                                 type="text"
                                 value={formData.name}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 className="form-control"
-                                placeholder="Örn: Yalova"
+                                placeholder={formData.entityType === 'MARITIME' ? 'Örn: Güllük Körfezi Yetki Alanı' : 'Örn: Yalova'}
                                 autoFocus
                             />
                         </div>
                         <div className="form-group">
-                            <label>Coğrafi Bölge (İsteğe Bağlı):</label>
-                            <input
-                                type="text"
-                                list="region-options-list-add"
-                                value={formData.region || ''}
-                                onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                                className="form-control"
-                                placeholder="Listeden seçin veya yeni bölge adı yazın..."
-                            />
-                            <datalist id="region-options-list-add">
-                                {availableRegions.map(r => (
-                                    <option key={r} value={r} />
-                                ))}
-                            </datalist>
-                            <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', display: 'block' }}>
-                                İsteğe bağlıdır. Mevcut bölgelerden seçebilir veya doğrudan yeni bir bölge ismi yazabilirsiniz.
-                            </small>
+                            <label>{formData.entityType === 'MARITIME' ? 'Deniz Havzası:' : 'Coğrafi Bölge (İsteğe Bağlı):'}</label>
+                            {formData.entityType === 'MARITIME' ? (
+                                <select
+                                    value={formData.region || 'Karadeniz'}
+                                    onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                                    className="form-control"
+                                >
+                                    <option value="Karadeniz">Karadeniz</option>
+                                    <option value="Marmara">Marmara Denizi</option>
+                                    <option value="Boğazlar">Boğazlar</option>
+                                    <option value="Ege Denizi">Ege Denizi</option>
+                                    <option value="Akdeniz">Akdeniz</option>
+                                    <option value="Körfezler">Körfezler</option>
+                                </select>
+                            ) : (
+                                <>
+                                    <input
+                                        type="text"
+                                        list="region-options-list-add"
+                                        value={formData.region || ''}
+                                        onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                                        className="form-control"
+                                        placeholder="Listeden seçin veya yeni bölge adı yazın..."
+                                    />
+                                    <datalist id="region-options-list-add">
+                                        {availableRegions.map(r => (
+                                            <option key={r} value={r} />
+                                        ))}
+                                    </datalist>
+                                </>
+                            )}
                         </div>
                         <div className="form-group">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
@@ -2473,7 +3678,9 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary btn-sm" onClick={handleCancelAdd}>İptal</button>
-                            <button className="btn btn-primary btn-sm" onClick={handleSaveAdd}>İli Kaydet</button>
+                            <button className="btn btn-primary btn-sm" onClick={handleSaveAdd}>
+                                {formData.entityType === 'MARITIME' ? 'Deniz Alanını Kaydet' : 'İli Kaydet'}
+                            </button>
                         </div>
                     </div>
                 </div>

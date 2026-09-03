@@ -66,6 +66,26 @@ namespace GeoraphMap.API.Controllers
             return Ok(stops);
         }
 
+        [HttpPost("{id}/stops/{stopId}")]
+        public async Task<IActionResult> AddStop(int id, int stopId)
+        {
+            var success = await _transportService.AddStopToRouteAsync(id, stopId);
+            if (!success) return BadRequest(new { message = "Durak güzergaha eklenemedi." });
+
+            var updatedRoute = await _transportService.GetRouteByIdAsync(id);
+            return Ok(new { message = "Durak güzergaha başarıyla bağlandı.", route = updatedRoute });
+        }
+
+        [HttpDelete("{id}/stops/{stopId}")]
+        public async Task<IActionResult> RemoveStop(int id, int stopId)
+        {
+            var success = await _transportService.RemoveStopFromRouteAsync(id, stopId);
+            if (!success) return BadRequest(new { message = "Durak güzergahtan çıkarılamadı." });
+
+            var updatedRoute = await _transportService.GetRouteByIdAsync(id);
+            return Ok(new { message = "Durak güzergahtan başarıyla çıkarıldı.", route = updatedRoute });
+        }
+
         [HttpPut("{id}/reorder-stops")]
         public async Task<IActionResult> ReorderStops(int id, [FromBody] ReorderStopsDto dto)
         {
