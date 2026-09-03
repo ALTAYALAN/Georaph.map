@@ -37,9 +37,6 @@ namespace GeoraphMap.API.Controllers
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return BadRequest(new { message = "Durak adı zorunludur." });
 
-            if (dto.RouteId <= 0)
-                return BadRequest(new { message = "Geçerli bir güzergah seçilmelidir." });
-
             var created = await _transportService.CreateStopAsync(dto);
             return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
         }

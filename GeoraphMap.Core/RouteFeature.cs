@@ -21,8 +21,11 @@ namespace GeoraphMap.Core
         public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
         public DateTime ModifiedDate { get; set; } = DateTime.UtcNow;
 
-        // 1-N İlişki: Bir güzergahın birden fazla durağı vardır
+        // 1-N İlişki: Bir güzergahın birden fazla durağı vardır (Doğrudan bağlı duraklar)
         public ICollection<StopFeature> Stops { get; set; } = new List<StopFeature>();
+
+        // N-N Çoklu İlişki: Bir güzergahın RouteStop junction üzerinden bağlı durakları
+        public ICollection<RouteStopFeature> RouteStops { get; set; } = new List<RouteStopFeature>();
     }
 }
 

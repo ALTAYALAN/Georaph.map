@@ -3,15 +3,28 @@ using System.Collections.Generic;
 
 namespace GeoraphMap.Core.DTOs
 {
+    public class RouteSummaryDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Color { get; set; } = "#3B82F6";
+        public string RouteClass { get; set; } = "araba";
+        public int OrderIndex { get; set; } = 1;
+    }
+
     public class StopDto
     {
         public int Id { get; set; }
         public string Name { get; set; } = string.Empty;
+        public string? StopCode { get; set; }
         public int OrderIndex { get; set; }
         public string? Description { get; set; }
-        public int RouteId { get; set; }
+        public int? RouteId { get; set; }
         public string? RouteName { get; set; }
         public string? RouteColor { get; set; }
+        public List<int> RouteIds { get; set; } = new List<int>();
+        public List<RouteSummaryDto> Routes { get; set; } = new List<RouteSummaryDto>();
+        public string StopClass { get; set; } = "otobus";
         public string Wkt { get; set; } = string.Empty;
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
@@ -22,7 +35,10 @@ namespace GeoraphMap.Core.DTOs
     public class CreateStopDto
     {
         public string Name { get; set; } = string.Empty;
-        public int RouteId { get; set; }
+        public string? StopCode { get; set; }
+        public int? RouteId { get; set; }
+        public List<int>? RouteIds { get; set; }
+        public string StopClass { get; set; } = "otobus";
         public string Wkt { get; set; } = string.Empty;
         public string? Description { get; set; }
         public int? OrderIndex { get; set; } // Belirtilmezse güzergahın sonuna eklenir
@@ -31,7 +47,10 @@ namespace GeoraphMap.Core.DTOs
     public class UpdateStopDto
     {
         public string Name { get; set; } = string.Empty;
-        public int RouteId { get; set; }
+        public string? StopCode { get; set; }
+        public int? RouteId { get; set; }
+        public List<int>? RouteIds { get; set; }
+        public string? StopClass { get; set; }
         public string? Description { get; set; }
         public string? Wkt { get; set; }
         public int? OrderIndex { get; set; }

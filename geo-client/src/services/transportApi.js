@@ -181,5 +181,30 @@ export const transportApi = {
             throw new Error(err.message || 'Durak silinemedi.');
         }
         return res.json();
+    },
+
+    // ATTACH / DETACH STOP TO ROUTE
+    addStopToRoute: async (routeId, stopId, token) => {
+        const res = await fetch(`${API_BASE_URL}/routes/${routeId}/stops/${stopId}`, {
+            method: 'POST',
+            headers: getAuthHeaders(token)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || 'Durak güzergaha bağlanamadı.');
+        }
+        return res.json();
+    },
+
+    removeStopFromRoute: async (routeId, stopId, token) => {
+        const res = await fetch(`${API_BASE_URL}/routes/${routeId}/stops/${stopId}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(token)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || 'Durak güzergahtan çıkarılamadı.');
+        }
+        return res.json();
     }
 };

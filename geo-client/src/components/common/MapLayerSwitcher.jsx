@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BASEMAP_LAYERS } from '../../constants/mapLayers';
+import { BASEMAP_LAYERS, isWaybackLayer } from '../../constants/mapLayers';
 
 // Professional SVG Vector Icons for each Layer Type (Zero Emojis)
 const LayerVectorIcon = ({ type, color = '#38bdf8' }) => {
@@ -53,6 +53,13 @@ const LayerVectorIcon = ({ type, color = '#38bdf8' }) => {
                     <line x1="21" y1="12" x2="23" y2="12" />
                     <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
                     <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+            );
+        case 'history':
+            return (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <polyline points="12 7 12 12 15 15" />
                 </svg>
             );
         case 'osm':
@@ -125,8 +132,8 @@ export const MapLayerSwitcher = ({
         };
     }, [isOpen]);
 
-    const activeLayer = BASEMAP_LAYERS.find(l => l.id === selectedLayerId) || BASEMAP_LAYERS[0];
-    const previewTargetLayer = BASEMAP_LAYERS.find(l => l.id === (hoveredLayerId || selectedLayerId)) || activeLayer;
+    const activeLayer = BASEMAP_LAYERS.find(l => l.id === selectedLayerId || (l.id === 'esri_wayback' && isWaybackLayer(selectedLayerId))) || BASEMAP_LAYERS[0];
+    const previewTargetLayer = BASEMAP_LAYERS.find(l => l.id === (hoveredLayerId || selectedLayerId) || (l.id === 'esri_wayback' && isWaybackLayer(hoveredLayerId || selectedLayerId))) || activeLayer;
 
     const cardPositionStyle = direction === 'left'
         ? { right: 'calc(100% + 12px)', left: 'auto', top: 0 }
@@ -303,8 +310,8 @@ export const MapLayerSwitcher = ({
 
                             {/* Layer Options List */}
                             <div className="layer-selector-grid" style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                                {BASEMAP_LAYERS.map(layer => {
-                                    const isSelected = selectedLayerId === layer.id;
+                                {BASEMAP_LAYERS.map((layer) => {
+                                    const isSelected = selectedLayerId === layer.id || (layer.id === 'esri_wayback' && isWaybackLayer(selectedLayerId));
                                     const isHovered = hoveredLayerId === layer.id;
 
                                     return (
@@ -314,7 +321,8 @@ export const MapLayerSwitcher = ({
                                             className={`layer-option-btn ${isSelected ? 'active' : ''} ${isHovered ? 'hovered' : ''}`}
                                             onClick={() => {
                                                 if (onSelectLayer) {
-                                                    onSelectLayer(layer.id);
+                                                    // When Esri Harita is clicked, select the most recent unique capture year (wayback_2024)
+                                                    onSelectLayer(layer.id === 'esri_wayback' ? 'wayback_2024' : layer.id);
                                                 }
                                             }}
                                             onMouseEnter={() => setHoveredLayerId(layer.id)}

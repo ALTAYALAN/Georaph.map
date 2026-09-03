@@ -72,6 +72,10 @@ namespace GeoraphMap.Core.DTOs
         public RouteModeOptionDto Driving { get; set; } = new();
         public RouteModeOptionDto Walking { get; set; } = new();
         public RouteModeOptionDto Cycling { get; set; } = new();
+        public RouteModeOptionDto? Transit { get; set; } // Toplu Taşıma (Karma)
+        public RouteModeOptionDto? Gemi { get; set; }    // Gemi / Vapur
+        public RouteModeOptionDto? Metro { get; set; }   // Metro / Raylı Sistem
+        public RouteModeOptionDto? Otobus { get; set; }  // Otobüs
         public string ActiveMode { get; set; } = "driving";
 
         // Geriye Uyumluluk Alanları (Aktif modun verilerini yansıtır)

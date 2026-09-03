@@ -29,5 +29,9 @@ namespace GeoraphMap.Core.Services
         Task<RouteDto?> GenerateOsrmRouteAsync(int routeId);
         Task<RouteDto?> SwitchRouteGeometryModeAsync(int routeId, string mode);
         Task<RouteDto?> RevertRouteGeometryAsync(int routeId);
+
+        // Stop-Route Attachment
+        Task<bool> AddStopToRouteAsync(int routeId, int stopId);
+        Task<bool> RemoveStopFromRouteAsync(int routeId, int stopId);
     }
 }

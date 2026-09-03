@@ -44,7 +44,8 @@ export const POI_ICON_LIST = [
     { id: 'parking', label: 'Otopark', group: 'Ulaşım', glyph: '<path d="M8 18V6h5a3.5 3.5 0 0 1 0 7H8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>' },
 
     // 6. Doğa, Spor & Konaklama
-    { id: 'tree', label: 'Park / Doğa / Botanik', group: 'Doğa & Spor', glyph: '<path d="M12 3 5 12h3.5L5 17h14l-3.5-5H19z" stroke="currentColor" stroke-width="1.8" fill="rgba(255,255,255,0.25)" stroke-linejoin="round"/><line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>' },
+    { id: 'tree', label: 'Park / Doğa / Botanik', group: 'Doğa & Spor', glyph: '<path d="M12 2C8.8 2 6.5 4.6 6.5 7.8c0 2 1 3.7 2.6 4.8-.3.6-.4 1.2-.4 1.9 0 2.2 1.8 4 4 4s4-1.8 4-4c0-.7-.1-1.3-.4-1.9 1.6-1.1 2.6-2.8 2.6-4.8C18.5 4.6 16.2 2 12 2z" stroke="currentColor" stroke-width="1.8" fill="rgba(255,255,255,0.3)" stroke-linejoin="round"/><line x1="12" y1="15.5" x2="12" y2="22" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' },
+    { id: 'park', label: 'Park / Yeşil Alan', group: 'Doğa & Spor', glyph: '<path d="M12 2C8.8 2 6.5 4.6 6.5 7.8c0 2 1 3.7 2.6 4.8-.3.6-.4 1.2-.4 1.9 0 2.2 1.8 4 4 4s4-1.8 4-4c0-.7-.1-1.3-.4-1.9 1.6-1.1 2.6-2.8 2.6-4.8C18.5 4.6 16.2 2 12 2z" stroke="currentColor" stroke-width="1.8" fill="rgba(255,255,255,0.3)" stroke-linejoin="round"/><line x1="12" y1="15.5" x2="12" y2="22" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' },
     { id: 'dumbbell', label: 'Spor Salonu / Fitness', group: 'Doğa & Spor', glyph: '<path d="M6 5v14M18 5v14M2 8v8M22 8v8M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' },
     { id: 'trophy', label: 'Stadyum / Spor Tesisi', group: 'Doğa & Spor', glyph: '<path d="M6 9H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2M18 9h2a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2M6 3h12v7a6 6 0 0 1-12 0V3zM9 21h6M12 16v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' },
     { id: 'hotel', label: 'Otel / Konaklama', group: 'Doğa & Spor', glyph: '<path d="M3 7h18v14H3z" stroke="currentColor" stroke-width="1.8"/><path d="M7 11h2M15 11h2M7 15h2M15 15h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M11 21v-4h2v4" stroke="currentColor" stroke-width="1.8"/>' },
@@ -55,12 +56,25 @@ export const POI_ICON_LIST = [
 // İsim veya İkon ID'sine göre glyph bulan yardımcı
 export function getGlyphByIconId(iconIdOrName = '') {
     const cleanId = (iconIdOrName || '').toLowerCase().replace('fa-', '').trim();
+
+    // Parklar ve Yeşil Alanlar için Ağaç İkonu Eşleşmesi
+    if (
+        cleanId === 'tree' || cleanId === 'park' || cleanId.includes('park') ||
+        cleanId.includes('ağaç') || cleanId.includes('agac') ||
+        cleanId.includes('bahçe') || cleanId.includes('bahce') ||
+        cleanId.includes('botanik') || cleanId.includes('yeşil') || cleanId.includes('yesil')
+    ) {
+        const treeItem = POI_ICON_LIST.find(i => i.id === 'park' || i.id === 'tree');
+        if (treeItem) return treeItem.glyph;
+    }
+
     const found = POI_ICON_LIST.find(i => i.id === cleanId);
     if (found) return found.glyph;
 
     // Kategori adı fallback eşleme
     for (const item of POI_ICON_LIST) {
-        if (cleanId.includes(item.id) || cleanId.includes(item.label.toLowerCase())) {
+        const itemLabels = item.label.toLowerCase().split(/[\s/]+/);
+        if (cleanId.includes(item.id) || itemLabels.some(l => l.length > 2 && cleanId.includes(l))) {
             return item.glyph;
         }
     }

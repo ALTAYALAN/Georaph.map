@@ -10,9 +10,17 @@ namespace GeoraphMap.Core
         public int OrderIndex { get; set; } = 1; // Güzergah içerisindeki sıralama numarası (1, 2, 3...)
         public string? Description { get; set; }
 
-        // 1-N İlişki Yabancı Anahtarı (Foreign Key)
-        public int RouteId { get; set; }
-        public RouteFeature Route { get; set; } = null!;
+        public int? RouteId { get; set; }
+        public RouteFeature? Route { get; set; }
+
+        // Benzersiz Durak Kodu (örn. BUS-0601, METRO-ANK-01, PORT-MDN)
+        public string? StopCode { get; set; }
+
+        // Durak Sınıfı: "otobus", "metro", "gemi", "tren", "araba" vb.
+        public string StopClass { get; set; } = "otobus";
+
+        // Çoklu Güzergah Bağlantıları (Many-to-Many)
+        public System.Collections.Generic.ICollection<RouteStopFeature> RouteStops { get; set; } = new System.Collections.Generic.List<RouteStopFeature>();
 
         // Coğrafi Konum (PostGIS Point Geometrisi)
         public string Wkt { get; set; } = string.Empty;

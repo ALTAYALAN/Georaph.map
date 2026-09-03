@@ -19,6 +19,7 @@ import TileWMS from 'ol/source/TileWMS';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import Draw from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
+import Translate from 'ol/interaction/Translate';
 import Collection from 'ol/Collection';
 import WKT from 'ol/format/WKT';
 import GeoJSON from 'ol/format/GeoJSON';
@@ -26,7 +27,7 @@ import GeoJSON from 'ol/format/GeoJSON';
 import Overlay from 'ol/Overlay';
 import { getLength, getArea } from 'ol/sphere';
 import { getCenter } from 'ol/extent';
-import { unByKey } from 'ol/Observable';
+import ScaleLine from 'ol/control/ScaleLine';
 
 // PrimeReact Bileşenleri
 import { Toast } from 'primereact/toast';
@@ -34,8 +35,9 @@ import { Toast } from 'primereact/toast';
 import { translations } from './translations';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import UserProfileDrawer from './components/profile/UserProfileDrawer';
-import { BASEMAP_LAYERS } from './constants/mapLayers';
+import { BASEMAP_LAYERS, getBasemapConfig } from './constants/mapLayers';
 import { MapLayerSwitcher } from './components/common/MapLayerSwitcher';
+import { HistoricalTimelineSlider } from './components/common/HistoricalTimelineSlider';
 import { adminApi } from './services/adminApi';
 import { transportApi } from './services/transportApi';
 import { userPersonalApi } from './services/userPersonalApi';
@@ -43,6 +45,9 @@ import { getPoiCategoryBadgeSvg } from './constants/poiIcons';
 import { simulationHubService } from './services/simulationHubService';
 import { formatDuration } from './utils/formatUtils';
 import { getRouteClassInfo, getVehicleClassInnerSvg, RouteClassIcon } from './constants/routeClasses';
+import { calculateTransitRoute } from './utils/transitRouting';
+import { getZoomSettings, DEFAULT_ZOOM_SETTINGS } from './constants/zoomSettings';
+import { cleanPortName } from './constants/seaports';
 import './App.css';
 
 // CANLI SİMÜLASYON ARAÇ İKONU & ROTASYONLU STİL OLUŞTURUCU
@@ -106,7 +111,74 @@ export function createDirectionsStyle(feature) {
     if (type === 'LineString') {
         const mode = feature.get('mode') || 'driving';
 
-        if (mode === 'walking') {
+        if (mode === 'gemi') {
+            // Gemi / Vapur Rotası (Canlı Turkuaz Deniz Yolu & Kesikli Su Hattı)
+            return [
+                new Style({
+                    stroke: new Stroke({
+                        color: '#083344',
+                        width: 8,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }),
+                    zIndex: 38
+                }),
+                new Style({
+                    stroke: new Stroke({
+                        color: '#06b6d4',
+                        width: 5,
+                        lineDash: [4, 6],
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }),
+                    zIndex: 39
+                })
+            ];
+        } else if (mode === 'metro' || mode === 'tren') {
+            // Metro / Raylı Sistem Rotası (Kırmızı Hat Çizgisi)
+            return [
+                new Style({
+                    stroke: new Stroke({
+                        color: '#450a0a',
+                        width: 8,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }),
+                    zIndex: 38
+                }),
+                new Style({
+                    stroke: new Stroke({
+                        color: '#ef4444',
+                        width: 5,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }),
+                    zIndex: 39
+                })
+            ];
+        } else if (mode === 'transit' || mode === 'otobus') {
+            // Toplu Taşıma / Otobüs Rotası (Vurgulu Canlı Mavi/Teal Çizgi)
+            return [
+                new Style({
+                    stroke: new Stroke({
+                        color: '#0f172a',
+                        width: 8,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }),
+                    zIndex: 38
+                }),
+                new Style({
+                    stroke: new Stroke({
+                        color: '#0284c7',
+                        width: 5,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }),
+                    zIndex: 39
+                })
+            ];
+        } else if (mode === 'walking') {
             // Google Haritalar Tarzı Yeşil Kesikli Yaya / Yürüyüş Yolu
             return [
                 new Style({
@@ -196,52 +268,235 @@ export function createDirectionsStyle(feature) {
     return [];
 }
 
-// Durak Sıra Numarası ve Modern Sade Dairesel İkon Üreticisi
-export function getStopPinSvg(stopOrder = 1, routeColor = '#ef4444') {
-    const fontSize = String(stopOrder).length > 2 ? 8.5 : 10.5;
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">
+// Metro / Raylı Sistem Durağı İkonu (Sayı yerine Metro Tren İkonu)
+export function getMetroStopPinSvg(routeColor = '#ef4444') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
         <defs>
-            <filter id="stopShadow" x="-30%" y="-30%" width="160%" height="160%">
-                <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.45"/>
-            </filter>
-        </defs>
-        <circle cx="13" cy="13" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2.2" filter="url(#stopShadow)"/>
-        <text x="13" y="${fontSize > 9 ? 16.5 : 16}" font-size="${fontSize}" font-weight="800" font-family="Inter, -apple-system, system-ui, sans-serif" fill="#ffffff" text-anchor="middle">${stopOrder}</text>
-    </svg>`;
-}
-
-// Otobüs Durağı - Küçük Kompakt Pin (Metro duraklarından daha küçük)
-export function getBusStopPinSvg(stopOrder = 1, routeColor = '#0284c7') {
-    const fontSize = String(stopOrder).length > 2 ? 6 : 7.5;
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-        <defs>
-            <filter id="busStopShadow" x="-30%" y="-30%" width="160%" height="160%">
+            <filter id="metroShadow" x="-30%" y="-30%" width="160%" height="160%">
                 <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.35"/>
             </filter>
         </defs>
-        <circle cx="8" cy="8" r="6.5" fill="${routeColor}" stroke="#ffffff" stroke-width="1.5" filter="url(#busStopShadow)"/>
-        <text x="8" y="${fontSize > 7 ? 10.5 : 10}" font-size="${fontSize}" font-weight="800" font-family="Inter, -apple-system, system-ui, sans-serif" fill="#ffffff" text-anchor="middle">${stopOrder}</text>
+        <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2" filter="url(#metroShadow)"/>
+        <rect x="7.5" y="6" width="9" height="10" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+        <line x1="7.5" y1="11" x2="16.5" y2="11" stroke="#ffffff" stroke-width="1.2"/>
+        <circle cx="9.5" cy="13.5" r="0.9" fill="#ffffff"/>
+        <circle cx="14.5" cy="13.5" r="0.9" fill="#ffffff"/>
+        <line x1="8.5" y1="16" x2="7" y2="18" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+        <line x1="15.5" y1="16" x2="17" y2="18" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
     </svg>`;
 }
 
-// ROTA ÇİZGİSİ STİL ÜRETİCİSİ (SADE VE TEMİZ ÇİZGİ - OKLAR KALDIRILDI)
-export function createRouteStyleWithDirectionArrows(lineGeom, routeColor = '#3b82f6') {
-    return [
-        // 1. Zemin kontrast dış çizgisi
+// Otobüs Durağı İkonu (Sayı yerine Otobüs İkonu)
+export function getBusStopPinSvg(routeColor = '#0284c7') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 22 22">
+        <defs>
+            <filter id="busShadow" x="-30%" y="-30%" width="160%" height="160%">
+                <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.35"/>
+            </filter>
+        </defs>
+        <circle cx="11" cy="11" r="9" fill="${routeColor}" stroke="#ffffff" stroke-width="1.8" filter="url(#busShadow)"/>
+        <rect x="6.8" y="5.5" width="8.4" height="9.5" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.4"/>
+        <line x1="6.8" y1="9.5" x2="15.2" y2="9.5" stroke="#ffffff" stroke-width="1.1"/>
+        <circle cx="8.5" cy="12.5" r="0.8" fill="#ffffff"/>
+        <circle cx="13.5" cy="12.5" r="0.8" fill="#ffffff"/>
+        <line x1="8" y1="15" x2="7" y2="16.5" stroke="#ffffff" stroke-width="1.3" stroke-linecap="round"/>
+        <line x1="14" y1="15" x2="15" y2="16.5" stroke="#ffffff" stroke-width="1.3" stroke-linecap="round"/>
+    </svg>`;
+}
+
+// Gemi / Vapur İskelesi Terminal Pini (Çapa İkonlu Pin)
+export function getFerryTerminalPinSvg(routeColor = '#0891b2') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
+        <defs>
+            <filter id="ferryShadow" x="-30%" y="-30%" width="160%" height="160%">
+                <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.35"/>
+            </filter>
+        </defs>
+        <circle cx="12" cy="12" r="10" fill="${routeColor || '#0891b2'}" stroke="#ffffff" stroke-width="2" filter="url(#ferryShadow)"/>
+        <path d="M12 5.5v9M8.5 9h7M7 13.5c0 2.8 2.2 5 5 5s5-2.2 5-5" fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="12" cy="6.5" r="1.1" fill="#ffffff"/>
+    </svg>`;
+}
+
+// Genel / Standart Durak İkonu Seçici (Sayı yok, her türe özel vektörel simge)
+export function getStopPinSvg(routeClass = 'araba', routeColor = '#3b82f6') {
+    const rc = (routeClass || '').toLowerCase();
+    if (rc === 'metro') return getMetroStopPinSvg(routeColor);
+    if (rc === 'otobus' || rc === 'bus') return getBusStopPinSvg(routeColor);
+    if (rc === 'gemi') return getFerryTerminalPinSvg(routeColor);
+    if (rc === 'tren') {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
+            <path d="M8 6h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+            <line x1="6" y1="11" x2="18" y2="11" stroke="#ffffff" stroke-width="1.2"/>
+            <circle cx="9" cy="14" r="0.9" fill="#ffffff"/>
+            <circle cx="15" cy="14" r="0.9" fill="#ffffff"/>
+            <line x1="8" y1="17" x2="6" y2="19" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+            <line x1="16" y1="17" x2="18" y2="19" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20">
+        <circle cx="10" cy="10" r="7.5" fill="${routeColor}" stroke="#ffffff" stroke-width="1.8"/>
+        <circle cx="10" cy="10" r="3" fill="#ffffff"/>
+    </svg>`;
+}
+
+// GOOGLE MAPS TARZI AKILLI ULAŞIM GÜZERGAH STİLİ
+// 1. Gemi, metro ve otobüs hatları daha narin ve silik (subtle)
+// 2. Şehir dışı zoom seviyesinde (zoom < 10.5) şehir içi hatlar gizlenir
+// 3. Otobüs hatları yalnızca otobüs numarasına tıklandığında görünür
+// 4. Gemi hatları kesikli çizgi (lineDash) ile gösterilir
+// 5. Hat üstünde güzergah adı / varış-kalkış yönü Google Haritalar tarzı yazılır
+export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
+    if (!feature) return null;
+    const geom = feature.getGeometry();
+    if (!geom) return null;
+
+    const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : 12;
+    const r = feature.get('routeData');
+    const routeColor = r?.color || feature.get('routeColor') || '#3b82f6';
+    const rClass = (r?.routeClass || feature.get('routeClass') || 'araba').toLowerCase().trim();
+    const routeId = r?.id || feature.get('id');
+    const isSelected = selectedRouteId === routeId;
+
+    const isBus = rClass === 'otobus' || rClass === 'bus';
+    const isMetro = rClass === 'metro';
+    const isGemi = rClass === 'gemi';
+    const isTren = rClass === 'tren';
+
+    const zs = getZoomSettings();
+    const minRouteZoom = isBus 
+        ? (zs.busRouteMinZoom ?? 11.5) 
+        : (isGemi 
+            ? (zs.shipRouteMinZoom ?? 8.5) 
+            : (isMetro 
+                ? (zs.metroRouteMinZoom ?? 11.5) 
+                : (isTren 
+                    ? (zs.trainRouteMinZoom ?? 10.0) 
+                    : (zs.routeMinZoom ?? 11.5))));
+
+    // 1. Otobüs güzergahları YALNIZCA otobüs numarasına / hattına tıklandığında görünsün
+    if (isBus && !isSelected) {
+        return null;
+    }
+
+    // 2. Dinamik zoom eşiği kontrolü (Admin panelinden ayarlanabilir)
+    if (!isSelected && zoom < minRouteZoom) {
+        return null;
+    }
+
+    // 3. Daha silik, rafine Google Haritalar tarzı çizgi kalınlıkları (Metro ve Gemi daha da silikleştirildi)
+    const baseWidth = isSelected ? 4.2 : (isBus ? 2.4 : (isGemi ? 2.2 : (isMetro ? 2.2 : 2.2)));
+    const outlineWidth = baseWidth + (isSelected ? 2.6 : 1.4);
+
+    // 4. Gemi güzergahları kesikli çizgi (dashed line)
+    const lineDash = isGemi ? [8, 8] : undefined;
+
+    // Renkler: Yumuşatılmış, silik (subtle) opaklık
+    let strokeColor;
+    let outlineColor;
+
+    if (isSelected) {
+        strokeColor = routeColor;
+        outlineColor = '#ffffff';
+    } else {
+        if (isGemi) {
+            strokeColor = 'rgba(6, 182, 212, 0.45)'; // Çok daha silik deniz yolu
+            outlineColor = 'rgba(255, 255, 255, 0.35)';
+        } else if (isMetro) {
+            strokeColor = hexToRgba(routeColor, 0.42); // Çok daha silik metro çizgisi
+            outlineColor = 'rgba(255, 255, 255, 0.35)';
+        } else if (isBus) {
+            strokeColor = hexToRgba(routeColor, 0.70);
+            outlineColor = 'rgba(255, 255, 255, 0.50)';
+        } else {
+            strokeColor = hexToRgba(routeColor, 0.45);
+            outlineColor = 'rgba(255, 255, 255, 0.35)';
+        }
+    }
+
+    const styles = [
+        // Zemin kontrast çizgisi
         new Style({
             stroke: new Stroke({
-                color: '#ffffff',
-                width: 5.5,
+                color: outlineColor,
+                width: outlineWidth,
+                lineDash: lineDash,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }),
+            zIndex: isSelected ? 29 : (isGemi ? 15 : 12)
+        }),
+        // Ana güzergah çizgisi
+        new Style({
+            stroke: new Stroke({
+                color: strokeColor,
+                width: baseWidth,
+                lineDash: lineDash,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }),
+            zIndex: isSelected ? 30 : (isGemi ? 16 : 13)
+        })
+    ];
+
+    // 5. Hat ismi yalnızca yeterli zoom seviyesinde veya hat seçildiğinde gösterilsin
+    const routeName = r?.name || feature.get('routeName') || '';
+    // Gemi hatlarında çizgi üstünde sade isim göster: "Mersin - Girne" (Liman/Limanı/Port kelimeleri olmadan)
+    const displayLabel = isGemi ? (() => {
+        if (routeName.includes(' - ')) {
+            const parts = routeName.split(' - ');
+            return parts.map(p => cleanPortName(p)).join(' - ');
+        }
+        return cleanPortName(routeName);
+    })() : routeName;
+    const routeNameMinZoom = zs.routeNameMinZoom ?? 12.0;
+    if (displayLabel && (zoom >= routeNameMinZoom || isSelected)) {
+        styles.push(
+            new Style({
+                text: new Text({
+                    text: displayLabel,
+                    placement: 'line',
+                    maxAngle: Math.PI / 4,
+                    repeat: isGemi ? 500 : 380,
+                    overflow: true,
+                    font: isSelected
+                        ? '700 11.5px Inter, -apple-system, system-ui, sans-serif'
+                        : '600 10.5px Inter, -apple-system, system-ui, sans-serif',
+                    fill: new Fill({
+                        color: isSelected ? '#0f172a' : (isGemi ? '#0891b2' : (isMetro ? '#b91c1c' : '#1e3a8a'))
+                    }),
+                    stroke: new Stroke({
+                        color: '#ffffff',
+                        width: 3.5,
+                        lineJoin: 'round'
+                    }),
+                    offsetY: -7
+                }),
+                zIndex: isSelected ? 32 : 17
+            })
+        );
+    }
+
+    return styles;
+}
+
+// ROTA ÇİZGİSİ STİL ÜRETİCİSİ (GERİYE DÖNÜK UYUMLULUK KÖPRÜSÜ)
+export function createRouteStyleWithDirectionArrows(lineGeom, routeColor = '#3b82f6') {
+    return [
+        new Style({
+            stroke: new Stroke({
+                color: 'rgba(255, 255, 255, 0.6)',
+                width: 4.5,
                 lineCap: 'round',
                 lineJoin: 'round'
             }),
             zIndex: 11
         }),
-        // 2. Ana rota rengi
         new Style({
             stroke: new Stroke({
-                color: routeColor,
-                width: 3.5,
+                color: hexToRgba(routeColor, 0.72),
+                width: 2.8,
                 lineCap: 'round',
                 lineJoin: 'round'
             }),
@@ -357,6 +612,7 @@ function App() {
     };
     const placeColorInputRef = useRef(null);
     const drawColorInputRef = useRef(null);
+    const scaleLineTargetRef = useRef(null);
 
     // Dil (Türkçe / İngilizce) Durumu
     const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'tr');
@@ -456,7 +712,7 @@ function App() {
 
     const [showAddStopModal, setShowAddStopModal] = useState(false);
     const [draftStopCoords, setDraftStopCoords] = useState({ lat: 0, lon: 0, wkt: '' });
-    const [newStopForm, setNewStopForm] = useState({ name: '', routeId: '', description: '' });
+    const [newStopForm, setNewStopForm] = useState({ name: '', stopClass: 'otobus', routeId: '', description: '' });
     const [isSubmittingStop, setIsSubmittingStop] = useState(false);
     const [currentZoom, setCurrentZoom] = useState(6.5);
 
@@ -477,6 +733,22 @@ function App() {
     const poiLayerRef = useRef(null);
     const drawingsLayerRef = useRef(null);
     const savedPlacesLayerRef = useRef(null);
+    const [zoomSettings, setZoomSettings] = useState(getZoomSettings);
+
+    // DİNAMİK HARİTA ZOOM & GÖRÜNÜRLÜK AYARLARI DİNLENMESİ
+    useEffect(() => {
+        const handleZoomSettingsChanged = (e) => {
+            if (e.detail) {
+                setZoomSettings(e.detail);
+                if (routeLayerRef.current) routeLayerRef.current.changed();
+                if (stopLayerRef.current) stopLayerRef.current.changed();
+                if (poiLayerRef.current) poiLayerRef.current.changed();
+                if (drawingsLayerRef.current) drawingsLayerRef.current.changed();
+            }
+        };
+        window.addEventListener('geomapZoomSettingsChanged', handleZoomSettingsChanged);
+        return () => window.removeEventListener('geomapZoomSettingsChanged', handleZoomSettingsChanged);
+    }, []);
 
     // CANLI ARAÇ SİMÜLASYONU & SIGNALR TAKİP REFLERİ VE STATELERİ
     const simulationSourceRef = useRef(new VectorSource());
@@ -548,8 +820,15 @@ function App() {
         targetPoi: null,
         selectingPoint: null, // null | 'point1' | 'point2' | 'waypoint'
         routeData: null,
-        activeMode: 'driving', // 'driving' | 'walking' | 'cycling'
+        activeMode: 'driving', // 'driving' | 'gemi' | 'metro' | 'transit' | 'walking' | 'cycling'
         showSteps: false,
+        showPreferencesModal: false,
+        transitPreferences: {
+            gemi: true,
+            metro: true,
+            otobus: true,
+            tren: true
+        },
         isCalculating: false
     });
     const directionsStateRef = useRef(directionsState);
@@ -718,7 +997,7 @@ function App() {
     const handleSelectBaseLayer = (layerId) => {
         setSelectedBaseLayer(layerId);
         localStorage.setItem('geo_selected_basemap', layerId);
-        const layerConfig = BASEMAP_LAYERS.find(l => l.id === layerId) || BASEMAP_LAYERS[0];
+        const layerConfig = getBasemapConfig(layerId);
         if (tileLayerRef.current) {
             tileLayerRef.current.setSource(
                 new XYZ({
@@ -734,6 +1013,7 @@ function App() {
     const [drawType, setDrawType] = useState('None');
     const [savedDrawings, setSavedDrawings] = useState([]);
     const [deleteTarget, setDeleteTarget] = useState(null);
+    const [isSavedDrawingsOpen, setIsSavedDrawingsOpen] = useState(true);
 
     // HARİTA FİLTRELEME DURUMLARI (Şekil Türü ve Editör/Kullanıcı Filtresi)
     const [selectedTypeFilter, setSelectedTypeFilter] = useState('ALL');
@@ -790,6 +1070,12 @@ function App() {
         area: 0
     });
     const poiSourceRef = useRef(new VectorSource());
+
+    // POI TAŞIMA VE POLİGON DÜZENLEME DURUMLARI (Admin & Editor)
+    const [editingPoiState, setEditingPoiState] = useState(null);
+    const poiModifyInteractionRef = useRef(null);
+    const poiTranslateInteractionRef = useRef(null);
+    const [isSavingPoiGeom, setIsSavingPoiGeom] = useState(false);
 
     // GOOGLE MAPS TARZI POI ARAMA BARI DURUMLARI (Tüm Rollere Açık: User, Editor, Admin)
     const [poiSearchQuery, setPoiSearchQuery] = useState('');
@@ -1512,63 +1798,59 @@ function App() {
         return [];
     };
 
-    // ZOOM SEVİYESİNE VE ÖNCELİK SIRALAMASINA (LEVEL OF DETAIL) DUYARLI POI STİL FONKSİYONU
-    // (Önemli kategoriler uzak zoomda da görünür, çakışmalarda yüksek öncelikli ikonlar üstte kalır)
+    // ZOOM SEVİYESİNE VE KATEGORİYE DUYARLI POI STİL FONKSİYONU
     const createPoiStyle = (feature, resolution) => {
+        const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : (mapRef.current?.getView()?.getZoom() || 0);
+
         const poi = feature.get('poiData') || {};
-        const priority = poi.categoryDisplayOrder || 1; // 1: Çok Yüksek, 5: Detay
+        const priority = poi.categoryDisplayOrder || 1;
+        const poiColor = poi.categoryColor || '#3b82f6';
+        const catName = poi.categoryName || poi.name || '';
+        const isCritical = priority <= 2 || catName.toLowerCase().includes('sağlık') || catName.toLowerCase().includes('hastane') || catName.toLowerCase().includes('ulaşım') || catName.toLowerCase().includes('terminal');
 
-        // Kademeli Ölçeklendirme (Level of Detail):
-        // Öncelik 1 (Çok Yüksek): resolution <= 600 (Zoom 8+)
-        // Öncelik 2 (Yüksek):     resolution <= 300 (Zoom 9+)
-        // Öncelik 3 (Orta):       resolution <= 150 (Zoom 10+)
-        // Öncelik 4 (Standart):   resolution <= 76  (Zoom 11+)
-        // Öncelik 5 (Detay):      resolution <= 38  (Zoom 12+)
-        let maxAllowedResolution = 38;
-        if (priority === 1) maxAllowedResolution = 600;
-        else if (priority === 2) maxAllowedResolution = 300;
-        else if (priority === 3) maxAllowedResolution = 150;
-        else if (priority === 4) maxAllowedResolution = 76;
-        else maxAllowedResolution = 38;
+        const zs = getZoomSettings();
+        const minPoiZoom = isCritical ? (zs.poiCriticalMinZoom ?? 12.0) : (zs.poiMinZoom ?? 13.5);
 
-        if (resolution > maxAllowedResolution) {
+        if (zoom < minPoiZoom) {
             return [];
         }
 
-        const poiColor = poi.categoryColor || '#3b82f6';
-        const catName = poi.categoryName || poi.name || '';
         const catIcon = poi.categoryIcon || '';
         const name = poi.name || '';
         const geomType = feature.getGeometry() ? feature.getGeometry().getType() : 'Point';
 
-        // İsim etiketleri sadece harita yeterince yakınken (resolution <= 76) görünür, genel bakışta sadece temiz ikon kalır
-        const showLabel = name && resolution <= 76;
+        // İsim etiketleri: Yakın zoomda (zoom >= poiNameMinZoom) görünür
+        const poiNameMinZoom = zs.poiNameMinZoom ?? 15.5;
+        const showLabel = name && zoom >= poiNameMinZoom;
         const textStyle = showLabel ? new Text({
             text: name,
             font: '600 10.5px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             fill: new Fill({ color: '#ffffff' }),
-            stroke: new Stroke({ color: '#0f172a', width: 2.2 }),
-            offsetY: -18,
+            stroke: new Stroke({ color: '#0f172a', width: 2.5 }),
+            offsetY: -14,
             overflow: false
         }) : undefined;
 
-        // Öncelik bazlı z-index: Öncelik 1 olan en üstte (zIndex: 90) çizilir ve declutter çakışmasını kazanır
+        // Öncelik bazlı z-index
         const dynamicZIndex = Math.max(1, 100 - priority * 10);
         const categoryBadgeSvg = getPoiCategoryBadgeSvg(catName, catIcon, poiColor);
+
+        // Küçültülmüş, daha narin ve kompakt ikon boyutu (0.48 - 0.52)
+        const iconScale = priority <= 2 ? 0.52 : 0.48;
 
         if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
             const interiorPt = feature.getGeometry().getInteriorPoint ? feature.getGeometry().getInteriorPoint() : new Point(getCenter(feature.getGeometry().getExtent()));
             return [
                 new Style({
-                    stroke: new Stroke({ color: poiColor, width: 2.5 }),
-                    fill: new Fill({ color: hexToRgba(poiColor, 0.35) }),
+                    stroke: new Stroke({ color: poiColor, width: 2 }),
+                    fill: new Fill({ color: hexToRgba(poiColor, 0.3) }),
                     zIndex: dynamicZIndex
                 }),
                 new Style({
                     geometry: interiorPt,
                     image: new Icon({
                         src: 'data:image/svg+xml;utf8,' + encodeURIComponent(categoryBadgeSvg),
-                        scale: priority <= 2 ? 0.72 : 0.65,
+                        scale: iconScale,
                         anchor: [0.5, 0.5]
                     }),
                     text: textStyle,
@@ -1579,7 +1861,7 @@ function App() {
             return new Style({
                 image: new Icon({
                     src: 'data:image/svg+xml;utf8,' + encodeURIComponent(categoryBadgeSvg),
-                    scale: priority <= 2 ? 0.72 : 0.65,
+                    scale: iconScale,
                     anchor: [0.5, 0.5]
                 }),
                 text: textStyle,
@@ -1629,27 +1911,29 @@ function App() {
     const fetchRoutesAndStops = async () => {
         if (!token) return;
         try {
-            const routesData = await transportApi.getRoutes(token);
+            const [routesData, stopsData] = await Promise.all([
+                transportApi.getRoutes(token).catch(err => { console.error('getRoutes error:', err); return []; }),
+                transportApi.getAllStops(token).catch(err => { console.error('getAllStops error:', err); return []; })
+            ]);
+
             const routeList = Array.isArray(routesData) ? routesData : [];
+            const allStopsList = Array.isArray(stopsData) ? stopsData : [];
             setRoutes(routeList);
 
             if (routeSourceRef.current) routeSourceRef.current.clear();
             if (stopSourceRef.current) stopSourceRef.current.clear();
 
-            const allStops = [];
             const wktFormat = new WKT();
 
+            // 1. Hat Çizgilerini Ekle
             routeList.forEach((r) => {
                 const routeColor = r.color || '#3b82f6';
                 const sortedStops = (r.stops || []).slice().sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
-                // Bireysel Güzergah Görünürlük Kontrolü (Katman Aç/Kapat)
                 const isRouteVisible = !hiddenRouteIds.has(r.id);
                 if (!isRouteVisible) return;
 
-                // 1. Durakları birbirine bağlayan Güzergah Çizgisi (OSRM WKT veya Standart LineString)
                 let lineGeom = null;
-
                 if (r.wkt) {
                     try {
                         const featureFromWkt = wktFormat.readFeature(r.wkt, {
@@ -1677,56 +1961,61 @@ function App() {
                         geometry: lineGeom,
                         id: r.id,
                         isRouteLine: true,
-                        routeData: r
+                        routeData: r,
+                        routeColor: routeColor,
+                        routeClass: r.routeClass || 'araba',
+                        routeName: r.name
                     });
 
-                    // Yön oklarını içeren profesyonel rota çizgisi stili
-                    lineFeature.setStyle(createRouteStyleWithDirectionArrows(lineGeom, routeColor));
                     routeSourceRef.current?.addFeature(lineFeature);
                 }
-
-                // 2. Her Durağı Numaralı Pin Olarak Haritaya Ekle
-                const isBusRoute = (r.routeClass || '').toLowerCase() === 'otobus';
-                sortedStops.forEach((s) => {
-                    if (s.longitude == null || s.latitude == null) return;
-                    allStops.push(s);
-
-                    const stopGeom = new Point(fromLonLat([s.longitude, s.latitude]));
-                    const stopFeature = new Feature({
-                        geometry: stopGeom,
-                        isStop: true,
-                        routeClass: r.routeClass || 'araba',
-                        routeId: r.id,
-                        stopData: { ...s, routeColor: routeColor, routeName: r.name, routeClass: r.routeClass || 'araba', routeId: r.id, totalStopsInRoute: sortedStops.length }
-                    });
-
-                    // Otobüs durakları küçük ikon, diğerleri standart büyüklükte
-                    const pinSvg = isBusRoute
-                        ? getBusStopPinSvg(s.orderIndex || 1, routeColor)
-                        : getStopPinSvg(s.orderIndex || 1, routeColor);
-
-                    stopFeature.setStyle(new Style({
-                        image: new Icon({
-                            src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
-                            scale: isBusRoute ? 0.85 : 0.9,
-                            anchor: [0.5, 0.5]
-                        }),
-                        text: new Text({
-                            text: s.name,
-                            font: isBusRoute ? '600 9px Inter, system-ui, sans-serif' : '600 11px Inter, system-ui, sans-serif',
-                            fill: new Fill({ color: '#ffffff' }),
-                            stroke: new Stroke({ color: '#0f172a', width: 3.5 }),
-                            offsetY: isBusRoute ? 11 : 15,
-                            overflow: true
-                        }),
-                        zIndex: isBusRoute ? 22 : 25
-                    }));
-
-                    stopSourceRef.current?.addFeature(stopFeature);
-                });
             });
 
-            setStops(allStops);
+            // 2. BÜTÜN Durakları (Hem Güzergaha Bağlı Olanları Hem de Bağımsız Durakları / Limanları) Haritaya Ekle
+            const routeMap = new Map(routeList.map(r => [r.id, r]));
+
+            allStopsList.forEach((s) => {
+                if (s.longitude == null || s.latitude == null) return;
+
+                const boundRoute = s.routeId ? routeMap.get(s.routeId) : null;
+                const isRouteVisible = !s.routeId || !hiddenRouteIds.has(s.routeId);
+                if (!isRouteVisible) return;
+
+                const stopClass = (s.stopClass || (boundRoute ? boundRoute.routeClass : 'otobus')).toLowerCase();
+                const routeColor = boundRoute ? (boundRoute.color || '#3b82f6') : (
+                    stopClass === 'gemi' || stopClass === 'liman' ? '#0891b2' :
+                    stopClass === 'metro' ? '#ef4444' :
+                    stopClass === 'tren' ? '#f59e0b' :
+                    stopClass === 'otobus' ? '#0284c7' : '#3b82f6'
+                );
+
+                const stopGeom = new Point(fromLonLat([s.longitude, s.latitude]));
+                const stopFeature = new Feature({
+                    geometry: stopGeom,
+                    id: s.id,
+                    isStop: true,
+                    stopId: s.id,
+                    stopClass: stopClass,
+                    routeClass: stopClass,
+                    routeId: s.routeId || null,
+                    orderIndex: s.orderIndex || 1,
+                    stopName: s.name,
+                    routeColor: routeColor,
+                    stopData: {
+                        ...s,
+                        stopClass: stopClass,
+                        routeColor: routeColor,
+                        routeName: boundRoute?.name || null,
+                        routeClass: stopClass,
+                        routeId: s.routeId || null,
+                        totalStopsInRoute: boundRoute?.stops?.length || 0
+                    }
+                });
+
+                stopSourceRef.current?.addFeature(stopFeature);
+            });
+
+            setStops(allStopsList);
         } catch (err) {
             console.error('Güzergah ve durak verileri getirilirken hata:', err);
         }
@@ -1739,10 +2028,13 @@ function App() {
         }
     }, [hiddenRouteIds]);
 
-    // Güzergah seçildiğinde durak katmanını yenile (otobüs durakları seçili güzergahta görünsün)
+    // Güzergah seçildiğinde durak ve hat katmanlarını yenile (otobüs güzergahları seçildiğinde görünsün)
     useEffect(() => {
         if (stopLayerRef.current) {
             stopLayerRef.current.changed();
+        }
+        if (routeLayerRef.current) {
+            routeLayerRef.current.changed();
         }
     }, [selectedRouteInfo]);
 
@@ -2803,6 +3095,26 @@ function App() {
         }));
     };
 
+    // Ulaşım Tercihleri Değişimi (Gemi, Metro, Otobüs, vb.)
+    const handleToggleTransitPreference = (prefKey) => {
+        setDirectionsState(prev => {
+            const nextPrefs = {
+                ...prev.transitPreferences,
+                [prefKey]: !prev.transitPreferences[prefKey]
+            };
+            setTimeout(() => {
+                const curr = directionsStateRef.current;
+                if (curr.waypoints && curr.waypoints.length >= 2) {
+                    calculateAndRenderDirectionsRoute(null, null, curr.activeMode, curr.waypoints);
+                }
+            }, 50);
+            return {
+                ...prev,
+                transitPreferences: nextPrefs
+            };
+        });
+    };
+
     // 2 veya Daha Fazla Durak Arası Çok Modlu Yol Tarifi Hesaplama Yardımcısı
     const calculateAndRenderDirectionsRoute = async (start, target, preferredMode = null, customWaypoints = null) => {
         let waypoints = customWaypoints;
@@ -2851,13 +3163,47 @@ function App() {
 
             const result = await userPersonalApi.calculateDirections(payload, token);
 
+            // Multimodal Transit Yollar Değerlendirmesi (Gemi/Vapur, Metro, Toplu Taşıma)
+            const currentPrefs = directionsStateRef.current?.transitPreferences || { gemi: true, metro: true, otobus: true, tren: true };
+
+            if (currentPrefs.gemi) {
+                const gemiRoute = calculateTransitRoute({
+                    start: firstWp,
+                    target: lastWp,
+                    routes,
+                    mode: 'gemi',
+                    preferences: currentPrefs
+                });
+                if (gemiRoute) result.gemi = gemiRoute;
+            }
+
+            if (currentPrefs.metro || currentPrefs.tren) {
+                const metroRoute = calculateTransitRoute({
+                    start: firstWp,
+                    target: lastWp,
+                    routes,
+                    mode: 'metro',
+                    preferences: currentPrefs
+                });
+                if (metroRoute) result.metro = metroRoute;
+            }
+
+            const generalTransit = calculateTransitRoute({
+                start: firstWp,
+                target: lastWp,
+                routes,
+                mode: 'transit',
+                preferences: currentPrefs
+            });
+            if (generalTransit) result.transit = generalTransit;
+
             const activeOption = result[modeToUse] || result.driving || {
                 routeWkt: result.routeWkt,
                 distanceKm: result.distanceKm,
                 durationMinutes: result.durationMinutes,
                 formattedDistance: `${result.distanceKm} km`,
                 formattedDuration: formatDuration(result.durationMinutes, lang),
-                label: modeToUse === 'walking' ? 'Yürüyerek' : 'Arabayla'
+                label: modeToUse === 'walking' ? 'Yürüyerek' : (modeToUse === 'gemi' ? 'Gemi / Vapur' : (modeToUse === 'metro' ? 'Metro' : (modeToUse === 'transit' ? 'Toplu Taşıma' : 'Arabayla')))
             };
 
             if (activeOption.routeWkt) {
@@ -3169,7 +3515,7 @@ function App() {
             const defaultColor = directionsState.activeMode === 'walking' ? '#10b981' : (directionsState.activeMode === 'cycling' ? '#8b5cf6' : '#2563eb');
 
             const payload = {
-                title: saveRouteTitle.trim() || `${directionsState.startName} ➔ ${directionsState.targetName || directionsState.targetPoi?.name || 'Hedef'} (${modeLabel})`,
+                title: saveRouteTitle.trim() || `${directionsState.startName} → ${directionsState.targetName || directionsState.targetPoi?.name || 'Hedef'} (${modeLabel})`,
                 description: saveRouteDescription.trim() || (currentOpt.summary || ''),
                 startPointName: directionsState.startName,
                 startWkt: directionsState.routeData.startWkt,
@@ -3497,11 +3843,11 @@ function App() {
     // YENİ DURAK KAYDETME
     const handleSaveNewStop = async (e) => {
         e.preventDefault();
-        if (!newStopForm.name.trim() || !newStopForm.routeId || !draftStopCoords.wkt) {
+        if (!newStopForm.name.trim() || !draftStopCoords.wkt) {
             toastRef.current?.show({
                 severity: 'warn',
                 summary: 'Eksik Bilgi',
-                detail: 'Lütfen durak ismini giriniz ve geçerli bir güzergah seçiniz.',
+                detail: 'Lütfen durak ismini giriniz.',
                 life: 3000
             });
             return;
@@ -3511,7 +3857,8 @@ function App() {
         try {
             const created = await transportApi.createStop({
                 name: newStopForm.name.trim(),
-                routeId: parseInt(newStopForm.routeId, 10),
+                stopClass: newStopForm.stopClass || 'otobus',
+                routeId: newStopForm.routeId ? parseInt(newStopForm.routeId, 10) : null,
                 description: newStopForm.description?.trim() || null,
                 wkt: draftStopCoords.wkt
             }, token);
@@ -3519,12 +3866,12 @@ function App() {
             toastRef.current?.show({
                 severity: 'success',
                 summary: 'Durak Eklendi',
-                detail: `"${created.name}" durağı başarıyla güzergaha eklendi!`,
+                detail: `"${created.name}" durağı başarıyla eklendi!`,
                 life: 3500
             });
 
             setShowAddStopModal(false);
-            setNewStopForm({ name: '', routeId: '', description: '' });
+            setNewStopForm({ name: '', stopClass: 'otobus', routeId: '', description: '' });
             await fetchRoutesAndStops();
         } catch (err) {
             toastRef.current?.show({
@@ -3743,7 +4090,7 @@ function App() {
             const drawingsSource = new VectorSource();
             drawingsSourceRef.current = drawingsSource;
 
-            const activeBaseConfig = BASEMAP_LAYERS.find(l => l.id === selectedBaseLayer) || BASEMAP_LAYERS[0];
+            const activeBaseConfig = getBasemapConfig(selectedBaseLayer);
             const baseTileLayer = new TileLayer({
                 source: new XYZ({
                     url: activeBaseConfig.url,
@@ -3814,7 +4161,10 @@ function App() {
             const routeLayer = new VectorLayer({
                 source: routeSourceRef.current,
                 zIndex: 18,
-                visible: layerVisibility.routes
+                visible: layerVisibility.routes,
+                style: (feature, resolution) => {
+                    return createTransitRouteStyle(feature, resolution, selectedRouteInfoRef.current?.id);
+                }
             });
             routeLayerRef.current = routeLayer;
 
@@ -3827,29 +4177,64 @@ function App() {
             });
             poiLayerRef.current = poiLayer;
 
-            // AKILLI ULAŞIM - DURAKLAR KATMANI: Zoom bazlı dinamik görünürlük
-            // Metro: zoom >= 13, Otobüs: zoom >= 15.5 veya seçili güzergah, Diğer: zoom >= 14
+            // AKILLI ULAŞIM - DURAKLAR KATMANI: Dinamik Zoom ve Seçim Kontrolü
             const stopLayer = new VectorLayer({
                 source: stopSourceRef.current,
                 zIndex: 25,
                 declutter: true,
                 style: (feature, resolution) => {
-                    const zoom = mapRef.current?.getView()?.getZoom() || 0;
-                    const featureRouteClass = (feature.get('routeClass') || '').toLowerCase();
+                    const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : (mapRef.current?.getView()?.getZoom() || 0);
+                    const featureRouteClass = (feature.get('stopClass') || feature.get('routeClass') || 'otobus').toLowerCase();
                     const featureRouteId = feature.get('routeId');
-                    const isBus = featureRouteClass === 'otobus';
+                    const isIndependent = !featureRouteId;
+                    const isBus = featureRouteClass === 'otobus' || featureRouteClass === 'bus';
+                    const isGemi = featureRouteClass === 'gemi' || featureRouteClass === 'liman';
                     const isMetro = featureRouteClass === 'metro';
+                    const isTren = featureRouteClass === 'tren';
                     const isSelectedRoute = selectedRouteInfoRef.current?.id === featureRouteId;
 
-                    // Otobüs durakları: yalnızca çok yakın zoom'da veya güzergah seçiliyse göster
-                    if (isBus && zoom < 18 && !isSelectedRoute) return null;
-                    // Metro durakları: zoom >= 16
-                    if (isMetro && zoom < 16) return null;
-                    // Diğer duraklar: zoom >= 16
-                    if (!isBus && !isMetro && zoom < 16) return null;
+                    const zs = getZoomSettings();
+                    const minStopZoom = isGemi 
+                        ? (zs.shipStopMinZoom ?? 5.0) 
+                        : (isMetro 
+                            ? (zs.metroStopMinZoom ?? 10.0) 
+                            : (isTren 
+                                ? (zs.trainStopMinZoom ?? 8.0) 
+                                : (isBus 
+                                    ? (isIndependent ? 10.5 : (zs.busStopMinZoom ?? 13.5)) 
+                                    : (zs.stopMinZoom ?? 10.0))));
 
-                    // Feature'ın kendi stilini kullan
-                    return feature.getStyle();
+                    if (!isSelectedRoute && zoom < minStopZoom) {
+                        return null;
+                    }
+
+                    const routeColor = feature.get('routeColor') || '#3b82f6';
+                    const stopName = feature.get('stopName') || '';
+
+                    // Pin SVG icon
+                    const pinSvg = getStopPinSvg(featureRouteClass, routeColor);
+
+                    const stopNameMinZoom = isGemi ? 7.5 : (isMetro ? 11.0 : (isTren ? 9.5 : (zs.stopNameMinZoom ?? 14.0)));
+                    const showStopLabel = stopName && (zoom >= stopNameMinZoom || isSelectedRoute);
+
+                    const textStyle = showStopLabel ? new Text({
+                        text: stopName,
+                        font: isBus ? '600 9.5px Inter, system-ui, sans-serif' : '600 11px Inter, system-ui, sans-serif',
+                        fill: new Fill({ color: '#ffffff' }),
+                        stroke: new Stroke({ color: '#0f172a', width: 3.5, lineJoin: 'round' }),
+                        offsetY: isBus ? 12 : 16,
+                        overflow: true
+                    }) : null;
+
+                    return new Style({
+                        image: new Icon({
+                            src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
+                            scale: isGemi ? 0.95 : (isBus ? 0.8 : 0.85),
+                            anchor: [0.5, 0.5]
+                        }),
+                        text: textStyle,
+                        zIndex: isSelectedRoute ? 28 : (isGemi ? 26 : 24)
+                    });
                 },
                 visible: layerVisibility.stops
             });
@@ -3908,6 +4293,16 @@ function App() {
                     zoom: 6.5
                 })
             });
+
+            // DİNAMİK METRİK ÖLÇEK BARI KONTROLÜ (OpenLayers ScaleLine)
+            if (scaleLineTargetRef.current) {
+                const scaleLineControl = new ScaleLine({
+                    target: scaleLineTargetRef.current,
+                    units: 'metric',
+                    minWidth: 64
+                });
+                map.addControl(scaleLineControl);
+            }
 
             if (!overlayContainerRef.current) {
                 const popupDiv = document.createElement('div');
@@ -4465,6 +4860,165 @@ function App() {
         setSelectedPointInfo(null);
     };
 
+    // POI TAŞIMA VE POLİGON DÜZENLEME MANTIĞI (Admin & Editor)
+    const stopPoiEditing = () => {
+        if (poiModifyInteractionRef.current && mapRef.current) {
+            mapRef.current.removeInteraction(poiModifyInteractionRef.current);
+            poiModifyInteractionRef.current = null;
+        }
+        if (poiTranslateInteractionRef.current && mapRef.current) {
+            mapRef.current.removeInteraction(poiTranslateInteractionRef.current);
+            poiTranslateInteractionRef.current = null;
+        }
+        setEditingPoiState(null);
+    };
+
+    const startPoiEditing = (poi) => {
+        if (!poi || !poi.id || !poiSourceRef.current || !mapRef.current) return;
+
+        const canEdit = isAdmin || userRole === 'Admin' || userRole === 'Editor' || userRole === 'Editör' || poi.userId === loggedInUserId;
+        if (!canEdit) {
+            if (toastRef.current) {
+                toastRef.current.show({ severity: 'warn', summary: 'Yetki Gerekli', detail: 'Bu POI\'yi düzenleme veya taşıma yetkiniz bulunmuyor.', life: 3000 });
+            }
+            return;
+        }
+
+        stopPoiEditing();
+
+        const features = poiSourceRef.current.getFeatures();
+        const targetFeature = features.find(f => f.get('poiData')?.id === poi.id);
+        if (!targetFeature) {
+            if (toastRef.current) {
+                toastRef.current.show({ severity: 'error', summary: 'Hata', detail: 'Haritada bu POI objesi bulunamadı.', life: 3000 });
+            }
+            return;
+        }
+
+        const isPolygon = poi.wkt ? (poi.wkt.toUpperCase().includes('POLYGON')) : false;
+        const originalGeom = targetFeature.getGeometry().clone();
+        const originalWkt = poi.wkt;
+
+        if (isPolygon) {
+            targetFeature.setStyle(new Style({
+                stroke: new Stroke({ color: '#2563eb', width: 3, lineDash: [8, 6] }),
+                fill: new Fill({ color: 'rgba(37, 99, 235, 0.25)' }),
+                zIndex: 100
+            }));
+        }
+
+        // 1. Modify: Köşe ve kırılma noktalarını düzenleme
+        const modify = new Modify({
+            features: new Collection([targetFeature])
+        });
+
+        // 2. Translate: POI'yi bütün olarak haritada sürükleyip taşıma
+        const translate = new Translate({
+            features: new Collection([targetFeature])
+        });
+
+        const updateGeomWkt = () => {
+            const wktFormat = new WKT();
+            const currentGeom = targetFeature.getGeometry();
+            const newWkt = wktFormat.writeGeometry(currentGeom, {
+                dataProjection: 'EPSG:4326',
+                featureProjection: 'EPSG:3857'
+            });
+            setEditingPoiState(prev => prev ? {
+                ...prev,
+                currentWkt: newWkt,
+                hasChanged: true
+            } : null);
+        };
+
+        modify.on('modifyend', updateGeomWkt);
+        translate.on('translateend', updateGeomWkt);
+
+        mapRef.current.addInteraction(modify);
+        mapRef.current.addInteraction(translate);
+        poiModifyInteractionRef.current = modify;
+        poiTranslateInteractionRef.current = translate;
+
+        setEditingPoiState({
+            poi,
+            feature: targetFeature,
+            isPolygon,
+            originalWkt,
+            originalGeom,
+            currentWkt: originalWkt,
+            hasChanged: false
+        });
+
+        setSelectedPoiInfo(null);
+
+        if (toastRef.current) {
+            toastRef.current.show({
+                severity: 'info',
+                summary: isPolygon ? 'Poligon Düzenleme Modu' : 'Konum Taşıma Modu',
+                detail: isPolygon
+                    ? 'Poligonu taşımak için gövdesinden, sınırlarını değiştirmek için köşelerinden sürükleyebilirsiniz.'
+                    : 'İşaretçiyi harita üzerinde yeni konumuna sürükleyip bırakabilirsiniz.',
+                life: 4000
+            });
+        }
+    };
+
+    const handleSavePoiGeometry = async () => {
+        if (!editingPoiState || !editingPoiState.poi || !token) return;
+        setIsSavingPoiGeom(true);
+        try {
+            const poi = editingPoiState.poi;
+            await adminApi.updatePoi(poi.id, {
+                name: poi.name,
+                description: poi.description || '',
+                categoryId: poi.categoryId,
+                workingHours: poi.workingHours || '',
+                wkt: editingPoiState.currentWkt,
+                isActive: poi.isActive !== false
+            }, token);
+
+            if (toastRef.current) {
+                toastRef.current.show({
+                    severity: 'success',
+                    summary: 'Başarılı',
+                    detail: editingPoiState.isPolygon ? 'POI poligonu başarıyla güncellendi.' : 'POI konumu başarıyla taşındı.',
+                    life: 3000
+                });
+            }
+
+            stopPoiEditing();
+            await fetchPois();
+        } catch (err) {
+            console.error('POI geometri güncelleme hatası:', err);
+            if (toastRef.current) {
+                toastRef.current.show({
+                    severity: 'error',
+                    summary: 'Hata',
+                    detail: err.message || 'POI güncellenirken bir hata oluştu.',
+                    life: 4000
+                });
+            }
+        } finally {
+            setIsSavingPoiGeom(false);
+        }
+    };
+
+    const handleCancelPoiEditing = () => {
+        if (editingPoiState && editingPoiState.feature && editingPoiState.originalGeom) {
+            editingPoiState.feature.setGeometry(editingPoiState.originalGeom);
+            editingPoiState.feature.setStyle(createPoiStyle);
+        }
+        stopPoiEditing();
+        if (toastRef.current) {
+            toastRef.current.show({
+                severity: 'info',
+                summary: 'İptal Edildi',
+                detail: 'POI üzerindeki değişiklikler iptal edildi.',
+                life: 2500
+            });
+        }
+    };
+
     // SEÇİLİ MAVİ PIN İŞARETÇİSİ (Haritaya tıklanmadığı sürece şeffaf / gizli)
     useEffect(() => {
         if (!vectorSourceRef.current) return;
@@ -4484,7 +5038,7 @@ function App() {
             const pinSvg = `<svg width="36" height="48" viewBox="0 0 36 48" fill="none" xmlns="http://www.w3.org/2000/svg">
               <defs>
                 <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0284c7" flood-opacity="0.6"/>
+                  <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.35"/>
                 </filter>
                 <linearGradient id="pinGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.9"/>
@@ -4682,7 +5236,9 @@ function App() {
         if (drawType === 'Analysis') {
             const drawInteraction = new Draw({
                 source: analysisSourceRef.current,
-                type: 'Polygon'
+                type: 'Polygon',
+                freehand: false,
+                freehandCondition: () => false
             });
 
             drawInteraction.on('drawend', async (event) => {
@@ -4734,7 +5290,9 @@ function App() {
         if (drawType === 'LocationAnalysisBoundary') {
             const boundaryDrawInteraction = new Draw({
                 source: locationAnalysisBoundarySourceRef.current,
-                type: 'Polygon'
+                type: 'Polygon',
+                freehand: false,
+                freehandCondition: () => false
             });
 
             boundaryDrawInteraction.on('drawstart', () => {
@@ -4777,7 +5335,9 @@ function App() {
         if (drawType === 'Stop') {
             const stopDrawInteraction = new Draw({
                 source: stopSourceRef.current,
-                type: 'Point'
+                type: 'Point',
+                freehand: false,
+                freehandCondition: () => false
             });
 
             stopDrawInteraction.on('drawend', (event) => {
@@ -4816,7 +5376,10 @@ function App() {
         if (drawType === 'Poi') {
             const poiDrawInteraction = new Draw({
                 source: drawingsSourceRef.current,
-                type: poiDrawGeometryType
+                type: poiDrawGeometryType,
+                freehand: false,
+                freehandCondition: () => false,
+                condition: (event) => event.originalEvent.button === 0
             });
 
             poiDrawInteraction.on('drawstart', (event) => {
@@ -4914,7 +5477,10 @@ function App() {
         // STANDART ÇİZİM MODLARI (Point, LineString, Polygon)
         const stdDrawInteraction = new Draw({
             source: drawingsSourceRef.current,
-            type: drawType
+            type: drawType,
+            freehand: false,
+            freehandCondition: () => false,
+            condition: (event) => event.originalEvent.button === 0
         });
 
         stdDrawInteraction.on('drawstart', (event) => {
@@ -6015,77 +6581,129 @@ function App() {
 
                     <div className="sidebar-divider"></div>
 
-                    {/* KAYITLI KONUMLAR VE ÇİZİMLER LİSTESİ */}
+                    {/* KAYITLI KONUMLAR VE ÇİZİMLER LİSTESİ (AÇILIR / KAPANIR BÖLME) */}
                     <div className="saved-places-section">
-                        <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                            <h3 className="section-title" style={{ margin: 0 }}>{t.savedPlacesTitle}</h3>
-                            <span className="places-count-badge">{filteredDrawings.length} {t.recordsBadge}</span>
+                        <div 
+                            className="section-header" 
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'space-between', 
+                                marginBottom: isSavedDrawingsOpen ? '10px' : '0',
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                                padding: '4px 0',
+                                gap: '8px',
+                                width: '100%'
+                            }}
+                            onClick={() => setIsSavedDrawingsOpen(prev => !prev)}
+                            title="Kayıtlı Çizimler Bölmesini Aç / Kapat"
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                                <svg 
+                                    width="14" 
+                                    height="14" 
+                                    viewBox="0 0 24 24" 
+                                    fill="none" 
+                                    stroke="currentColor" 
+                                    strokeWidth="2.4" 
+                                    strokeLinecap="round" 
+                                    strokeLinejoin="round"
+                                    style={{ 
+                                        transform: isSavedDrawingsOpen ? 'rotate(0deg)' : 'rotate(-90deg)', 
+                                        transition: 'transform 0.2s ease',
+                                        color: '#3b82f6',
+                                        flexShrink: 0
+                                    }}
+                                >
+                                    <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                                <h3 className="section-title" style={{ margin: 0, fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.2' }}>
+                                    {t.savedPlacesTitle}
+                                </h3>
+                            </div>
+                            <span 
+                                className="places-count-badge"
+                                style={{ 
+                                    whiteSpace: 'nowrap', 
+                                    flexShrink: 0, 
+                                    display: 'inline-flex', 
+                                    alignItems: 'center', 
+                                    justifyContent: 'center',
+                                    gap: '3px',
+                                    lineHeight: 1
+                                }}
+                            >
+                                {filteredDrawings.length} {t.recordsBadge}
+                            </span>
                         </div>
 
-                        {filteredDrawings.length === 0 ? (
-                            <p className="no-places-msg">{t.noRecordsMsg}</p>
-                        ) : (
-                            <div className="saved-places-list">
-                                {/* Kayıtlı Çizimler / Konumlar */}
-                                {filteredDrawings.map((drawing) => (
-                                    <div
-                                        key={`drawing-${drawing.type}-${drawing.id}`}
-                                        className="saved-place-item"
-                                        onClick={() => handleSelectDrawing(drawing, false)}
-                                    >
-                                        <div className="place-item-icon">
-                                            {drawing.type === 'Point' ? (
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                                    <circle cx="12" cy="12" r="7.5" fill={drawing.color || "#3b82f6"} stroke={drawing.color === '#ffffff' || drawing.color?.toLowerCase() === '#fff' ? '#94a3b8' : '#ffffff'} strokeWidth="1.5" />
-                                                </svg>
-                                            ) : drawing.type === 'Line' ? (
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#3b82f6"} strokeWidth="3.5" strokeLinecap="round">
-                                                    <path d="M4 20L20 4" />
-                                                </svg>
-                                            ) : (
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#10b981"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                    <polygon points="12 2 22 8.5 18 19 6 19 2 8.5" fill={hexToRgba(drawing.color || '#10b981', 0.6)} />
-                                                </svg>
-                                            )}
-                                        </div>
-                                        <div className="place-item-info" style={{ flex: 1 }}>
-                                            <span className="place-item-name">{drawing.name}</span>
-                                            <span className="place-item-coords">
-                                                {drawing.type === 'Line' ? t.lineTypeLabel : drawing.type === 'Polygon' ? t.polygonTypeLabel : t.pointTypeLabel}
-                                            </span>
-                                        </div>
-
-                                        <button
-                                            type="button"
-                                            className="btn-info-drawing"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleSelectDrawing(drawing, true);
-                                            }}
-                                            title={t.btnInfoTooltip || "Bilgisini Göster"}
+                        {isSavedDrawingsOpen && (
+                            filteredDrawings.length === 0 ? (
+                                <p className="no-places-msg">{t.noRecordsMsg}</p>
+                            ) : (
+                                <div className="saved-places-list">
+                                    {/* Kayıtlı Çizimler / Konumlar */}
+                                    {filteredDrawings.map((drawing) => (
+                                        <div
+                                            key={`drawing-${drawing.type}-${drawing.id}`}
+                                            className="saved-place-item"
+                                            onClick={() => handleSelectDrawing(drawing, false)}
                                         >
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-                                                <circle cx="12" cy="12" r="10" />
-                                                <line x1="12" y1="16" x2="12" y2="12" />
-                                                <line x1="12" y1="8" x2="12.01" y2="8" />
-                                            </svg>
-                                        </button>
+                                            <div className="place-item-icon">
+                                                {drawing.type === 'Point' ? (
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                        <circle cx="12" cy="12" r="7.5" fill={drawing.color || "#3b82f6"} stroke={drawing.color === '#ffffff' || drawing.color?.toLowerCase() === '#fff' ? '#94a3b8' : '#ffffff'} strokeWidth="1.5" />
+                                                    </svg>
+                                                ) : drawing.type === 'Line' ? (
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#3b82f6"} strokeWidth="3.5" strokeLinecap="round">
+                                                        <path d="M4 20L20 4" />
+                                                    </svg>
+                                                ) : (
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={drawing.color || "#10b981"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <polygon points="12 2 22 8.5 18 19 6 19 2 8.5" fill={hexToRgba(drawing.color || '#10b981', 0.6)} />
+                                                    </svg>
+                                                )}
+                                            </div>
+                                            <div className="place-item-info" style={{ flex: 1 }}>
+                                                <span className="place-item-name">{drawing.name}</span>
+                                                <span className="place-item-coords">
+                                                    {drawing.type === 'Line' ? t.lineTypeLabel : drawing.type === 'Polygon' ? t.polygonTypeLabel : t.pointTypeLabel}
+                                                </span>
+                                            </div>
 
-                                        {userRole !== 'Viewer' && canEditDrawing(drawing) && (
                                             <button
-                                                className="btn-delete-drawing"
-                                                onClick={(e) => triggerDeleteDrawing(drawing, e)}
-                                                title="Çizimi Sil"
+                                                type="button"
+                                                className="btn-info-drawing"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleSelectDrawing(drawing, true);
+                                                }}
+                                                title={t.btnInfoTooltip || "Bilgisini Göster"}
                                             >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                                                    <circle cx="12" cy="12" r="10" />
+                                                    <line x1="12" y1="16" x2="12" y2="12" />
+                                                    <line x1="12" y1="8" x2="12.01" y2="8" />
                                                 </svg>
                                             </button>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
+
+                                            {userRole !== 'Viewer' && canEditDrawing(drawing) && (
+                                                <button
+                                                    className="btn-delete-drawing"
+                                                    onClick={(e) => triggerDeleteDrawing(drawing, e)}
+                                                    title="Çizimi Sil"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                    </svg>
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )
                         )}
                     </div>
                 </div>
@@ -6614,6 +7232,14 @@ function App() {
                     </div>
                 )}
             </div>
+
+            {/* GOOGLE EARTH TARZI TARİHSEL UYDU ZAMAN ÇİZELGESİ (ESRI WAYBACK) */}
+            <HistoricalTimelineSlider
+                selectedLayerId={selectedBaseLayer}
+                onSelectLayer={handleSelectBaseLayer}
+                onClose={() => handleSelectBaseLayer('google_hybrid')}
+                isSidebarOpen={isSidebarOpen}
+            />
 
             {/* HARİTA FİLTRELEME YÜZER PANELİ */}
             {showFilterPanel && (
@@ -7419,6 +8045,118 @@ function App() {
                 </div>
             </div>
 
+            {/* POI TAŞIMA & POLİGON DÜZENLEME AKTİF BARI (Admin & Editor) */}
+            {editingPoiState && (
+                <div
+                    className="floating-draw-bottom-bar poi-editing-bottom-bar"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                        position: 'absolute',
+                        bottom: '24px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 1015,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '14px',
+                        backgroundColor: '#0f172a',
+                        border: '1.5px solid #38bdf8',
+                        borderRadius: '12px',
+                        padding: '10px 18px',
+                        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
+                        color: '#ffffff',
+                        whiteSpace: 'nowrap',
+                        minWidth: 'auto',
+                        width: 'auto'
+                    }}
+                >
+                    {/* Mod Rozeti */}
+                    <span
+                        style={{
+                            backgroundColor: '#0284c7',
+                            color: '#ffffff',
+                            fontWeight: 700,
+                            fontSize: '12px',
+                            padding: '6px 12px',
+                            borderRadius: '7px',
+                            letterSpacing: '0.4px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="5 9 2 12 5 15" />
+                            <polyline points="9 5 12 2 15 5" />
+                            <polyline points="15 19 12 22 9 19" />
+                            <polyline points="19 9 22 12 19 15" />
+                            <line x1="2" y1="12" x2="22" y2="12" />
+                            <line x1="12" y1="2" x2="12" y2="22" />
+                        </svg>
+                        <span>{editingPoiState.isPolygon ? 'POLİGON DÜZENLEME' : 'KONUM TAŞIMA'}</span>
+                    </span>
+
+                    {/* POI Adı ve Yönerge */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <strong style={{ fontSize: '13px', color: '#f8fafc' }}>{editingPoiState.poi.name}</strong>
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                            {editingPoiState.isPolygon
+                                ? 'Sınırları köşelerden, konumu gövdeden sürükleyin'
+                                : 'İşaretçiyi haritada yeni yerine sürükleyin'}
+                        </span>
+                    </div>
+
+                    {/* Aksiyon Butonları */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '6px' }}>
+                        <button
+                            type="button"
+                            onClick={handleSavePoiGeometry}
+                            disabled={isSavingPoiGeom}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                padding: '6px 14px',
+                                fontSize: '12.5px',
+                                fontWeight: 700,
+                                borderRadius: '7px',
+                                backgroundColor: '#16a34a',
+                                color: '#ffffff',
+                                border: 'none',
+                                cursor: isSavingPoiGeom ? 'wait' : 'pointer',
+                                boxShadow: 'none'
+                            }}
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                <polyline points="7 3 7 8 15 8"></polyline>
+                            </svg>
+                            <span>{isSavingPoiGeom ? 'Kaydediliyor...' : 'Kaydet'}</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleCancelPoiEditing}
+                            disabled={isSavingPoiGeom}
+                            style={{
+                                padding: '6px 12px',
+                                fontSize: '12.5px',
+                                borderRadius: '7px',
+                                backgroundColor: 'rgba(255,255,255,0.08)',
+                                color: '#cbd5e1',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                cursor: 'pointer',
+                                boxShadow: 'none'
+                            }}
+                        >
+                            Vazgeç
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* SADE VE NET YÜZER ÇİZİM BARI (Vektör Çizimler: Point, LineString, Polygon) */}
             {drawType !== 'None' && drawType !== 'Analysis' && drawType !== 'Poi' && drawType !== 'Stop' && (
                 <div
@@ -7592,7 +8330,7 @@ function App() {
                     {/* Durum Metni */}
                     <span style={{ fontSize: '12.5px', color: '#cbd5e1', minWidth: '110px' }}>
                         {draftWkt ? (
-                            <span style={{ color: '#4ade80', fontWeight: 600 }}>{t.drawingCompleted || '✓ Çizildi'}</span>
+                            <span style={{ color: '#4ade80', fontWeight: 600 }}>{t.drawingCompleted || 'Çizildi'}</span>
                         ) : (
                             <span style={{ color: '#94a3b8' }}>{t.drawingInProgress || 'Haritada çizin...'}</span>
                         )}
@@ -7902,11 +8640,11 @@ function App() {
                         {draftPoiData ? (
                             draftPoiData.isPolygon ? (
                                 <span style={{ color: '#4ade80', fontWeight: 600 }}>
-                                    ✓ Alan: {draftPoiData.area >= 1000000 ? (draftPoiData.area / 1000000).toFixed(2) + ' km²' : Math.round(draftPoiData.area).toLocaleString() + ' m²'}
+                                    Alan: {draftPoiData.area >= 1000000 ? (draftPoiData.area / 1000000).toFixed(2) + ' km²' : Math.round(draftPoiData.area).toLocaleString() + ' m²'}
                                 </span>
                             ) : (
                                 <span style={{ color: '#38bdf8', fontWeight: 600 }}>
-                                    ✓ Nokta Seçildi
+                                    Nokta Seçildi
                                 </span>
                             )
                         ) : (
@@ -8065,7 +8803,7 @@ function App() {
                                 cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer'
                             }}
                         >
-                            ↩ Geri
+                            Geri
                         </button>
 
                         <button
@@ -8083,7 +8821,7 @@ function App() {
                                 cursor: historyIndex >= geometryHistoryRef.current.length - 1 ? 'not-allowed' : 'pointer'
                             }}
                         >
-                            ↪ İleri
+                            İleri
                         </button>
 
                         <button
@@ -8848,7 +9586,40 @@ function App() {
                             </button>
                         </div>
 
-                        {(isAdmin || userRole === 'Editor' || userRole === 'Editör' || selectedPoiInfo.userId === loggedInUserId) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {(isAdmin || userRole === 'Admin' || userRole === 'Editor' || userRole === 'Editör' || selectedPoiInfo.userId === loggedInUserId) && (
+                                <button
+                                    type="button"
+                                    onClick={() => startPoiEditing(selectedPoiInfo)}
+                                    title={selectedPoiInfo.wkt?.toUpperCase().includes('POLYGON') ? 'POI Poligon Sınırlarını Düzenle ve Taşı' : 'POI Konumunu Haritada Taşı'}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        padding: '7px 11px',
+                                        borderRadius: '7px',
+                                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                        color: '#38bdf8',
+                                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="5 9 2 12 5 15" />
+                                        <polyline points="9 5 12 2 15 5" />
+                                        <polyline points="15 19 12 22 9 19" />
+                                        <polyline points="19 9 22 12 19 15" />
+                                        <line x1="2" y1="12" x2="22" y2="12" />
+                                        <line x1="12" y1="2" x2="12" y2="22" />
+                                    </svg>
+                                    <span>{selectedPoiInfo.wkt?.toUpperCase().includes('POLYGON') ? 'Poligonu Düzenle' : 'Konumu Taşı'}</span>
+                                </button>
+                            )}
+
+                            {(isAdmin || userRole === 'Admin' || userRole === 'Editor' || userRole === 'Editör' || selectedPoiInfo.userId === loggedInUserId) && (
                             <button
                                 type="button"
                                 className="poi-btn-delete-icon"
@@ -8877,6 +9648,7 @@ function App() {
                                 </svg>
                             </button>
                         )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -8889,14 +9661,24 @@ function App() {
                             <div
                                 className="stop-card-badge-icon"
                                 style={{
-                                    backgroundColor: selectedStopInfo.routeColor || '#ef4444'
+                                    backgroundColor: selectedStopInfo.routeColor || '#3b82f6',
+                                    fontSize: '14px'
                                 }}
                             >
-                                <span>{selectedStopInfo.orderIndex || 1}</span>
+                                {(() => {
+                                    const sc = (selectedStopInfo.stopClass || selectedStopInfo.routeClass || 'otobus').toLowerCase();
+                                    if (sc === 'gemi' || sc === 'liman') return '🚢';
+                                    if (sc === 'metro') return '🚇';
+                                    if (sc === 'tren') return '🚆';
+                                    if (sc === 'otobus') return '🚌';
+                                    return '🚗';
+                                })()}
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                                 <h3 className="stop-card-title">{selectedStopInfo.name}</h3>
-                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Ulaşım Durağı Detayları</span>
+                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                                    {selectedStopInfo.routeName ? `Hat Durağı (${selectedStopInfo.routeName})` : 'Bağımsız Ulaşım Durağı / Noktası'}
+                                </span>
                             </div>
                         </div>
                         <button
@@ -8910,29 +9692,14 @@ function App() {
                     </div>
 
                     <div className="stop-card-body">
-                        <div className="stop-detail-row">
-                            <span className="stop-detail-label">Bağlı Güzergah:</span>
-                            <span
-                                className="stop-badge"
-                                style={{
-                                    backgroundColor: selectedStopInfo.routeColor ? `${selectedStopInfo.routeColor}25` : 'rgba(239, 68, 68, 0.15)',
-                                    color: selectedStopInfo.routeColor || '#ef4444',
-                                    border: `1px solid ${selectedStopInfo.routeColor || '#ef4444'}60`
-                                }}
-                            >
-                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: selectedStopInfo.routeColor || '#ef4444', display: 'inline-block', marginRight: '5px' }} />
-                                {selectedStopInfo.routeName || 'Güzergah'}
-                            </span>
-                        </div>
-
-                        {/* Ulaşım Sınıfı & Otobüs Numarası */}
+                        {/* Ulaşım Sınıfı */}
                         {(() => {
-                            const stopRouteClass = (selectedStopInfo.routeClass || '').toLowerCase();
-                            const isBusStop = stopRouteClass === 'otobus';
-                            const classInfo = getRouteClassInfo(stopRouteClass);
+                            const stopClass = (selectedStopInfo.stopClass || selectedStopInfo.routeClass || 'otobus').toLowerCase();
+                            const isBusStop = stopClass === 'otobus';
+                            const classInfo = getRouteClassInfo(stopClass);
                             return (
                                 <div className="stop-detail-row">
-                                    <span className="stop-detail-label">Ulaşım Türü:</span>
+                                    <span className="stop-detail-label">Durak Türü:</span>
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                                         <span
                                             style={{
@@ -8944,7 +9711,7 @@ function App() {
                                             <RouteClassIcon classKey={classInfo.id} size={13} color={classInfo.color} />
                                             {classInfo.label}
                                         </span>
-                                        {isBusStop && selectedStopInfo.routeId && (
+                                        {isBusStop && selectedStopInfo.routeId && selectedStopInfo.routeName && (
                                             <button
                                                 type="button"
                                                 onClick={(e) => {
@@ -8974,11 +9741,41 @@ function App() {
                         })()}
 
                         <div className="stop-detail-row">
-                            <span className="stop-detail-label">Durak Sırası:</span>
-                            <span className="stop-detail-value" style={{ fontWeight: 700, color: selectedStopInfo.routeColor || '#ef4444' }}>
-                                #{selectedStopInfo.orderIndex}. Durak {selectedStopInfo.totalStopsInRoute ? `(Toplam ${selectedStopInfo.totalStopsInRoute} durak)` : ''}
-                            </span>
+                            <span className="stop-detail-label">Bağlı Güzergah:</span>
+                            {selectedStopInfo.routeName ? (
+                                <span
+                                    className="stop-badge"
+                                    style={{
+                                        backgroundColor: selectedStopInfo.routeColor ? `${selectedStopInfo.routeColor}25` : 'rgba(59, 130, 246, 0.15)',
+                                        color: selectedStopInfo.routeColor || '#3b82f6',
+                                        border: `1px solid ${selectedStopInfo.routeColor || '#3b82f6'}60`
+                                    }}
+                                >
+                                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: selectedStopInfo.routeColor || '#3b82f6', display: 'inline-block', marginRight: '5px' }} />
+                                    {selectedStopInfo.routeName}
+                                </span>
+                            ) : (
+                                <span
+                                    className="stop-badge"
+                                    style={{
+                                        backgroundColor: 'rgba(100, 116, 139, 0.15)',
+                                        color: '#94a3b8',
+                                        border: '1px solid rgba(100, 116, 139, 0.3)'
+                                    }}
+                                >
+                                    Bağımsız Durak / POI
+                                </span>
+                            )}
                         </div>
+
+                        {selectedStopInfo.routeId && (
+                            <div className="stop-detail-row">
+                                <span className="stop-detail-label">Durak Sırası:</span>
+                                <span className="stop-detail-value" style={{ fontWeight: 700, color: selectedStopInfo.routeColor || '#3b82f6' }}>
+                                    #{selectedStopInfo.orderIndex}. Durak {selectedStopInfo.totalStopsInRoute ? `(Toplam ${selectedStopInfo.totalStopsInRoute} durak)` : ''}
+                                </span>
+                            </div>
+                        )}
 
                         {selectedStopInfo.latitude != null && selectedStopInfo.longitude != null && (
                             <div className="stop-detail-row">
@@ -9015,74 +9812,80 @@ function App() {
                         )}
                     </div>
 
-                    {canManageTransport && (
-                        <div className="stop-card-footer">
-                            <button
-                                type="button"
-                                className="stop-btn-manage"
-                                onClick={() => handleStartModifyingStop(selectedStopInfo)}
-                                title="Bu durağı haritada fare ile sürükleyerek yeni bir konuma taşıyın"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '5px',
-                                    padding: '7px 11px',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#0284c7',
-                                    color: '#ffffff',
-                                    border: 'none',
-                                    fontSize: '11.5px',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    boxShadow: 'none'
-                                }}
-                            >
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="5 9 2 12 5 15" />
-                                    <polyline points="9 5 12 2 15 5" />
-                                    <polyline points="15 19 12 22 9 19" />
-                                    <polyline points="19 9 22 12 19 15" />
-                                    <line x1="2" y1="12" x2="22" y2="12" />
-                                    <line x1="12" y1="2" x2="12" y2="22" />
-                                </svg>
-                                <span>Konumu Sürükle</span>
-                            </button>
+                    <div className="stop-card-footer" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                        {/* Yol Tarifi Al Butonu (POI gibi) */}
+                        <button
+                            type="button"
+                            onClick={() => handleStartDirectionsToPoi(selectedStopInfo)}
+                            title="Bu durağa yol tarifi hesapla"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                padding: '7px 12px',
+                                borderRadius: '6px',
+                                backgroundColor: '#10b981',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontSize: '11.5px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                boxShadow: 'none'
+                            }}
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="3 11 22 2 13 21 11 13 3 11" />
+                            </svg>
+                            <span>Yol Tarifi Al</span>
+                        </button>
 
-                            <button
-                                type="button"
-                                className="stop-btn-manage"
-                                onClick={() => {
-                                    setCurrentView('admin');
-                                }}
-                                title="Güzergah Yönetimini Aç"
-                                style={{
-                                    padding: '7px 11px',
-                                    borderRadius: '6px',
-                                    backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
-                                    color: isDarkMode ? '#f8fafc' : '#0f172a',
-                                    border: 'none',
-                                    fontSize: '11.5px',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    boxShadow: 'none'
-                                }}
-                            >
-                                <span>Sıralama</span>
-                            </button>
+                        {canManageTransport && (
+                            <>
+                                <button
+                                    type="button"
+                                    className="stop-btn-manage"
+                                    onClick={() => handleStartModifyingStop(selectedStopInfo)}
+                                    title="Bu durağı haritada fare ile sürükleyerek yeni bir konuma taşıyın"
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        padding: '7px 11px',
+                                        borderRadius: '6px',
+                                        backgroundColor: '#0284c7',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontSize: '11.5px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        boxShadow: 'none'
+                                    }}
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="5 9 2 12 5 15" />
+                                        <polyline points="9 5 12 2 15 5" />
+                                        <polyline points="15 19 12 22 9 19" />
+                                        <polyline points="19 9 22 12 19 15" />
+                                        <line x1="2" y1="12" x2="22" y2="12" />
+                                        <line x1="12" y1="2" x2="12" y2="22" />
+                                    </svg>
+                                    <span>Konumu Sürükle</span>
+                                </button>
 
-                            <button
-                                type="button"
-                                className="stop-btn-delete-icon"
-                                onClick={() => handleDeleteStopFromMap(selectedStopInfo.id, selectedStopInfo.name)}
-                                title="Durağı Sil"
-                            >
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                </svg>
-                            </button>
-                        </div>
-                    )}
+                                <button
+                                    type="button"
+                                    className="stop-btn-delete-icon"
+                                    onClick={() => handleDeleteStopFromMap(selectedStopInfo.id, selectedStopInfo.name)}
+                                    title="Durağı Sil"
+                                >
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                    </svg>
+                                </button>
+                            </>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -9685,7 +10488,7 @@ function App() {
                                     alignItems: 'center',
                                     gap: '4px'
                                 }}>
-                                    {selectedVehicleInfo.isPaused ? '⏸ Duraklatıldı' : (selectedVehicleInfo.isCompleted ? '✓ Sefer Tamamlandı' : '● Seyir Halinde')}
+                                    {selectedVehicleInfo.isPaused ? 'Duraklatıldı' : (selectedVehicleInfo.isCompleted ? 'Sefer Tamamlandı' : 'Seyir Halinde')}
                                 </span>
                             </div>
 
@@ -9896,14 +10699,56 @@ function App() {
                             </div>
 
                             <div className="poi-modal-form-group">
-                                <label className="poi-modal-form-label">Güzergah Seçiniz *</label>
+                                <label className="poi-modal-form-label">Durak Sınıfı / Türü *</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                                    {[
+                                        { id: 'otobus', label: 'Otobüs', icon: '🚌' },
+                                        { id: 'metro', label: 'Metro/Raylı', icon: '🚇' },
+                                        { id: 'gemi', label: 'Liman/İskele', icon: '🚢' },
+                                        { id: 'tren', label: 'Tren/Gar', icon: '🚆' },
+                                        { id: 'araba', label: 'Karayolu', icon: '🚗' }
+                                    ].map(item => {
+                                        const isSelected = (newStopForm.stopClass || 'otobus').toLowerCase() === item.id;
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() => setNewStopForm({ ...newStopForm, stopClass: item.id })}
+                                                style={{
+                                                    padding: '6px 8px',
+                                                    borderRadius: '8px',
+                                                    border: isSelected ? '2px solid #ef4444' : '1px solid rgba(255,255,255,0.15)',
+                                                    backgroundColor: isSelected ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255,255,255,0.05)',
+                                                    color: isSelected ? '#ffffff' : '#94a3b8',
+                                                    fontWeight: isSelected ? '700' : '500',
+                                                    fontSize: '11.5px',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '4px'
+                                                }}
+                                            >
+                                                <span>{item.icon}</span>
+                                                <span>{item.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="poi-modal-form-group">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <label className="poi-modal-form-label" style={{ margin: 0 }}>Güzergah Seçiniz</label>
+                                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>(Opsiyonel)</span>
+                                </div>
                                 <select
                                     className="poi-modal-input"
                                     value={newStopForm.routeId}
                                     onChange={(e) => setNewStopForm({ ...newStopForm, routeId: e.target.value })}
-                                    required
+                                    style={{ marginTop: '5px' }}
                                 >
-                                    <option value="" disabled>-- Güzergah Seçiniz --</option>
+                                    <option value="">-- Bağımsız Durak (Güzergaha Bağlı Değil) --</option>
                                     {routes.map(r => (
                                         <option key={r.id} value={r.id}>
                                             {r.name} ({r.stops?.length || 0} Durak)
@@ -10098,7 +10943,7 @@ function App() {
                                                             height: '20px',
                                                             borderRadius: '50%',
                                                             border: editColor === c.hex ? '2px solid #ffffff' : '1px solid rgba(255,255,255,0.2)',
-                                                            boxShadow: editColor === c.hex ? `0 0 7px ${c.hex}` : 'none',
+                                                            boxShadow: 'none',
                                                             cursor: 'pointer',
                                                             padding: 0
                                                         }}
@@ -10577,7 +11422,7 @@ function App() {
                                                                     height: '10px',
                                                                     borderRadius: '50%',
                                                                     backgroundColor: selectedCat.color || '#3b82f6',
-                                                                    boxShadow: `0 0 6px ${selectedCat.color || '#3b82f6'}80`,
+                                                                    boxShadow: 'none',
                                                                     flexShrink: 0,
                                                                     display: 'inline-block'
                                                                 }}
@@ -11062,10 +11907,10 @@ function App() {
                         left: 'calc(50% + 80px)',
                         transform: 'translateX(-50%)',
                         zIndex: 1020,
-                        width: '340px',
-                        maxWidth: '92vw',
+                        width: '370px',
+                        maxWidth: '94vw',
                         backgroundColor: '#0b1329',
-                        border: `1.2px solid ${directionsState.activeMode === 'walking' ? '#10b981' : (directionsState.activeMode === 'cycling' ? '#8b5cf6' : '#3b82f6')}`,
+                        border: `1.2px solid ${directionsState.activeMode === 'walking' ? '#10b981' : (directionsState.activeMode === 'cycling' ? '#8b5cf6' : (directionsState.activeMode === 'gemi' ? '#06b6d4' : (directionsState.activeMode === 'metro' ? '#ef4444' : (directionsState.activeMode === 'transit' ? '#0284c7' : '#3b82f6'))))}`,
                         borderRadius: '11px',
                         padding: '8px 12px',
                         boxShadow: '0 16px 36px rgba(0, 0, 0, 0.7)',
@@ -11083,7 +11928,7 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <span
                                 style={{
-                                    backgroundColor: directionsState.activeMode === 'walking' ? '#10b981' : (directionsState.activeMode === 'cycling' ? '#8b5cf6' : '#2563eb'),
+                                    backgroundColor: directionsState.activeMode === 'walking' ? '#10b981' : (directionsState.activeMode === 'cycling' ? '#8b5cf6' : (directionsState.activeMode === 'gemi' ? '#06b6d4' : (directionsState.activeMode === 'metro' ? '#ef4444' : (directionsState.activeMode === 'transit' ? '#0284c7' : '#2563eb')))),
                                     color: '#ffffff',
                                     fontWeight: 700,
                                     fontSize: '9.5px',
@@ -11100,32 +11945,125 @@ function App() {
                                 </svg>
                                 {t.routeLabel || 'ROTA'}
                             </span>
-                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '190px' }}>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px' }}>
                                 {directionsState.targetName || directionsState.targetPoi?.name || (lang === 'tr' ? 'Hedef' : 'Destination')}
                             </span>
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={handleClearDirections}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                color: '#94a3b8',
-                                cursor: 'pointer',
-                                padding: '2px',
-                                borderRadius: '4px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                            onMouseOver={(e) => { e.currentTarget.style.color = '#ef4444'; }}
-                            onMouseOut={(e) => { e.currentTarget.style.color = '#94a3b8'; }}
-                            title={t.closeBtn || "Kapat"}
-                        >
-                            <CloseIcon size={13} />
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            {/* Ulaşım Tercihleri Butonu */}
+                            <button
+                                type="button"
+                                onClick={() => setDirectionsState(prev => ({ ...prev, showPreferencesModal: !prev.showPreferencesModal }))}
+                                style={{
+                                    background: directionsState.showPreferencesModal ? 'rgba(56, 189, 248, 0.2)' : 'none',
+                                    border: 'none',
+                                    color: directionsState.showPreferencesModal ? '#38bdf8' : '#94a3b8',
+                                    cursor: 'pointer',
+                                    padding: '3px 5px',
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    transition: 'all 0.12s ease'
+                                }}
+                                onMouseOver={(e) => { e.currentTarget.style.color = '#38bdf8'; }}
+                                onMouseOut={(e) => { if (!directionsState.showPreferencesModal) e.currentTarget.style.color = '#94a3b8'; }}
+                                title="Ulaşım Tercihleri (Gemi, Metro, Otobüs)"
+                            >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="4" y1="21" x2="4" y2="14" />
+                                    <line x1="4" y1="10" x2="4" y2="3" />
+                                    <line x1="12" y1="21" x2="12" y2="12" />
+                                    <line x1="12" y1="8" x2="12" y2="3" />
+                                    <line x1="20" y1="21" x2="20" y2="16" />
+                                    <line x1="20" y1="12" x2="20" y2="3" />
+                                    <line x1="1" y1="14" x2="7" y2="14" />
+                                    <line x1="9" y1="8" x2="15" y2="8" />
+                                    <line x1="17" y1="16" x2="23" y2="16" />
+                                </svg>
+                                <span>Tercihler</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleClearDirections}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#94a3b8',
+                                    cursor: 'pointer',
+                                    padding: '2px',
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}
+                                onMouseOver={(e) => { e.currentTarget.style.color = '#ef4444'; }}
+                                onMouseOut={(e) => { e.currentTarget.style.color = '#94a3b8'; }}
+                                title={t.closeBtn || "Kapat"}
+                            >
+                                <CloseIcon size={13} />
+                            </button>
+                        </div>
                     </div>
+
+                    {/* Ulaşım Tercihleri Açılır Paneli */}
+                    {directionsState.showPreferencesModal && (
+                        <div style={{
+                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                            border: '1px solid rgba(56, 189, 248, 0.25)',
+                            borderRadius: '7px',
+                            padding: '6px 8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '5px',
+                            animation: 'fadeIn 0.15s ease-out'
+                        }}>
+                            <div style={{ fontSize: '10px', fontWeight: 700, color: '#38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span>Ulaşım Tercihleri (Yol Tarifi)</span>
+                                <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 400 }}>Kayıtlı Hatlar Dahil Edilir</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
+                                {[
+                                    { id: 'gemi', label: 'Gemi / Vapur', color: '#06b6d4' },
+                                    { id: 'metro', label: 'Metro / Raylı', color: '#ef4444' },
+                                    { id: 'otobus', label: 'Otobüs', color: '#0284c7' },
+                                    { id: 'tren', label: 'Tren / Tramvay', color: '#f59e0b' }
+                                ].map(p => {
+                                    const isChecked = directionsState.transitPreferences?.[p.id] !== false;
+                                    return (
+                                        <label
+                                            key={p.id}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '5px',
+                                                cursor: 'pointer',
+                                                padding: '3px 5px',
+                                                borderRadius: '4px',
+                                                backgroundColor: isChecked ? 'rgba(255, 255, 255, 0.05)' : 'transparent',
+                                                border: `1px solid ${isChecked ? p.color + '44' : 'rgba(255, 255, 255, 0.06)'}`,
+                                                fontSize: '10px',
+                                                color: isChecked ? '#f1f5f9' : '#64748b',
+                                                userSelect: 'none'
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={() => handleToggleTransitPreference(p.id)}
+                                                style={{ accentColor: p.color, width: '12px', height: '12px', cursor: 'pointer' }}
+                                            />
+                                            <span>{p.label}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Body Content */}
                     {directionsState.selectingPoint ? (
@@ -11150,6 +12088,41 @@ function App() {
                                 const activeMode = directionsState.activeMode || 'driving';
 
                                 const renderDirectionModeIcon = (modeId, color = 'currentColor') => {
+                                    if (modeId === 'gemi') {
+                                        return (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+                                                <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.15" />
+                                                <path d="M10 10V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v6" />
+                                                <line x1="12" y1="1" x2="12" y2="4" />
+                                            </svg>
+                                        );
+                                    }
+                                    if (modeId === 'metro') {
+                                        return (
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+                                                <rect x="4" y="3" width="16" height="15" rx="2" />
+                                                <line x1="4" y1="11" x2="20" y2="11" />
+                                                <line x1="12" y1="3" x2="12" y2="11" />
+                                                <circle cx="8" cy="15" r="1" fill={color} />
+                                                <circle cx="16" cy="15" r="1" fill={color} />
+                                                <path d="m8 18-3 3" />
+                                                <path d="m16 18 3 3" />
+                                            </svg>
+                                        );
+                                    }
+                                    if (modeId === 'transit') {
+                                        return (
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+                                                <rect x="4" y="3" width="16" height="16" rx="2" />
+                                                <line x1="4" y1="11" x2="20" y2="11" />
+                                                <circle cx="8" cy="15" r="1" fill={color} />
+                                                <circle cx="16" cy="15" r="1" fill={color} />
+                                                <path d="m6 19-2 2" />
+                                                <path d="m18 19 2 2" />
+                                            </svg>
+                                        );
+                                    }
                                     if (modeId === 'walking') {
                                         return (
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -11185,17 +12158,38 @@ function App() {
                                         id: 'driving',
                                         label: t.drivingMode || 'Araba',
                                         color: '#3b82f6',
-                                        bg: 'rgba(59, 130, 246, 0.18)',
+                                        bg: 'rgba(59, 130, 246, 0.2)',
                                         data: routeData.driving || {
                                             formattedDuration: formatDuration(routeData.durationMinutes, lang),
                                             formattedDistance: `${routeData.distanceKm} km`
                                         }
                                     },
+                                    ...(routeData.gemi ? [{
+                                        id: 'gemi',
+                                        label: 'Gemi',
+                                        color: '#06b6d4',
+                                        bg: 'rgba(6, 182, 212, 0.22)',
+                                        data: routeData.gemi
+                                    }] : []),
+                                    ...(routeData.metro ? [{
+                                        id: 'metro',
+                                        label: 'Metro',
+                                        color: '#ef4444',
+                                        bg: 'rgba(239, 68, 68, 0.22)',
+                                        data: routeData.metro
+                                    }] : []),
+                                    ...(routeData.transit && !routeData.gemi && !routeData.metro ? [{
+                                        id: 'transit',
+                                        label: 'Toplu Taşıma',
+                                        color: '#0284c7',
+                                        bg: 'rgba(2, 132, 199, 0.22)',
+                                        data: routeData.transit
+                                    }] : []),
                                     {
                                         id: 'walking',
                                         label: t.walkingMode || 'Yürüyüş',
                                         color: '#10b981',
-                                        bg: 'rgba(168, 85, 247, 0.18)',
+                                        bg: 'rgba(16, 185, 129, 0.2)',
                                         data: routeData.walking || {
                                             formattedDuration: formatDuration(Math.round(((routeData.distanceKm || 1) / 4.8) * 60), lang),
                                             formattedDistance: `${routeData.distanceKm} km`
@@ -11205,7 +12199,7 @@ function App() {
                                         id: 'cycling',
                                         label: t.cyclingMode || 'Bisiklet',
                                         color: '#a855f7',
-                                        bg: 'rgba(168, 85, 247, 0.18)',
+                                        bg: 'rgba(168, 85, 247, 0.2)',
                                         data: routeData.cycling || {
                                             formattedDuration: formatDuration(Math.round(((routeData.distanceKm || 1) / 16.0) * 60), lang),
                                             formattedDistance: `${routeData.distanceKm} km`
@@ -11230,7 +12224,7 @@ function App() {
                                 return (
                                     <>
                                         {/* Mod Sekmeleri (Kompakt Tek Satır) */}
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${modesList.length}, 1fr)`, gap: '4px' }}>
                                             {modesList.map(m => {
                                                 const isSelected = activeMode === m.id;
                                                 const dur = m.data?.formattedDuration || '—';
@@ -11241,7 +12235,7 @@ function App() {
                                                         type="button"
                                                         onClick={() => handleSwitchDirectionsMode(m.id)}
                                                         style={{
-                                                            padding: '5px 4px',
+                                                            padding: '5px 3px',
                                                             borderRadius: '6px',
                                                             border: `1.2px solid ${isSelected ? m.color : 'rgba(255, 255, 255, 0.08)'}`,
                                                             backgroundColor: isSelected ? m.bg : 'rgba(15, 23, 42, 0.5)',
@@ -11250,12 +12244,13 @@ function App() {
                                                             display: 'flex',
                                                             alignItems: 'center',
                                                             justifyContent: 'center',
-                                                            gap: '4px',
+                                                            gap: '3px',
                                                             transition: 'all 0.12s ease'
                                                         }}
+                                                        title={`${m.label}: ${dur}`}
                                                     >
                                                         {renderDirectionModeIcon(m.id, isSelected ? m.color : '#94a3b8')}
-                                                        <span style={{ fontSize: '11px', fontWeight: isSelected ? 700 : 500, color: isSelected ? '#ffffff' : '#cbd5e1' }}>
+                                                        <span style={{ fontSize: '10.5px', fontWeight: isSelected ? 700 : 500, color: isSelected ? '#ffffff' : '#cbd5e1' }}>
                                                             {dur}
                                                         </span>
                                                     </button>
@@ -11347,7 +12342,7 @@ function App() {
                                         onClick={() => {
                                             const activeOpt = (directionsState.routeData && directionsState.routeData[directionsState.activeMode]) || directionsState.routeData;
                                             const modeName = activeOpt.label || (directionsState.activeMode === 'walking' ? (t.walkingMode || 'Yürüyerek') : (t.drivingMode || 'Arabayla'));
-                                            setSaveRouteTitle(`${directionsState.startName} ➔ ${directionsState.targetName || (lang === 'tr' ? 'Hedef' : 'Destination')} (${modeName})`);
+                                            setSaveRouteTitle(`${directionsState.startName} → ${directionsState.targetName || (lang === 'tr' ? 'Hedef' : 'Destination')} (${modeName})`);
                                             setSaveRouteDescription(activeOpt.summary || '');
                                             setSaveRouteModalOpen(true);
                                         }}
@@ -11517,6 +12512,15 @@ function App() {
                 <div className="scale-display-section" title="Harita Yakınlaştırma Düzeyi (Canlı Zoom)">
                     <span>Zoom {(currentZoom ?? mapZoom ?? 6.5).toFixed(1)}</span>
                 </div>
+
+                <div className="coords-scale-divider" />
+
+                {/* DİNAMİK METRİK ÖLÇEK BARI */}
+                <div 
+                    ref={scaleLineTargetRef} 
+                    className="custom-scale-line-target" 
+                    title="Harita Metrik Ölçeği (Ölçek Barı)"
+                />
             </div>
 
             {/* OpenLayers Harita Container */}

@@ -348,7 +348,7 @@ export default function UserProfileDrawer({
                                                 </h4>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#94a3b8', marginBottom: '6px' }}>
                                                     <span style={{ color: '#10b981', fontWeight: 600 }}>{route.startPointName}</span>
-                                                    <span>➔</span>
+                                                    <span>→</span>
                                                     <span style={{ color: '#38bdf8', fontWeight: 600 }}>{route.targetPoiName}</span>
                                                 </div>
                                             </div>
@@ -406,7 +406,7 @@ export default function UserProfileDrawer({
                                             </div>
 
                                             <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                                {trans.showOnMap} ➔
+                                                {trans.showOnMap} →
                                             </span>
                                         </div>
                                     </div>
