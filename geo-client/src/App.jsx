@@ -5445,7 +5445,51 @@ function App() {
             });
             poiLayerRef.current = poiLayer;
 
-            // AKILLI ULAŞIM - DURAKLAR KATMANI: Dinamik Zoom ve Seçim Kontrolü
+            // ÖNBELLEKLENMİŞ DURAK STİLLERİ (Style Cache - 9.121 durak için sıfır tahsisat ve 60 FPS akıcılık)
+            const stopIconStyleCache = new Map();
+            const stopLabelStyleCache = new Map();
+
+            const getCachedStopIconStyle = (routeClass, color, isSelected) => {
+                const key = `${routeClass}_${color}_${isSelected}`;
+                let style = stopIconStyleCache.get(key);
+                if (!style) {
+                    const pinSvg = getStopPinSvg(routeClass, color);
+                    const isGemi = routeClass === 'gemi' || routeClass === 'liman' || routeClass === 'deniz';
+                    const isBus = routeClass === 'otobus' || routeClass === 'bus';
+                    style = new Style({
+                        image: new Icon({
+                            src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
+                            scale: isGemi ? 0.95 : (isBus ? 0.8 : 0.85),
+                            anchor: [0.5, 0.5]
+                        }),
+                        zIndex: isSelected ? 28 : (isGemi ? 26 : 24)
+                    });
+                    stopIconStyleCache.set(key, style);
+                }
+                return style;
+            };
+
+            const getCachedStopLabelStyle = (name, isBus, isSelected) => {
+                const key = `${name}_${isBus}_${isSelected}`;
+                let style = stopLabelStyleCache.get(key);
+                if (!style) {
+                    style = new Style({
+                        text: new Text({
+                            text: name,
+                            font: isBus ? '600 9.5px Inter, system-ui, sans-serif' : '600 11px Inter, system-ui, sans-serif',
+                            fill: new Fill({ color: '#ffffff' }),
+                            stroke: new Stroke({ color: '#0f172a', width: 3.5, lineJoin: 'round' }),
+                            offsetY: isBus ? 12 : 16,
+                            overflow: true
+                        }),
+                        zIndex: isSelected ? 29 : 25
+                    });
+                    stopLabelStyleCache.set(key, style);
+                }
+                return style;
+            };
+
+            // AKILLI ULAŞIM - DURAKLAR KATMANI: Yüksek Performanslı Dinamik Zoom, Stil Önbellekleme ve Seçim Kontrolü
             const stopLayer = new VectorLayer({
                 source: stopSourceRef.current,
                 zIndex: 25,
@@ -5472,12 +5516,12 @@ function App() {
                         : (isGemi 
                             ? (zs.shipStopMinZoom ?? 8.0) 
                             : (isMetro 
-                                ? (zs.metroStopMinZoom ?? 12.0) 
+                                ? (zs.metroStopMinZoom ?? 11.5) 
                                 : (isTren 
-                                    ? (zs.trainStopMinZoom ?? 11.0) 
+                                    ? (zs.trainStopMinZoom ?? 10.5) 
                                     : (isBus 
-                                        ? (isIndependent ? 10.5 : (zs.busStopMinZoom ?? 14.5)) 
-                                        : (zs.stopMinZoom ?? 14.0)))));
+                                        ? (isIndependent ? 13.0 : (zs.busStopMinZoom ?? 13.5)) 
+                                        : (zs.stopMinZoom ?? 13.0)))));
 
                     if (!isSelectedRoute && zoom < minStopZoom) {
                         return null;
@@ -5486,30 +5530,17 @@ function App() {
                     const routeColor = feature.get('routeColor') || '#3b82f6';
                     const stopName = feature.get('stopName') || '';
 
-                    // Pin SVG icon
-                    const pinSvg = getStopPinSvg(featureRouteClass, routeColor);
+                    const iconStyle = getCachedStopIconStyle(featureRouteClass, routeColor, isSelectedRoute);
 
-                    const stopNameMinZoom = isAirport ? 6.0 : (isGemi ? 7.5 : (isMetro ? 11.0 : (isTren ? 9.5 : (zs.stopNameMinZoom ?? 14.0))));
+                    const stopNameMinZoom = isAirport ? 6.0 : (isGemi ? 7.5 : (isMetro ? 11.0 : (isTren ? 9.5 : (zs.stopNameMinZoom ?? 14.5))));
                     const showStopLabel = stopName && (zoom >= stopNameMinZoom || isSelectedRoute);
 
-                    const textStyle = showStopLabel ? new Text({
-                        text: stopName,
-                        font: isBus ? '600 9.5px Inter, system-ui, sans-serif' : '600 11px Inter, system-ui, sans-serif',
-                        fill: new Fill({ color: '#ffffff' }),
-                        stroke: new Stroke({ color: '#0f172a', width: 3.5, lineJoin: 'round' }),
-                        offsetY: isBus ? 12 : 16,
-                        overflow: true
-                    }) : null;
+                    if (showStopLabel) {
+                        const labelStyle = getCachedStopLabelStyle(stopName, isBus, isSelectedRoute);
+                        return [iconStyle, labelStyle];
+                    }
 
-                    return new Style({
-                        image: new Icon({
-                            src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
-                            scale: isGemi ? 0.95 : (isBus ? 0.8 : 0.85),
-                            anchor: [0.5, 0.5]
-                        }),
-                        text: textStyle,
-                        zIndex: isSelectedRoute ? 28 : (isGemi ? 26 : 24)
-                    });
+                    return iconStyle;
                 },
                 visible: layerVisibility.stops
             });
