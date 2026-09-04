@@ -85,5 +85,19 @@ export const userPersonalApi = {
         });
         if (!res.ok) return { isFavorite: false };
         return res.json();
+    },
+
+    // 4. Profil Bilgilerini Güncelleme
+    updateProfile: async (profileDto, token) => {
+        const res = await fetch(`${API_BASE_URL}/user-personal/profile`, {
+            method: 'PUT',
+            headers: getAuthHeaders(token),
+            body: JSON.stringify(profileDto)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || 'Profil güncellenemedi.');
+        }
+        return res.json();
     }
 };

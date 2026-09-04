@@ -614,24 +614,49 @@ export function cleanPortName(name) {
     return cleaned || name.trim();
 }
 
-// Güzergah çizgisi üstünde gösterilecek sade "Liman1 - Liman2" etiket formatlayıcı
-export function formatMaritimeRouteLabel(routeName, stops) {
-    if (stops && stops.length >= 2) {
-        const first = cleanPortName(stops[0].name || stops[0].stopName);
-        const last = cleanPortName(stops[stops.length - 1].name || stops[stops.length - 1].stopName);
-        if (first && last && first !== last) {
-            return `${first} - ${last}`;
-        }
+// Liman için İlişkili Deniz Yetki Alanı (Zone ID, Deniz ve Bölge) Çözümleyici
+export function resolveMaritimeZoneForPort(port) {
+    if (!port) return { id: 'MAR-GEN-01', name: 'Türkiye Karasuları', sea: 'Genel', region: 'Türkiye' };
+    const region = (port.region || '').toLowerCase();
+    const city = (port.city || '').toLowerCase();
+    const name = (port.name || '').toLowerCase();
+
+    if (city.includes('kıbrıs') || name.includes('girne') || name.includes('mağusa') || name.includes('gazimağusa')) {
+        return { id: 'MAR-CYP-01', name: 'KKTC Karasuları & Liman Bölgesi', sea: 'Akdeniz', region: 'Kuzey Kıbrıs' };
     }
-    if (!routeName) return '';
-    if (routeName.includes('-')) {
-        const parts = routeName.split('-');
-        if (parts.length === 2) {
-            const left = cleanPortName(parts[0]);
-            const right = cleanPortName(parts[1]);
-            if (left && right) return `${left} - ${right}`;
-        }
+    if (region.includes('marmara') || ['istanbul', 'kocaeli', 'bursa', 'balıkesir', 'yalova', 'tekirdağ', 'çanakkale'].includes(city)) {
+        return { id: 'MAR-MAR-01', name: 'Marmara Denizi & Boğazlar Yetki Alanı', sea: 'Marmara Denizi', region: 'Marmara Bölgesi' };
     }
-    return cleanPortName(routeName);
+    if (region.includes('ege') || ['izmir', 'aydın', 'muğla', 'manisa'].includes(city)) {
+        return { id: 'MAR-AEG-01', name: 'Ege Denizi Kıyı Yetki Alanı', sea: 'Ege Denizi', region: 'Ege Bölgesi' };
+    }
+    if (region.includes('karadeniz') || ['trabzon', 'samsun', 'zonguldak', 'rize', 'ordu', 'giresun', 'sinop', 'artvin', 'bartın', 'kastamonu', 'düzce', 'kırklareli'].includes(city)) {
+        return { id: 'MAR-BLK-01', name: 'Karadeniz Kıyı Yetki Alanı', sea: 'Karadeniz', region: 'Karadeniz Bölgesi' };
+    }
+    return { id: 'MAR-MED-01', name: 'Akdeniz Kıyı Yetki Alanı', sea: 'Akdeniz', region: 'Akdeniz Bölgesi' };
 }
+
+// Liman Kimliği veya Adına Göre Tam Liman Bilgisi Döndürücü
+export function getSeaportInfo(portIdOrName) {
+    if (!portIdOrName) return null;
+    const query = String(portIdOrName).toLowerCase().trim();
+    const port = TURKISH_SEAPORTS.find(p => 
+        p.id.toLowerCase() === query || 
+        p.name.toLowerCase() === query || 
+        p.shortName.toLowerCase() === query ||
+        p.name.toLowerCase().includes(query)
+    );
+    if (!port) return null;
+
+    const zone = resolveMaritimeZoneForPort(port);
+    return {
+        ...port,
+        maritimeZoneId: zone.id,
+        maritimeZoneName: zone.name,
+        sea: zone.sea,
+        fullRegion: zone.region,
+        address: port.address || `${port.name}, ${port.city} Liman Sahası`
+    };
+}
+
 

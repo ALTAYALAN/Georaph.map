@@ -184,8 +184,12 @@ export const transportApi = {
     },
 
     // ATTACH / DETACH STOP TO ROUTE
-    addStopToRoute: async (routeId, stopId, token) => {
-        const res = await fetch(`${API_BASE_URL}/routes/${routeId}/stops/${stopId}`, {
+    addStopToRoute: async (routeId, stopId, token, position = 'end', targetStopId = null) => {
+        let url = `${API_BASE_URL}/routes/${routeId}/stops/${stopId}?position=${encodeURIComponent(position)}`;
+        if (targetStopId) {
+            url += `&targetStopId=${encodeURIComponent(targetStopId)}`;
+        }
+        const res = await fetch(url, {
             method: 'POST',
             headers: getAuthHeaders(token)
         });
@@ -206,5 +210,70 @@ export const transportApi = {
             throw new Error(err.message || 'Durak güzergahtan çıkarılamadı.');
         }
         return res.json();
+    },
+
+    uploadImage: async (file, token) => {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            let res = null;
+            try {
+                res = await fetch(`${API_BASE_URL}/upload/image`, {
+                    method: 'POST',
+                    headers,
+                    body: formData
+                });
+            } catch (networkErr) {
+                try {
+                    res = await fetch('/api/upload/image', {
+                        method: 'POST',
+                        headers,
+                        body: formData
+                    });
+                } catch {
+                    res = null;
+                }
+            }
+
+            if (res && res.ok) {
+                const text = await res.text();
+                if (text && text.trim().length > 0) {
+                    try {
+                        const data = JSON.parse(text);
+                        return data;
+                    } catch (e) {
+                        // ignore json parse error, fall through to base64 fallback
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('Backend image upload fallback triggered:', err);
+        }
+
+        // Seamless fallback: convert to Base64 data URL
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                resolve({
+                    url: reader.result,
+                    absoluteUrl: reader.result,
+                    fileName: file.name,
+                    size: file.size,
+                    isLocalBase64: true
+                });
+            };
+            reader.onerror = () => {
+                resolve({
+                    url: URL.createObjectURL(file),
+                    absoluteUrl: URL.createObjectURL(file),
+                    fileName: file.name,
+                    size: file.size
+                });
+            };
+            reader.readAsDataURL(file);
+        });
     }
 };

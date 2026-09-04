@@ -16,6 +16,9 @@ namespace GeoraphMap.Core
         // Mesai Saatleri (Örn: 08:30 - 18:00 veya Hafta içi 09:00 - 17:00)
         public string? WorkingHours { get; set; }
 
+        // Fotoğraf / Görsel URL
+        public string? ImageUrl { get; set; }
+
         // Geometri (Point/Polygon WKT & PostGIS Geometry)
         public string Wkt { get; set; } = string.Empty;
         public Geometry Geometry { get; set; } = null!;

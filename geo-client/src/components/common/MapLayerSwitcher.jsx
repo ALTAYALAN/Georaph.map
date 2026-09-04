@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BASEMAP_LAYERS, isWaybackLayer } from '../../constants/mapLayers';
+import { BASEMAP_LAYERS, isWaybackLayer, getLocalizedBasemapName, getLocalizedBasemapSub, getLocalizedBasemapTag } from '../../constants/mapLayers';
+import { POI_FILTER_CATEGORIES, getGlyphByIconId, getMergedPoiCategories, getLocalizedPoiCategoryLabel } from '../../constants/poiIcons';
 
 // Professional SVG Vector Icons for each Layer Type (Zero Emojis)
 const LayerVectorIcon = ({ type, color = '#38bdf8' }) => {
@@ -91,8 +92,12 @@ export const MapLayerSwitcher = ({
     onChangeHeatmapFilter,
     heatmapFeatureCount = 0,
     isOpen: propIsOpen,
-    onToggleOpen
+    onToggleOpen,
+    poiCategories = [],
+    lang = 'tr'
 }) => {
+    const isTr = lang === 'tr';
+    const allPoiCategories = React.useMemo(() => getMergedPoiCategories(poiCategories), [poiCategories]);
     const [internalIsOpen, setInternalIsOpen] = useState(false);
     const isOpen = propIsOpen !== undefined ? propIsOpen : internalIsOpen;
     const setIsOpen = (val) => {
@@ -147,7 +152,7 @@ export const MapLayerSwitcher = ({
             <button
                 className={`tool-btn-exact ${isOpen ? 'active' : ''}`}
                 onClick={() => setIsOpen(prev => !prev)}
-                title={`Harita Katmanları (${activeLayer.name})`}
+                title={`${isTr ? 'Harita Katmanları' : 'Map Layers'} (${getLocalizedBasemapName(activeLayer, lang)})`}
                 style={{
                     background: isOpen ? '#2563eb' : '',
                     color: isOpen ? '#ffffff' : ''
@@ -183,7 +188,7 @@ export const MapLayerSwitcher = ({
                                 </svg>
                             </div>
                             <span style={{ fontWeight: 800, fontSize: '13px', color: '#f8fafc' }}>
-                                Harita & Katman Yönetimi
+                                {isTr ? 'Harita & Katman Yönetimi' : 'Map & Layer Management'}
                             </span>
                         </div>
                         <button
@@ -199,7 +204,7 @@ export const MapLayerSwitcher = ({
                                 alignItems: 'center',
                                 justifyContent: 'center'
                             }}
-                            title="Kapat"
+                            title={isTr ? 'Kapat' : 'Close'}
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -244,7 +249,7 @@ export const MapLayerSwitcher = ({
                                 <line x1="2" y1="12" x2="22" y2="12" />
                                 <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                             </svg>
-                            <span>Altlık Harita</span>
+                            <span>{isTr ? 'Altlık Harita' : 'Basemap'}</span>
                         </button>
 
                         <button
@@ -272,7 +277,7 @@ export const MapLayerSwitcher = ({
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                 <circle cx="12" cy="12" r="3" />
                             </svg>
-                            <span>Katman Görünürlüğü</span>
+                            <span>{isTr ? 'Katman Görünürlüğü' : 'Layer Visibility'}</span>
                         </button>
                     </div>
 
@@ -284,7 +289,7 @@ export const MapLayerSwitcher = ({
                                 <div className="layer-preview-img-box">
                                     <img
                                         src={previewTargetLayer.previewUrl}
-                                        alt={previewTargetLayer.name}
+                                        alt={getLocalizedBasemapName(previewTargetLayer, lang)}
                                         className="layer-preview-img"
                                         onError={(e) => {
                                             e.target.style.display = 'none';
@@ -293,18 +298,18 @@ export const MapLayerSwitcher = ({
                                     <div className="layer-preview-overlay">
                                         <div className="layer-preview-badge">
                                             <span className="pulse-dot" />
-                                            <span>{hoveredLayerId ? 'Önizleme' : 'Aktif Katman'}</span>
+                                            <span>{hoveredLayerId ? (isTr ? 'Önizleme' : 'Preview') : (isTr ? 'Aktif Katman' : 'Active Layer')}</span>
                                         </div>
                                     </div>
                                 </div>
                                 <div className="layer-preview-meta">
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span className="layer-preview-title">{previewTargetLayer.name}</span>
+                                        <span className="layer-preview-title">{getLocalizedBasemapName(previewTargetLayer, lang)}</span>
                                         <span className="layer-type-tag" style={{ background: `${previewTargetLayer.tagColor || '#3b82f6'}22`, color: previewTargetLayer.tagColor || '#38bdf8', borderColor: `${previewTargetLayer.tagColor || '#3b82f6'}44` }}>
-                                            {previewTargetLayer.tag}
+                                            {getLocalizedBasemapTag(previewTargetLayer, lang)}
                                         </span>
                                     </div>
-                                    <span className="layer-preview-desc">{previewTargetLayer.sub}</span>
+                                    <span className="layer-preview-desc">{getLocalizedBasemapSub(previewTargetLayer, lang)}</span>
                                 </div>
                             </div>
 
@@ -332,7 +337,7 @@ export const MapLayerSwitcher = ({
                                             <div className="layer-mini-thumb">
                                                 <img
                                                     src={layer.previewUrl}
-                                                    alt={layer.name}
+                                                    alt={getLocalizedBasemapName(layer, lang)}
                                                     className="layer-thumb-img"
                                                     onError={(e) => {
                                                         e.target.style.display = 'none';
@@ -345,12 +350,12 @@ export const MapLayerSwitcher = ({
 
                                             <div className="layer-text-info">
                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
-                                                    <span className="layer-name">{layer.name}</span>
+                                                    <span className="layer-name">{getLocalizedBasemapName(layer, lang)}</span>
                                                     <span className="layer-pill-tag" style={{ color: layer.tagColor || '#94a3b8' }}>
-                                                        {layer.tag}
+                                                        {getLocalizedBasemapTag(layer, lang)}
                                                     </span>
                                                 </div>
-                                                <span className="layer-sub">{layer.sub}</span>
+                                                <span className="layer-sub">{getLocalizedBasemapSub(layer, lang)}</span>
                                             </div>
 
                                             {isSelected && (
@@ -367,13 +372,15 @@ export const MapLayerSwitcher = ({
                         </>
                     )}
 
-                    {/* TAB 2: KATMAN GÖRÜNÜRLÜĞÜ (OVERLAY & TRANSPORT) */}
+                    {/* TAB 2: KATMAN GÖRÜNÜRLÜĞÜ (OVERLAY & TRANSPORT & BOUNDARIES) */}
                     {activeTab === 'visibility' && (
                         <div style={{
                             padding: '10px 12px 14px 12px',
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: '8px'
+                            gap: '8px',
+                            maxHeight: '440px',
+                            overflowY: 'auto'
                         }}>
                             <div style={{
                                 fontSize: '11px',
@@ -381,168 +388,388 @@ export const MapLayerSwitcher = ({
                                 marginBottom: '2px',
                                 lineHeight: '1.4'
                             }}>
-                                Haritada görüntülenen vektör katmanlarını ve akıllı ulaşım elemanlarını açıp kapatın:
+                                {isTr ? 'Haritada görüntülenen sınırları, akıllı ulaşım elemanlarını ve POI mekanlarını filtreleyin:' : 'Filter boundaries, transit networks, and POI locations displayed on the map:'}
                             </div>
 
-                            {/* 1. TOPLU TAŞIMA DURAKLARI */}
+                            {/* 1. İL SINIRLARI (KARA) & DENİZ YETKİ ALANLARI (DENİZ SINIRLARI) */}
                             <div style={{
                                 display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '9px 12px',
-                                background: layerVisibility.stops ? 'rgba(239, 68, 68, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-                                border: `1px solid ${layerVisibility.stops ? 'rgba(239, 68, 68, 0.35)' : 'rgba(255, 255, 255, 0.08)'}`,
+                                flexDirection: 'column',
+                                gap: '6px',
+                                padding: '8px 10px',
+                                background: (layerVisibility.cities || layerVisibility.maritime) ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                                border: `1px solid ${(layerVisibility.cities || layerVisibility.maritime) ? 'rgba(56, 189, 248, 0.28)' : 'rgba(255, 255, 255, 0.08)'}`,
+                                borderRadius: '8px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{
+                                            width: '24px',
+                                            height: '24px',
+                                            borderRadius: '6px',
+                                            background: 'rgba(56, 189, 248, 0.2)',
+                                            color: '#38bdf8',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+                                            </svg>
+                                        </div>
+                                        <span style={{ fontSize: '11.5px', fontWeight: 700, color: '#f8fafc' }}>{isTr ? 'Sınır Katmanları' : 'Boundary Layers'}</span>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => onToggleLayerVisibility && onToggleLayerVisibility('cities')}
+                                        style={{
+                                            flex: 1,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px',
+                                            padding: '6px 8px',
+                                            borderRadius: '6px',
+                                            border: `1px solid ${layerVisibility.cities ? '#0284c7' : 'rgba(255,255,255,0.1)'}`,
+                                            background: layerVisibility.cities ? 'rgba(2, 132, 199, 0.22)' : 'rgba(255,255,255,0.02)',
+                                            color: layerVisibility.cities ? '#38bdf8' : '#94a3b8',
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            transition: 'all 0.15s ease'
+                                        }}
+                                    >
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M3 21h18M5 21V10M19 21V10M9 21V10M15 21V10M12 2L2 7h20L12 2z" />
+                                        </svg>
+                                        <span>{isTr ? 'İl Sınırları' : 'Province Borders'}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => onToggleLayerVisibility && onToggleLayerVisibility('maritime')}
+                                        style={{
+                                            flex: 1,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px',
+                                            padding: '6px 8px',
+                                            borderRadius: '6px',
+                                            border: `1px solid ${layerVisibility.maritime ? '#0891b2' : 'rgba(255,255,255,0.1)'}`,
+                                            background: layerVisibility.maritime ? 'rgba(8, 145, 178, 0.22)' : 'rgba(255,255,255,0.02)',
+                                            color: layerVisibility.maritime ? '#22d3ee' : '#94a3b8',
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            transition: 'all 0.15s ease'
+                                        }}
+                                    >
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M2 12c2.5-3 5-3 7.5 0s5 3 7.5 0 5-3 7.5 0M2 17c2.5-3 5-3 7.5 0s5 3 7.5 0 5-3 7.5 0" />
+                                        </svg>
+                                        <span>{isTr ? 'Deniz Sınırları' : 'Maritime Borders'}</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 2. TOPLU TAŞIMA DURAKLARI + TÜR FİLTRESİ */}
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px',
+                                padding: '8px 10px',
+                                background: layerVisibility.stops ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                                border: `1px solid ${layerVisibility.stops ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
                                 borderRadius: '8px',
                                 transition: 'all 0.15s ease'
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                                    <div style={{
-                                        width: '28px',
-                                        height: '28px',
-                                        borderRadius: '7px',
-                                        background: 'rgba(239, 68, 68, 0.2)',
-                                        color: '#ef4444',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        flexShrink: 0
-                                    }}>
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="4" y="4" width="16" height="13" rx="2" />
-                                            <path d="M4 9h16" />
-                                            <circle cx="7.5" cy="14" r="1.2" fill="currentColor" />
-                                            <circle cx="16.5" cy="14" r="1.2" fill="currentColor" />
-                                            <path d="M6 17v2.5M18 17v2.5" />
-                                        </svg>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{
+                                            width: '26px',
+                                            height: '26px',
+                                            borderRadius: '6px',
+                                            background: 'rgba(239, 68, 68, 0.15)',
+                                            color: '#ef4444',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexShrink: 0
+                                        }}>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                                <rect x="4" y="4" width="16" height="13" rx="2" />
+                                                <path d="M4 9h16" />
+                                                <circle cx="7.5" cy="14" r="1.2" fill="currentColor" />
+                                                <circle cx="16.5" cy="14" r="1.2" fill="currentColor" />
+                                                <path d="M6 17v2.5M18 17v2.5" />
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>Ulaşım Durakları</div>
+                                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>Taşıt Türüne Göre Filtrele</div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>Ulaşım Durakları</div>
-                                        <div style={{ fontSize: '10px', color: '#94a3b8' }}>Toplu Taşıma & Otobüs Durakları</div>
-                                    </div>
+
+                                    <input
+                                        type="checkbox"
+                                        checked={!!layerVisibility.stops}
+                                        onChange={() => onToggleLayerVisibility && onToggleLayerVisibility('stops')}
+                                        style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#ef4444' }}
+                                    />
                                 </div>
 
-                                <input
-                                    type="checkbox"
-                                    checked={!!layerVisibility.stops}
-                                    onChange={() => onToggleLayerVisibility && onToggleLayerVisibility('stops')}
-                                    style={{
-                                        width: '18px',
-                                        height: '18px',
-                                        cursor: 'pointer',
-                                        accentColor: '#ef4444'
-                                    }}
-                                />
+                                {layerVisibility.stops && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                        {[
+                                            { key: 'metro', label: 'Metro', color: '#a855f7' },
+                                            { key: 'otobus', label: 'Otobüs', color: '#3b82f6' },
+                                            { key: 'tren', label: 'Tren', color: '#10b981' },
+                                            { key: 'gemi', label: 'Liman / Gemi', color: '#06b6d4' }
+                                        ].map(st => {
+                                            const isActive = layerVisibility.stopTypes ? layerVisibility.stopTypes[st.key] !== false : true;
+                                            return (
+                                                <button
+                                                    key={st.key}
+                                                    type="button"
+                                                    onClick={() => onToggleLayerVisibility && onToggleLayerVisibility(`stopType_${st.key}`)}
+                                                    style={{
+                                                        padding: '3px 8px',
+                                                        borderRadius: '5px',
+                                                        fontSize: '10.5px',
+                                                        fontWeight: 600,
+                                                        border: `1px solid ${isActive ? st.color : 'rgba(255,255,255,0.1)'}`,
+                                                        background: isActive ? `${st.color}20` : 'transparent',
+                                                        color: isActive ? st.color : '#94a3b8',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                >
+                                                    {st.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
 
-                            {/* 2. GÜZERGAHLAR / HATLAR */}
+                            {/* 3. GÜZERGAHLAR / HATLAR + TÜR FİLTRESİ */}
                             <div style={{
                                 display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '9px 12px',
-                                background: layerVisibility.routes ? 'rgba(2, 132, 199, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-                                border: `1px solid ${layerVisibility.routes ? 'rgba(2, 132, 199, 0.35)' : 'rgba(255, 255, 255, 0.08)'}`,
+                                flexDirection: 'column',
+                                gap: '6px',
+                                padding: '8px 10px',
+                                background: layerVisibility.routes ? 'rgba(2, 132, 199, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                                border: `1px solid ${layerVisibility.routes ? 'rgba(2, 132, 199, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
                                 borderRadius: '8px',
                                 transition: 'all 0.15s ease'
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                                    <div style={{
-                                        width: '28px',
-                                        height: '28px',
-                                        borderRadius: '7px',
-                                        background: 'rgba(2, 132, 199, 0.2)',
-                                        color: '#38bdf8',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        flexShrink: 0
-                                    }}>
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M3 12h4l3 8 4-16 3 8h4" />
-                                        </svg>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{
+                                            width: '26px',
+                                            height: '26px',
+                                            borderRadius: '6px',
+                                            background: 'rgba(2, 132, 199, 0.15)',
+                                            color: '#38bdf8',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexShrink: 0
+                                        }}>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M3 12h4l3 8 4-16 3 8h4" />
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>Hat & Güzergah Çizgileri</div>
+                                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>Taşıt Türüne Göre Filtrele</div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>Hat & Güzergah Çizgileri</div>
-                                        <div style={{ fontSize: '10px', color: '#94a3b8' }}>Metro & Otobüs Rotaları</div>
-                                    </div>
+
+                                    <input
+                                        type="checkbox"
+                                        checked={!!layerVisibility.routes}
+                                        onChange={() => onToggleLayerVisibility && onToggleLayerVisibility('routes')}
+                                        style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#0284c7' }}
+                                    />
                                 </div>
 
-                                <input
-                                    type="checkbox"
-                                    checked={!!layerVisibility.routes}
-                                    onChange={() => onToggleLayerVisibility && onToggleLayerVisibility('routes')}
-                                    style={{
-                                        width: '18px',
-                                        height: '18px',
-                                        cursor: 'pointer',
-                                        accentColor: '#0284c7'
-                                    }}
-                                />
+                                {layerVisibility.routes && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                        {[
+                                            { key: 'metro', label: 'Metro', color: '#a855f7' },
+                                            { key: 'otobus', label: 'Otobüs', color: '#3b82f6' },
+                                            { key: 'tren', label: 'Tren', color: '#10b981' },
+                                            { key: 'gemi', label: 'Deniz / Gemi', color: '#06b6d4' },
+                                            { key: 'araba', label: 'Karayolu / Araba', color: '#f59e0b' }
+                                        ].map(rt => {
+                                            const isActive = layerVisibility.routeTypes ? layerVisibility.routeTypes[rt.key] !== false : true;
+                                            return (
+                                                <button
+                                                    key={rt.key}
+                                                    type="button"
+                                                    onClick={() => onToggleLayerVisibility && onToggleLayerVisibility(`routeType_${rt.key}`)}
+                                                    style={{
+                                                        padding: '3px 8px',
+                                                        borderRadius: '5px',
+                                                        fontSize: '10.5px',
+                                                        fontWeight: 600,
+                                                        border: `1px solid ${isActive ? rt.color : 'rgba(255,255,255,0.1)'}`,
+                                                        background: isActive ? `${rt.color}20` : 'transparent',
+                                                        color: isActive ? rt.color : '#94a3b8',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                >
+                                                    {rt.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
 
-                            {/* 3. POI (İLGİ NOKTALARI) */}
+                            {/* 4. POI (İLGİ NOKTALARI) + KAPSAMLI 16 KATEGORİ FİLTRESİ */}
                             <div style={{
                                 display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '9px 12px',
-                                background: layerVisibility.pois ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-                                border: `1px solid ${layerVisibility.pois ? 'rgba(16, 185, 129, 0.35)' : 'rgba(255, 255, 255, 0.08)'}`,
+                                flexDirection: 'column',
+                                gap: '6px',
+                                padding: '8px 10px',
+                                background: layerVisibility.pois ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                                border: `1px solid ${layerVisibility.pois ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
                                 borderRadius: '8px',
                                 transition: 'all 0.15s ease'
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                                    <div style={{
-                                        width: '28px',
-                                        height: '28px',
-                                        borderRadius: '7px',
-                                        background: 'rgba(16, 185, 129, 0.2)',
-                                        color: '#10b981',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        flexShrink: 0
-                                    }}>
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                                            <circle cx="12" cy="10" r="3" />
-                                        </svg>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{
+                                            width: '26px',
+                                            height: '26px',
+                                            borderRadius: '6px',
+                                            background: 'rgba(16, 185, 129, 0.15)',
+                                            color: '#10b981',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexShrink: 0
+                                        }}>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                                                <circle cx="12" cy="10" r="3" />
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>POI (İlgi Noktaları)</div>
+                                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>Mekan Türüne Göre Filtrele</div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>POI (İlgi Noktaları)</div>
-                                        <div style={{ fontSize: '10px', color: '#94a3b8' }}>Mekan ve Kategori Pinleri</div>
-                                    </div>
+
+                                    <input
+                                        type="checkbox"
+                                        checked={!!layerVisibility.pois}
+                                        onChange={() => onToggleLayerVisibility && onToggleLayerVisibility('pois')}
+                                        style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#10b981' }}
+                                    />
                                 </div>
 
-                                <input
-                                    type="checkbox"
-                                    checked={!!layerVisibility.pois}
-                                    onChange={() => onToggleLayerVisibility && onToggleLayerVisibility('pois')}
-                                    style={{
-                                        width: '18px',
-                                        height: '18px',
-                                        cursor: 'pointer',
-                                        accentColor: '#10b981'
-                                    }}
-                                />
+                                    {layerVisibility.pois && (
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '1fr 1fr',
+                                            gap: '4px',
+                                            paddingTop: '6px',
+                                            borderTop: '1px solid rgba(255,255,255,0.06)',
+                                            maxHeight: '190px',
+                                            overflowY: 'auto',
+                                            paddingRight: '2px'
+                                        }}>
+                                            {(() => {
+                                                // Sadece veritabanındaki ana (üst) kategoriler (parentId olmayanlar)
+                                                const mainCats = Array.isArray(poiCategories) && poiCategories.length > 0
+                                                    ? poiCategories
+                                                        .filter(c => !c.parentId || c.parentId === 0)
+                                                        .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0) || (a.id || 0) - (b.id || 0))
+                                                    : allPoiCategories;
+
+                                                return mainCats.map(cat => {
+                                                    const catId = cat.id || cat.key;
+                                                    const catName = cat.name || cat.label || '';
+                                                    const isExplicitlyHidden = layerVisibility.poiCategories
+                                                        ? (layerVisibility.poiCategories[catId] === false || layerVisibility.poiCategories[String(catId)] === false || (catName && layerVisibility.poiCategories[catName] === false))
+                                                        : (layerVisibility.poiTypes && cat.key ? layerVisibility.poiTypes[cat.key] === false : false);
+                                                    const isActive = !isExplicitlyHidden;
+
+                                                    const glyph = getGlyphByIconId(cat.icon || cat.iconId || cat.name);
+                                                    const catLabel = getLocalizedPoiCategoryLabel(cat.name || cat.label, lang);
+                                                    const catColor = cat.color || '#3b82f6';
+
+                                                    return (
+                                                        <button
+                                                            key={catId}
+                                                            type="button"
+                                                            onClick={() => onToggleLayerVisibility && onToggleLayerVisibility(cat.id ? `poiCategory_${cat.id}` : `poiType_${cat.key}`)}
+                                                            style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '5px',
+                                                                padding: '5px 7px',
+                                                                borderRadius: '6px',
+                                                                fontSize: '10.5px',
+                                                                fontWeight: isActive ? 600 : 500,
+                                                                border: `1px solid ${isActive ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)'}`,
+                                                                background: isActive ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.25)',
+                                                                color: isActive ? '#f8fafc' : '#64748b',
+                                                                opacity: isActive ? 1 : 0.5,
+                                                                cursor: 'pointer',
+                                                                textAlign: 'left',
+                                                                whiteSpace: 'nowrap',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                transition: 'all 0.15s ease'
+                                                            }}
+                                                            title={`${catLabel} (${isActive ? (isTr ? 'Görünür - Gizlemek için tıkla' : 'Visible - Click to hide') : (isTr ? 'Gizli - Göstermek için tıkla' : 'Hidden - Click to show')})`}
+                                                        >
+                                                            <div
+                                                                style={{
+                                                                    width: '14px',
+                                                                    height: '14px',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    flexShrink: 0,
+                                                                    color: isActive ? catColor : '#64748b'
+                                                                }}
+                                                                dangerouslySetInnerHTML={{
+                                                                    __html: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="display:block;">${glyph}</svg>`
+                                                                }}
+                                                            />
+                                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{catLabel}</span>
+                                                        </button>
+                                                    );
+                                                });
+                                            })()}
+                                        </div>
+                                    )}
                             </div>
 
-                            {/* 4. ÇİZİMLER & POLİGONLAR */}
+                            {/* 5. ÇİZİMLER & POLİGONLAR */}
                             <div style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
-                                padding: '9px 12px',
-                                background: layerVisibility.drawings ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                                padding: '8px 10px',
+                                background: layerVisibility.drawings ? 'rgba(59, 130, 246, 0.10)' : 'rgba(255, 255, 255, 0.03)',
                                 border: `1px solid ${layerVisibility.drawings ? 'rgba(59, 130, 246, 0.35)' : 'rgba(255, 255, 255, 0.08)'}`,
                                 borderRadius: '8px',
                                 transition: 'all 0.15s ease'
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <div style={{
-                                        width: '28px',
-                                        height: '28px',
-                                        borderRadius: '7px',
+                                        width: '26px',
+                                        height: '26px',
+                                        borderRadius: '6px',
                                         background: 'rgba(59, 130, 246, 0.2)',
                                         color: '#3b82f6',
                                         display: 'flex',
@@ -550,7 +777,7 @@ export const MapLayerSwitcher = ({
                                         justifyContent: 'center',
                                         flexShrink: 0
                                     }}>
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                             <polygon points="12 2 22 7.5 18 19 6 19 2 8.5" />
                                         </svg>
                                     </div>
@@ -565,21 +792,21 @@ export const MapLayerSwitcher = ({
                                     checked={!!layerVisibility.drawings}
                                     onChange={() => onToggleLayerVisibility && onToggleLayerVisibility('drawings')}
                                     style={{
-                                        width: '18px',
-                                        height: '18px',
+                                        width: '17px',
+                                        height: '17px',
                                         cursor: 'pointer',
                                         accentColor: '#3b82f6'
                                     }}
                                 />
                             </div>
 
-                            {/* 5. ISI HARİTASI (HEATMAP) */}
+                            {/* 6. ISI HARİTASI (HEATMAP) */}
                             <div style={{
                                 display: 'flex',
                                 flexDirection: 'column',
-                                gap: '8px',
-                                padding: '9px 12px',
-                                background: layerVisibility.heatmap ? 'rgba(234, 88, 12, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                                gap: '6px',
+                                padding: '8px 10px',
+                                background: layerVisibility.heatmap ? 'rgba(234, 88, 12, 0.10)' : 'rgba(255, 255, 255, 0.03)',
                                 border: `1px solid ${layerVisibility.heatmap ? 'rgba(234, 88, 12, 0.35)' : 'rgba(255, 255, 255, 0.08)'}`,
                                 borderRadius: '8px',
                                 transition: 'all 0.15s ease'
@@ -589,11 +816,11 @@ export const MapLayerSwitcher = ({
                                     alignItems: 'center',
                                     justifyContent: 'space-between'
                                 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <div style={{
-                                            width: '28px',
-                                            height: '28px',
-                                            borderRadius: '7px',
+                                            width: '26px',
+                                            height: '26px',
+                                            borderRadius: '6px',
                                             background: 'rgba(234, 88, 12, 0.2)',
                                             color: '#f97316',
                                             display: 'flex',
@@ -601,13 +828,13 @@ export const MapLayerSwitcher = ({
                                             justifyContent: 'center',
                                             flexShrink: 0
                                         }}>
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                                 <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
                                             </svg>
                                         </div>
                                         <div>
                                             <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>Nokta Yoğunluğu (Isı Haritası)</div>
-                                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>Konum ve Çizim Yoğunluk Katmanı</div>
+                                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>Konum ve Çizim Yoğunluğu</div>
                                         </div>
                                     </div>
 
@@ -616,25 +843,23 @@ export const MapLayerSwitcher = ({
                                         checked={!!layerVisibility.heatmap}
                                         onChange={() => onToggleLayerVisibility && onToggleLayerVisibility('heatmap')}
                                         style={{
-                                            width: '18px',
-                                            height: '18px',
+                                            width: '17px',
+                                            height: '17px',
                                             cursor: 'pointer',
                                             accentColor: '#ea580c'
                                         }}
                                     />
                                 </div>
 
-                                {/* ISI HARİTASI AKTİF İSE GÖSTERİLECEK FİLTRE VE ÖLÇEK KONTROLLERİ */}
                                 {layerVisibility.heatmap && (
                                     <div style={{
                                         display: 'flex',
                                         flexDirection: 'column',
-                                        gap: '8px',
-                                        paddingTop: '6px',
+                                        gap: '6px',
+                                        paddingTop: '4px',
                                         borderTop: '1px solid rgba(255, 255, 255, 0.08)'
                                     }}>
-                                        {/* Geometri Filtresi */}
-                                        <div style={{ display: 'flex', gap: '4px', backgroundColor: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '6px' }}>
+                                        <div style={{ display: 'flex', gap: '4px', backgroundColor: 'rgba(15, 23, 42, 0.6)', padding: '2px', borderRadius: '5px' }}>
                                             {[
                                                 { id: 'ALL', label: 'Tümü' },
                                                 { id: 'Point', label: 'Nokta' },
@@ -648,40 +873,19 @@ export const MapLayerSwitcher = ({
                                                     style={{
                                                         flex: 1,
                                                         padding: '3px 0',
-                                                        fontSize: '10.5px',
+                                                        fontSize: '10px',
                                                         fontWeight: heatmapTypeFilter === f.id ? 700 : 500,
                                                         borderRadius: '4px',
                                                         border: 'none',
                                                         backgroundColor: heatmapTypeFilter === f.id ? '#ea580c' : 'transparent',
                                                         color: heatmapTypeFilter === f.id ? '#ffffff' : '#94a3b8',
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.15s ease'
+                                                        cursor: 'pointer'
                                                     }}
                                                 >
                                                     {f.label}
                                                 </button>
                                             ))}
                                         </div>
-
-                                        {/* Renk Skalası Gradient Şeridi */}
-                                        <div style={{
-                                            height: '6px',
-                                            borderRadius: '3px',
-                                            background: 'linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000)',
-                                            width: '100%'
-                                        }} />
-
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9.5px', color: '#94a3b8' }}>
-                                            <span>0.0 (Düşük)</span>
-                                            <span>0.5 (Orta)</span>
-                                            <span>1.0 (Yüksek)</span>
-                                        </div>
-
-                                        {heatmapFeatureCount > 0 && (
-                                            <div style={{ fontSize: '10px', color: '#f97316', fontWeight: 600, textAlign: 'right' }}>
-                                                {heatmapFeatureCount} Konum / Nokta Analiz Edildi
-                                            </div>
-                                        )}
                                     </div>
                                 )}
                             </div>

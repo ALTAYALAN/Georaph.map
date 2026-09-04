@@ -5,92 +5,139 @@ export const BASEMAP_LAYERS = [
     {
         id: 'google_hybrid',
         name: 'Google Hibrit Uydu',
+        nameEn: 'Google Hybrid Satellite',
         sub: 'Yüksek Çözünürlüklü Uydu + Yollar & Sınırlar',
+        subEn: 'High-Resolution Satellite + Roads & Boundaries',
         iconType: 'hybrid',
         tag: 'Hibrit',
+        tagEn: 'Hybrid',
         tagColor: '#10b981',
         url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
         previewUrl: 'https://mt1.google.com/vt/lyrs=y&x=152&y=99&z=8',
+        maxZoom: 20,
         category: 'satellite'
     },
     {
         id: 'esri_wayback',
         name: 'Esri Harita',
+        nameEn: 'Esri Satellite (Timeline)',
         sub: '2011 – 2024 Gerçek Uydu Arşivi (Zaman Çizelgeli)',
+        subEn: '2011 – 2024 Historical Satellite Archive',
         iconType: 'history',
         tag: 'Zamanlı',
+        tagEn: 'Timeline',
         tagColor: '#06b6d4',
         url: 'https://wayback.maptiles.arcgis.com/arcgis/rest/services/world_imagery/mapserver/tile/49059/{z}/{y}/{x}',
         previewUrl: 'https://wayback.maptiles.arcgis.com/arcgis/rest/services/world_imagery/mapserver/tile/49059/8/99/152',
+        maxZoom: 18,
         category: 'history'
     },
     {
         id: 'google_roadmap',
         name: 'Google Siyasi / Yol',
+        nameEn: 'Google Street / Roadmap',
         sub: 'Standart Google Şehir, İlçe ve Sınır Haritası',
+        subEn: 'Standard Google City, District & Boundary Map',
         iconType: 'roadmap',
         tag: 'Siyasi',
+        tagEn: 'Political',
         tagColor: '#3b82f6',
         url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
         previewUrl: 'https://mt1.google.com/vt/lyrs=m&x=152&y=99&z=8',
+        maxZoom: 20,
         category: 'political'
     },
     {
         id: 'google_terrain',
         name: 'Google Arazi / Topografik',
+        nameEn: 'Google Terrain / Topographic',
         sub: 'Yükselti, Dağ Kabartmaları ve Fiziki Coğrafya',
+        subEn: 'Elevation, Mountain Relief & Physical Geography',
         iconType: 'terrain',
         tag: 'Arazi',
+        tagEn: 'Terrain',
         tagColor: '#f59e0b',
         url: 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
         previewUrl: 'https://mt1.google.com/vt/lyrs=p&x=152&y=99&z=8',
+        maxZoom: 19,
         category: 'terrain'
     },
     {
         id: 'google_satellite',
         name: 'Google Saf Uydu',
+        nameEn: 'Google Pure Satellite',
         sub: 'Yazısız ve Çizgisiz Doğal Yeryüzü Fotoğrafı',
+        subEn: 'Natural Satellite Imagery Without Labels',
         iconType: 'satellite',
         tag: 'Saf Uydu',
+        tagEn: 'Satellite',
         tagColor: '#8b5cf6',
         url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
         previewUrl: 'https://mt1.google.com/vt/lyrs=s&x=152&y=99&z=8',
+        maxZoom: 20,
         category: 'satellite'
     },
     {
         id: 'carto_dark',
         name: 'Karanlık Gece Modu (Dark)',
-        sub: 'Vektörel Yüksek Kontrastlı Koyu Tema (ESRI Canvas)',
+        nameEn: 'Dark Night Mode (Dark)',
+        sub: 'Vektörel Yüksek Kontrastlı Koyu Tema',
+        subEn: 'High-Contrast Dark Canvas Base Map',
         iconType: 'dark',
         tag: 'Gece',
+        tagEn: 'Dark',
         tagColor: '#64748b',
         url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-        previewUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/6/24/38',
+        previewUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/8/99/152',
+        maxZoom: 16,
         category: 'theme'
     },
     {
         id: 'carto_light',
         name: 'Aydınlık Siyasi (Light)',
-        sub: 'Temiz Açık Gri Arka Plan & Sınırlar (ESRI Canvas)',
+        nameEn: 'Light Political (Light)',
+        sub: 'Temiz Açık Gri Arka Plan & Sınırlar',
+        subEn: 'Clean Light Gray Background & Boundaries',
         iconType: 'light',
         tag: 'Açık',
+        tagEn: 'Light',
         tagColor: '#0ea5e9',
-        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-        previewUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/6/24/38',
+        url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+        previewUrl: 'https://mt1.google.com/vt/lyrs=m&x=152&y=99&z=8',
+        maxZoom: 20,
         category: 'political'
     },
     {
         id: 'osm',
         name: 'OpenStreetMap (OSM)',
+        nameEn: 'OpenStreetMap (OSM)',
         sub: 'Açık Kaynak Topluluk Haritası',
+        subEn: 'Open Source Community Map',
         iconType: 'osm',
         tag: 'OSM',
+        tagEn: 'OSM',
         tagColor: '#ec4899',
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         previewUrl: 'https://tile.openstreetmap.org/8/152/99.png',
+        maxZoom: 19,
         category: 'osm'
     }
 ];
+
+export function getLocalizedBasemapName(layer, lang = 'tr') {
+    if (!layer) return '';
+    return lang === 'en' ? (layer.nameEn || layer.name) : layer.name;
+}
+
+export function getLocalizedBasemapSub(layer, lang = 'tr') {
+    if (!layer) return '';
+    return lang === 'en' ? (layer.subEn || layer.sub) : layer.sub;
+}
+
+export function getLocalizedBasemapTag(layer, lang = 'tr') {
+    if (!layer) return '';
+    return lang === 'en' ? (layer.tagEn || layer.tag) : layer.tag;
+}
 
 // =========================================================================
 // TARİHSEL UYDU KATMANLARI (GERÇEK UYDU ÇEKİM TARİHLERİ: 2011 - 2024)

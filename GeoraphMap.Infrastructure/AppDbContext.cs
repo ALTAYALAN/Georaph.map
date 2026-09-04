@@ -54,6 +54,14 @@ namespace GeoraphMap.Infrastructure
             modelBuilder.Entity<StopFeature>()
                 .Property(s => s.StopCode)
                 .HasColumnName("stop_code");
+            modelBuilder.Entity<StopFeature>()
+                .Property(s => s.ImageUrl)
+                .HasColumnName("image_url");
+
+            modelBuilder.Entity<Poi>()
+                .Property(p => p.ImageUrl)
+                .HasColumnName("image_url");
+
             modelBuilder.Entity<RouteStopFeature>().ToTable("tbl_route_stop");
             modelBuilder.Entity<UserSavedRoute>().ToTable("tbl_user_saved_route");
             modelBuilder.Entity<UserFavoritePoi>().ToTable("tbl_user_favorite_poi");

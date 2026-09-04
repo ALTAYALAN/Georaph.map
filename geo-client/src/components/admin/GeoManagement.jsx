@@ -20,8 +20,23 @@ import { adminApi } from '../../services/adminApi';
 import { BASEMAP_LAYERS, getBasemapConfig } from '../../constants/mapLayers';
 import { MapLayerSwitcher } from '../common/MapLayerSwitcher';
 import { HistoricalTimelineSlider } from '../common/HistoricalTimelineSlider';
+import { calculateGeometryMetrics } from '../../utils/geometryUtils';
 
 // Safe helper to parse WKT into OpenLayers feature
+const EditIcon = ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+);
+
+const TrashIcon = ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="3 6 5 6 21 6" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+);
+
 const readWktFeatureSafely = (wktStr, wktFormat) => {
     if (!wktStr) return null;
     try {
@@ -375,7 +390,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 new XYZ({
                     url: layerConfig.url,
                     crossOrigin: 'anonymous',
-                    maxZoom: 20
+                    maxZoom: layerConfig.maxZoom || 19
                 })
             );
         }
@@ -758,6 +773,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             safeLocalStorageSet(PUBLISHED_STORAGE_KEY, payloadStr);
             setLastSavedDate(nowStr);
             setHasUnsavedChanges(false);
+            window.dispatchEvent(new CustomEvent('geomap_boundaries_updated'));
         } catch (err) {
             console.error('Kalıcı Kayıt Hatası:', err);
         }
@@ -790,9 +806,128 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             });
             safeLocalStorageSet(MARITIME_STORAGE_KEY, payloadStr);
             setHasUnsavedChanges(false);
+            window.dispatchEvent(new CustomEvent('geomap_boundaries_updated'));
         } catch (err) {
             console.error('Deniz Alanları Kalıcı Kayıt Hatası:', err);
         }
+    };
+
+    // Helper: Deniz Yetki Alanlarını Yükleme ve Senkronize Etme
+    const loadMaritimeData = async (dbMaritime = []) => {
+        const geojsonFormat = new GeoJSON();
+        const wktFmt = new WKT();
+        let hydratedZones = [];
+
+        // 1. Önce LocalStorage (MARITIME_STORAGE_KEY) kontrol et
+        const savedMaritimeRaw = localStorage.getItem(MARITIME_STORAGE_KEY);
+        if (savedMaritimeRaw) {
+            try {
+                const parsed = JSON.parse(savedMaritimeRaw);
+                const list = parsed?.maritimeZones || parsed?.zones || (Array.isArray(parsed) ? parsed : []);
+                if (Array.isArray(list) && list.length > 0) {
+                    hydratedZones = list.map(m => {
+                        let geom = m.geometry || null;
+                        let wktStr = m.wkt || '';
+                        if (!geom && wktStr && !m.isDeleted) {
+                            try {
+                                const feat = wktFmt.readFeature(wktStr);
+                                geom = geojsonFormat.writeFeatureObject(feat).geometry;
+                            } catch (e) {}
+                        }
+                        if (geom && !wktStr && !m.isDeleted) {
+                            try {
+                                const feat = geojsonFormat.readFeature({ type: 'Feature', geometry: geom });
+                                wktStr = wktFmt.writeGeometry(feat.getGeometry());
+                            } catch (e) {}
+                        }
+                        return {
+                            ...m,
+                            id: m.id || `MAR-${m.plate || Math.floor(Math.random() * 1000)}`,
+                            plate: m.plate || 900,
+                            name: m.name || m.zoneName || 'Deniz Yetki Alanı',
+                            sea: m.sea || m.region || 'Karasuları',
+                            region: m.region || m.sea || 'Deniz Yetki Alanı',
+                            isDeleted: !!m.isDeleted,
+                            wkt: m.isDeleted ? '' : wktStr,
+                            geometry: m.isDeleted ? null : geom,
+                            isMaritime: true
+                        };
+                    });
+                }
+            } catch (e) {
+                console.warn('Maritime storage okuma hatası:', e);
+            }
+        }
+
+        // 2. DB'den gelen maritime varsa birleştir (Plaka, ID ve isme göre çiftlemeyi engelle)
+        if (Array.isArray(dbMaritime) && dbMaritime.length > 0) {
+            const existingKeys = new Set();
+            hydratedZones.forEach(z => {
+                if (z.id) existingKeys.add(String(z.id));
+                if (z.plate) existingKeys.add(String(z.plate));
+                if (z.name) existingKeys.add(z.name.toLowerCase().trim());
+            });
+
+            dbMaritime.forEach(dm => {
+                const isDup = existingKeys.has(String(dm.id)) ||
+                              existingKeys.has(String(dm.plate)) ||
+                              (dm.name && existingKeys.has(dm.name.toLowerCase().trim()));
+                if (!isDup) {
+                    hydratedZones.push(dm);
+                    if (dm.id) existingKeys.add(String(dm.id));
+                    if (dm.plate) existingKeys.add(String(dm.plate));
+                    if (dm.name) existingKeys.add(dm.name.toLowerCase().trim());
+                }
+            });
+        }
+
+        // 3. Eğer hala boşsa, turkey-coastal-maritime.json'dan yükle
+        if (hydratedZones.length === 0) {
+            try {
+                const res = await fetch(`/data/turkey-coastal-maritime.json?v=${Date.now()}`);
+                const data = await res.json();
+                if (data && data.features) {
+                    hydratedZones = data.features.map((f, idx) => {
+                        const props = f.properties || {};
+                        let wktStr = props.wkt || '';
+                        if (!wktStr && f.geometry) {
+                            try {
+                                const olFeat = geojsonFormat.readFeature(f);
+                                wktStr = wktFmt.writeGeometry(olFeat.getGeometry());
+                            } catch (e) {}
+                        }
+                        return {
+                            id: props.id || `MAR-${901 + idx}`,
+                            plate: props.plate || (901 + idx),
+                            name: props.name || props.zoneName || `Deniz Alanı ${idx + 1}`,
+                            sea: props.sea || props.region || 'Akdeniz',
+                            region: props.region || props.sea || 'Akdeniz',
+                            areaKm2: props.areaKm2 || 25000,
+                            coastlineKm: props.coastlineKm || 200,
+                            coastalProvinces: props.coastalProvinces || [],
+                            majorPorts: props.majorPorts || [],
+                            description: props.description || '',
+                            color: props.color || '#0284c7',
+                            fillColor: props.fillColor || 'rgba(2, 132, 199, 0.18)',
+                            strokeColor: props.strokeColor || '#0284c7',
+                            wkt: wktStr,
+                            geometry: f.geometry,
+                            isActive: true,
+                            isDeleted: false,
+                            isMaritime: true
+                        };
+                    });
+                }
+            } catch (e) {
+                console.warn('Maritime JSON okuma hatası:', e);
+            }
+        }
+
+        if (hydratedZones.length > 0) {
+            setMaritimeZones(hydratedZones);
+            updateMaritimeVectorFeatures(hydratedZones);
+        }
+        return hydratedZones;
     };
 
     // Load GeoJSON data: Prioritize PostgreSQL database (tbl_city), fallback to turkey-cities.json
@@ -811,7 +946,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
 
         // 1. Try loading directly from PostgreSQL Database tbl_city via API
         adminApi.getCities(true, token)
-            .then(dbCities => {
+            .then(async dbCities => {
                 if (dbCities && Array.isArray(dbCities) && dbCities.length > 0) {
                     const loadedCities = [];
                     const loadedMaritime = [];
@@ -825,7 +960,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                             } catch (e) {}
                         }
 
-                        // Plaka 1..81 olan iller (Karadeniz Bölgesi, Akdeniz Bölgesi dahil) ASLA deniz değildir; illerdir.
+                        // Plaka 1..81 olan iller ASLA deniz değildir; illerdir.
                         const isMaritimeItem = (c.isMaritime === true || (typeof c.plate === 'number' && c.plate >= 900) || (typeof c.id === 'string' && c.id.startsWith('MAR-')) || c.region === 'Deniz Yetki Alanı') && (c.plate > 81);
 
                         if (isMaritimeItem) {
@@ -860,18 +995,17 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                     applyCitiesToStateAndMap(loadedCities);
                     setFilteredCities(loadedCities);
 
-                    if (loadedMaritime.length > 0) {
-                        setMaritimeZones(loadedMaritime);
-                    }
+                    await loadMaritimeData(loadedMaritime);
 
                     setHasUnsavedChanges(false);
-                    console.log(`[GeoManagement] ${loadedCities.length} adet il ve ${loadedMaritime.length} adet deniz yetki alanı PostgreSQL veritabanından başarıyla yüklendi.`);
+                    console.log(`[GeoManagement] ${loadedCities.length} adet il ve deniz yetki alanları başarıyla yüklendi.`);
                     return;
                 }
                 throw new Error('Database empty, fallback to JSON');
             })
-            .catch(() => {
+            .catch(async () => {
                 // 2. Fallback to turkey-cities.json if DB is empty or offline
+                await loadMaritimeData();
                 fetch(`/data/turkey-cities.json?v=${Date.now()}`)
                     .then(res => res.json())
                     .then(data => {
@@ -1317,7 +1451,21 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             combined = [...cities, ...maritimeZones];
         }
 
-        let result = combined;
+        // Kesin tekillik (Deduplication) - Aynı plaka veya ID'ye sahip satırların tabloda çift çıkmasını engeller
+        const seenEntityKeys = new Set();
+        const dedupedList = [];
+        (combined || []).forEach(item => {
+            if (!item) return;
+            const key = item.isMaritime 
+                ? `MAR-${item.plate || item.id}` 
+                : `LAND-${item.plate || item.id}`;
+            if (!seenEntityKeys.has(key)) {
+                seenEntityKeys.add(key);
+                dedupedList.push(item);
+            }
+        });
+
+        let result = dedupedList;
 
         if (searchQuery && searchQuery.trim()) {
             const q = searchQuery.trim();
@@ -1364,6 +1512,25 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
 
         setFilteredCities(result);
     }, [searchQuery, selectedRegion, statusFilter, geoEntityFilter, cities, maritimeZones]);
+
+    // Filtrelenmiş / Seçili Bölgedeki Varlıkların Toplam Yüzölçümü ve Çevre Hesaplaması
+    const regionMetrics = useMemo(() => {
+        let totalArea = 0;
+        let totalPerimeter = 0;
+        (filteredCities || []).forEach(c => {
+            if (!c.isDeleted) {
+                const m = calculateGeometryMetrics(c);
+                totalArea += m.areaKm2;
+                totalPerimeter += m.perimeterKm;
+            }
+        });
+        return {
+            totalAreaKm2: Math.round(totalArea * 100) / 100,
+            totalPerimeterKm: Math.round(totalPerimeter * 100) / 100,
+            formattedTotalArea: `${(Math.round(totalArea * 100) / 100).toLocaleString('tr-TR')} km²`,
+            formattedTotalPerimeter: `${(Math.round(totalPerimeter * 100) / 100).toLocaleString('tr-TR')} km`
+        };
+    }, [filteredCities]);
 
 
     // Update OpenLayers Map Vector Features with Unique IDs for every shape
@@ -1859,82 +2026,8 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         });
         maritimeVectorLayerRef.current = maritimeVectorLayer;
 
-        // Deniz Yetki Alanları Verisini Yükle (Öncelik: Kaydedilmiş LocalStorage, Yoksa: turkey-coastal-maritime.json)
-        const savedMaritimeRaw = localStorage.getItem(MARITIME_STORAGE_KEY);
-        if (savedMaritimeRaw) {
-            try {
-                const parsed = JSON.parse(savedMaritimeRaw);
-                if (parsed && parsed.maritimeZones && parsed.maritimeZones.length > 0) {
-                    const format = new GeoJSON();
-                    const wktFmt = new WKT();
-                    const hydratedZones = parsed.maritimeZones.map(m => {
-                        let geom = m.geometry || null;
-                        let wktStr = m.wkt || '';
-                        if (!geom && wktStr && !m.isDeleted) {
-                            try {
-                                const feat = wktFmt.readFeature(wktStr);
-                                geom = format.writeFeatureObject(feat).geometry;
-                            } catch (e) {}
-                        }
-                        if (geom && !wktStr && !m.isDeleted) {
-                            try {
-                                const feat = format.readFeature({ type: 'Feature', geometry: geom });
-                                wktStr = wktFmt.writeGeometry(feat.getGeometry());
-                            } catch (e) {}
-                        }
-                        return {
-                            ...m,
-                            isDeleted: !!m.isDeleted,
-                            wkt: m.isDeleted ? '' : wktStr,
-                            geometry: m.isDeleted ? null : geom,
-                            isMaritime: true
-                        };
-                    });
-
-                    setMaritimeZones(hydratedZones);
-                    updateMaritimeVectorFeatures(hydratedZones);
-                }
-            } catch (mErr) {
-                console.warn('Kaydedilmiş deniz alanları okuma hatası:', mErr);
-            }
-        } else {
-            fetch(`/data/turkey-coastal-maritime.json?v=${Date.now()}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data && data.features) {
-                        const format = new GeoJSON();
-                        const wktFmt = new WKT();
-
-                        const zonesList = data.features.map((f, idx) => {
-                            let wktStr = '';
-                            try {
-                                const olFeat = format.readFeature(f);
-                                wktStr = wktFmt.writeGeometry(olFeat.getGeometry());
-                            } catch (e) {}
-                            return {
-                                ...f.properties,
-                                id: f.properties.id || `MAR-${idx + 1}`,
-                                plate: f.properties.plate || (901 + idx),
-                                name: f.properties.name,
-                                region: f.properties.region || 'Deniz Yetki Alanı',
-                                sea: f.properties.sea || 'Karasuları',
-                                coastalProvinces: f.properties.coastalProvinces || [],
-                                areaKm2: f.properties.areaKm2 || 0,
-                                coastlineKm: f.properties.coastlineKm || 0,
-                                majorPorts: f.properties.majorPorts || [],
-                                description: f.properties.description || '',
-                                wkt: wktStr,
-                                geometry: f.geometry,
-                                isMaritime: true,
-                                isDeleted: false
-                            };
-                        });
-                        setMaritimeZones(zonesList);
-                        updateMaritimeVectorFeatures(zonesList);
-                    }
-                })
-                .catch(err => console.warn('Deniz sınırları yüklenemedi:', err));
-        }
+        // Deniz Yetki Alanları Verisini Yükle
+        loadMaritimeData();
 
         const vectorLayer = new VectorLayer({
             source: vectorSource,
@@ -1986,7 +2079,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             source: new XYZ({
                 url: activeBaseConfig.url,
                 crossOrigin: 'anonymous',
-                maxZoom: 20
+                maxZoom: activeBaseConfig.maxZoom || 19
             })
         });
         baseTileLayerRef.current = baseTileLayer;
@@ -2752,34 +2845,19 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                         <span>{isRightDrawerOpen ? (isTr ? 'Panel Gizle' : 'Hide Panel') : (isTr ? 'Panel Aç' : 'Open Panel')}</span>
                     </button>
 
-                    {toggleTheme && (
-                        <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={toggleTheme}
-                            title={isDarkMode ? 'Aydınlık Moda Geç' : 'Karanlık Moda Geç'}
-                        >
-                            {isDarkMode ? (
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                            ) : (
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                            )}
-                            <span>{isDarkMode ? 'Aydınlık Mod' : 'Koyu Mod'}</span>
-                        </button>
-                    )}
-
-                    <button className="btn btn-secondary btn-sm" onClick={handleExportGeoJSON} title="GeoJSON Dışa Aktar">
+                    <button className="btn btn-secondary btn-sm" onClick={handleExportGeoJSON} title={isTr ? "GeoJSON Dışa Aktar" : "Export GeoJSON"}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        <span>Dışa Aktar</span>
+                        <span>{isTr ? 'Dışa Aktar' : 'Export'}</span>
                     </button>
 
                     <button className="btn btn-primary btn-sm" onClick={() => {
                         const activeCities = (cities || []).filter(c => !c.isDeleted);
                         const maxPlate = Math.max(0, ...activeCities.map(c => Number(c.plate) || 0));
-                        setFormData({ plate: (maxPlate + 1).toString(), name: '', region: 'Marmara Bölgesi', wkt: '' });
+                        setFormData({ plate: (maxPlate + 1).toString(), name: '', region: 'Marmara Bölgesi', wkt: '', entityType: 'LAND' });
                         setIsAddModalOpen(true);
                     }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        <span>Yeni İl Ekle</span>
+                        <span>{isTr ? 'Yeni İl Ekle' : 'Add Province'}</span>
                     </button>
                 </div>
             </div>
@@ -2801,7 +2879,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                         <div className="geo-top-alert-banner compact-banner">
                             <div className="alert-banner-content">
                                 <div className="banner-text">
-                                    <strong>{selectedCities.some(c => c.isMaritime) ? 'SEÇİLİ DENİZ ALANLARI' : 'SEÇİLİ İLLER'} ({selectedCities.length}):</strong>{' '}
+                                    <strong>{selectedCities.some(c => c.isMaritime) ? (isTr ? 'SEÇİLİ DENİZ ALANLARI' : 'SELECTED MARITIME ZONES') : (isTr ? 'SEÇİLİ İLLER' : 'SELECTED PROVINCES')} ({selectedCities.length}):</strong>{' '}
                                     {selectedCities.map(c => `[${c.plate.toString().padStart(2, '0')}] ${c.name}`).join(', ')}
                                 </div>
                             </div>
@@ -2809,10 +2887,10 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 {selectedCities.length >= 2 && (
                                     <button className="banner-btn btn-merge btn-sm-action" onClick={handleMergeSelectedPolygons}>
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                                        <span>{selectedCities.some(c => c.isMaritime) ? 'Seçili Deniz Alanlarını Birleştir' : '2. İli 1. İle Bağla'}</span>
+                                        <span>{selectedCities.some(c => c.isMaritime) ? (isTr ? 'Seçili Deniz Alanlarını Birleştir' : 'Merge Selected Maritime Zones') : (isTr ? 'Seçili İlleri Birleştir' : 'Merge Selected Provinces')}</span>
                                     </button>
                                 )}
-                                <button className="banner-btn btn-clear btn-sm-action" onClick={handleClearSelection} title="Seçimi Temizle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }}>
+                                <button className="banner-btn btn-clear btn-sm-action" onClick={handleClearSelection} title={isTr ? "Seçimi Temizle" : "Clear Selection"} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }}>
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                         <line x1="18" y1="6" x2="6" y2="18" />
                                         <line x1="6" y1="6" x2="18" y2="18" />
@@ -2826,14 +2904,14 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                     <div className="map-toolbar-exact-wrapper">
                         {/* TOP CONTAINER: BLUE ZOOM BUTTONS (+) & (-) */}
                         <div className="toolbar-zoom-card">
-                            <button className="zoom-btn-exact" onClick={handleZoomIn} title="Yakınlaştır (+)">
+                            <button className="zoom-btn-exact" onClick={handleZoomIn} title={isTr ? "Yakınlaştır (+)" : "Zoom In (+)"}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
                                     <line x1="12" y1="5" x2="12" y2="19" />
                                     <line x1="5" y1="12" x2="19" y2="12" />
                                 </svg>
                             </button>
                             <div className="zoom-divider-exact" />
-                            <button className="zoom-btn-exact" onClick={handleZoomOut} title="Uzaklaştır (-)">
+                            <button className="zoom-btn-exact" onClick={handleZoomOut} title={isTr ? "Uzaklaştır (-)" : "Zoom Out (-)"}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
                                     <line x1="5" y1="12" x2="19" y2="12" />
                                 </svg>
@@ -2855,7 +2933,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                             <button
                                 className={`tool-btn-exact dark-style ${activeMapTool === 'draw' ? 'active' : ''}`}
                                 onClick={() => toggleMapTool(activeMapTool === 'draw' ? 'modify' : 'draw')}
-                                title="Poligon Çiz / Değiştir"
+                                title={isTr ? "Poligon Çiz / Değiştir" : "Draw / Modify Polygon"}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <polygon points="12 2 22 8.5 18 21 6 21 2 8.5" />
@@ -2866,7 +2944,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                             <button
                                 className={`tool-btn-exact dark-style ${activeMapTool === 'modify' ? 'active' : ''}`}
                                 onClick={() => toggleMapTool('modify')}
-                                title="Sınır Noktalarını Düzenle"
+                                title={isTr ? "Sınır Noktalarını Düzenle" : "Edit Boundary Vertices"}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
@@ -2878,7 +2956,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                             <button
                                 className={`tool-btn-exact red-style ${activeMapTool === 'erase_selection' ? 'active' : ''}`}
                                 onClick={() => toggleMapTool(activeMapTool === 'erase_selection' ? 'modify' : 'erase_selection')}
-                                title="Poligon Çizerek Seçili Alanı Sil (Erase Area by Selection)"
+                                title={isTr ? "Poligon Çizerek Seçili Alanı Sil (Erase Area)" : "Erase Selected Area by Polygon"}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <path d="M3 6h18" />
@@ -2888,13 +2966,12 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 </svg>
                             </button>
 
-
                             {/* UNDO ICON */}
                             <button
                                 className="tool-btn-exact grey-style"
                                 onClick={handleUndo}
                                 disabled={undoStack.length === 0}
-                                title="Geri Al (Undo)"
+                                title={isTr ? "Geri Al (Undo)" : "Undo"}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <polyline points="9 14 4 9 9 4" />
@@ -2907,7 +2984,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 className="tool-btn-exact grey-style"
                                 onClick={handleRedo}
                                 disabled={redoStack.length === 0}
-                                title="İleri Al (Redo)"
+                                title={isTr ? "İleri Al (Redo)" : "Redo"}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <polyline points="15 14 20 9 15 4" />
@@ -3066,8 +3143,8 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 {isRightDrawerOpen && (
                     <div className="geo-right-drawer compact-drawer">
                         <div className="drawer-header compact-drawer-header">
-                            <span>COĞRAFİ YETKİ ALANLARI ({filteredCities.length})</span>
-                            <button className="drawer-close-btn" onClick={() => setIsRightDrawerOpen(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }} title="Kapat">
+                            <span>{isTr ? 'COĞRAFİ YETKİ ALANLARI' : 'GEOGRAPHIC JURISDICTIONS'} ({filteredCities.length})</span>
+                            <button className="drawer-close-btn" onClick={() => setIsRightDrawerOpen(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }} title={isTr ? "Kapat" : "Close"}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18" />
                                     <line x1="6" y1="6" x2="18" y2="18" />
@@ -3079,12 +3156,12 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                         <div style={{
                             display: 'flex',
                             alignItems: 'center',
-                            background: '#090d1a',
+                            background: isDarkMode ? '#090d1a' : '#f1f5f9',
                             padding: '4px',
                             borderRadius: '10px',
                             margin: '8px 8px 4px 8px',
-                            border: '1px solid rgba(56, 189, 248, 0.2)',
-                            boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.5)',
+                            border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.2)' : '#e2e8f0'}`,
+                            boxShadow: isDarkMode ? 'inset 0 2px 4px rgba(0, 0, 0, 0.5)' : 'none',
                             gap: '4px'
                         }}>
                             <button
@@ -3099,23 +3176,23 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                     border: 'none',
                                     cursor: 'pointer',
                                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    background: geoEntityFilter === 'ALL' ? 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' : 'transparent',
-                                    color: geoEntityFilter === 'ALL' ? '#ffffff' : '#94a3b8',
-                                    boxShadow: geoEntityFilter === 'ALL' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+                                    background: geoEntityFilter === 'ALL' ? '#2563eb' : 'transparent',
+                                    color: geoEntityFilter === 'ALL' ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#64748b'),
+                                    boxShadow: geoEntityFilter === 'ALL' ? '0 2px 6px rgba(37, 99, 235, 0.35)' : 'none',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     gap: '5px'
                                 }}
                             >
-                                <span>Tümü</span>
+                                <span>{isTr ? 'Tümü' : 'All'}</span>
                                 <span style={{
                                     fontSize: '10px',
                                     fontWeight: '700',
                                     padding: '1px 5px',
                                     borderRadius: '8px',
-                                    background: geoEntityFilter === 'ALL' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)',
-                                    color: '#ffffff'
+                                    background: geoEntityFilter === 'ALL' ? 'rgba(255, 255, 255, 0.25)' : (isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'),
+                                    color: geoEntityFilter === 'ALL' ? '#ffffff' : (isDarkMode ? '#ffffff' : '#334155')
                                 }}>
                                     {cities.filter(c => !c.isDeleted).length + maritimeZones.filter(m => !m.isDeleted).length}
                                 </span>
@@ -3133,23 +3210,23 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                     border: 'none',
                                     cursor: 'pointer',
                                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    background: geoEntityFilter === 'LAND' ? 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' : 'transparent',
-                                    color: geoEntityFilter === 'LAND' ? '#ffffff' : '#94a3b8',
-                                    boxShadow: geoEntityFilter === 'LAND' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+                                    background: geoEntityFilter === 'LAND' ? '#2563eb' : 'transparent',
+                                    color: geoEntityFilter === 'LAND' ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#64748b'),
+                                    boxShadow: geoEntityFilter === 'LAND' ? '0 2px 6px rgba(37, 99, 235, 0.35)' : 'none',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     gap: '5px'
                                 }}
                             >
-                                <span>İller</span>
+                                <span>{isTr ? 'İller' : 'Provinces'}</span>
                                 <span style={{
                                     fontSize: '10px',
                                     fontWeight: '700',
                                     padding: '1px 5px',
                                     borderRadius: '8px',
-                                    background: geoEntityFilter === 'LAND' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)',
-                                    color: '#ffffff'
+                                    background: geoEntityFilter === 'LAND' ? 'rgba(255, 255, 255, 0.25)' : (isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'),
+                                    color: geoEntityFilter === 'LAND' ? '#ffffff' : (isDarkMode ? '#ffffff' : '#334155')
                                 }}>
                                     {cities.filter(c => !c.isDeleted).length}
                                 </span>
@@ -3167,92 +3244,164 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                     border: 'none',
                                     cursor: 'pointer',
                                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    background: geoEntityFilter === 'MARITIME' ? 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)' : 'transparent',
-                                    color: geoEntityFilter === 'MARITIME' ? '#ffffff' : '#94a3b8',
-                                    boxShadow: geoEntityFilter === 'MARITIME' ? '0 2px 8px rgba(2, 132, 199, 0.45)' : 'none',
+                                    background: geoEntityFilter === 'MARITIME' ? '#0284c7' : 'transparent',
+                                    color: geoEntityFilter === 'MARITIME' ? '#ffffff' : (isDarkMode ? '#94a3b8' : '#64748b'),
+                                    boxShadow: geoEntityFilter === 'MARITIME' ? '0 2px 6px rgba(2, 132, 199, 0.35)' : 'none',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     gap: '5px'
                                 }}
                             >
-                                <span>Denizler</span>
+                                <span>{isTr ? 'Denizler' : 'Maritime'}</span>
                                 <span style={{
                                     fontSize: '10px',
                                     fontWeight: '700',
                                     padding: '1px 5px',
                                     borderRadius: '8px',
-                                    background: geoEntityFilter === 'MARITIME' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)',
-                                    color: '#ffffff'
+                                    background: geoEntityFilter === 'MARITIME' ? 'rgba(255, 255, 255, 0.25)' : (isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'),
+                                    color: geoEntityFilter === 'MARITIME' ? '#ffffff' : (isDarkMode ? '#ffffff' : '#334155')
                                 }}>
                                     {maritimeZones.filter(m => !m.isDeleted).length}
                                 </span>
                             </button>
                         </div>
 
-                        {/* BASİTLEŞTİRİLMİŞ DENİZ ALANI BİLGİ KARTI */}
-                        {selectedCity && selectedCity.isMaritime && (
+                        {/* SEÇİLİ İL / DENİZ ALANI BİLGİ VE METRİK KARTI (DÜZ FLAT MODERN KART) */}
+                        {selectedCity && (
                             <div style={{
-                                margin: '6px 8px 4px 8px',
-                                padding: '10px 12px',
-                                borderRadius: '8px',
-                                background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.15) 0%, rgba(3, 105, 161, 0.25) 100%)',
-                                border: '1px solid rgba(56, 189, 248, 0.3)',
-                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)'
+                                margin: '8px 8px 6px 8px',
+                                padding: '12px 14px',
+                                borderRadius: '10px',
+                                background: '#1e293b',
+                                border: selectedCity.isMaritime ? '1px solid #0284c7' : '1px solid #3b82f6',
+                                boxShadow: 'none'
                             }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                                    <div>
-                                        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: '700', color: '#38bdf8' }}>{selectedCity.name}</h4>
-                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{selectedCity.sea || selectedCity.region} • Kod: {selectedCity.plate}</span>
-                                    </div>
-                                    <button
-                                        onClick={() => setSelectedCity(null)}
-                                        style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px 4px', fontSize: '12px' }}
-                                        title="Kapat"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
+                                {(() => {
+                                    const metrics = calculateGeometryMetrics(selectedCity);
+                                    return (
+                                        <>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                                <div>
+                                                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '800', color: selectedCity.isMaritime ? '#38bdf8' : '#60a5fa', letterSpacing: '-0.2px' }}>
+                                                        {selectedCity.name}
+                                                    </h4>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                                                            {selectedCity.sea || selectedCity.region || (isTr ? 'Bölge Belirtilmemiş' : 'Unspecified Region')}
+                                                        </span>
+                                                        <span style={{ color: '#475569' }}>•</span>
+                                                        <span style={{ fontSize: '11px', fontWeight: 600, color: selectedCity.isMaritime ? '#38bdf8' : '#93c5fd' }}>
+                                                            {selectedCity.isMaritime ? (isTr ? 'Deniz Kodu:' : 'Code:') : (isTr ? 'Plaka:' : 'Plate:')} {selectedCity.plate}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => setSelectedCity(null)}
+                                                    style={{
+                                                        background: '#334155',
+                                                        border: 'none',
+                                                        color: '#94a3b8',
+                                                        cursor: 'pointer',
+                                                        padding: '4px',
+                                                        borderRadius: '6px',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                    title={isTr ? "Kapat" : "Close"}
+                                                >
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                                    </svg>
+                                                </button>
+                                            </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '8px', fontSize: '11px' }}>
-                                    <div style={{ padding: '4px 6px', borderRadius: '5px', background: 'rgba(0,0,0,0.25)' }}>
-                                        <span style={{ color: '#94a3b8', display: 'block', fontSize: '9px' }}>YÜZÖLÇÜMÜ</span>
-                                        <strong style={{ color: '#f8fafc' }}>{selectedCity.areaKm2 ? `${selectedCity.areaKm2.toLocaleString('tr-TR')} km²` : 'Belirtilmemiş'}</strong>
-                                    </div>
-                                    <div style={{ padding: '4px 6px', borderRadius: '5px', background: 'rgba(0,0,0,0.25)' }}>
-                                        <span style={{ color: '#94a3b8', display: 'block', fontSize: '9px' }}>KIYI ŞERİDİ</span>
-                                        <strong style={{ color: '#f8fafc' }}>{selectedCity.coastlineKm ? `${selectedCity.coastlineKm} km` : 'Belirtilmemiş'}</strong>
-                                    </div>
-                                </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px', fontSize: '11px' }}>
+                                                <div style={{
+                                                    padding: '6px 8px',
+                                                    borderRadius: '6px',
+                                                    background: '#0f172a',
+                                                    border: '1px solid #334155'
+                                                }}>
+                                                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '9px', fontWeight: '800', letterSpacing: '0.4px', textTransform: 'uppercase' }}>{isTr ? 'YÜZÖLÇÜMÜ' : 'AREA'}</span>
+                                                    <strong style={{ color: '#38bdf8', fontSize: '12.5px', fontWeight: 800, display: 'block', marginTop: '1px' }}>{metrics.formattedArea}</strong>
+                                                    {metrics.areaHa > 0 && (
+                                                        <span style={{ color: '#64748b', fontSize: '9px', display: 'block' }}>({metrics.formattedAreaHa})</span>
+                                                    )}
+                                                </div>
+                                                <div style={{
+                                                    padding: '6px 8px',
+                                                    borderRadius: '6px',
+                                                    background: '#0f172a',
+                                                    border: '1px solid #334155'
+                                                }}>
+                                                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '9px', fontWeight: '800', letterSpacing: '0.4px', textTransform: 'uppercase' }}>{isTr ? 'ÇEVRE / KIYI' : 'PERIMETER / COAST'}</span>
+                                                    <strong style={{ color: '#c084fc', fontSize: '12.5px', fontWeight: 800, display: 'block', marginTop: '1px' }}>{metrics.formattedPerimeter}</strong>
+                                                </div>
+                                            </div>
 
-                                <div style={{ display: 'flex', gap: '6px' }}>
-                                    <button
-                                        className="btn btn-xs btn-secondary"
-                                        style={{ flex: 1, fontSize: '11px', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
-                                        onClick={() => {
-                                            setFormData({
-                                                plate: selectedCity.plate.toString(),
-                                                name: selectedCity.name,
-                                                region: selectedCity.region || selectedCity.sea || '',
-                                                wkt: selectedCity.wkt || '',
-                                                entityType: 'MARITIME',
-                                                isMaritime: true
-                                            });
-                                            setIsEditModalOpen(true);
-                                        }}
-                                    >
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                        Düzenle
-                                    </button>
-                                    <button
-                                        className="btn btn-xs btn-danger"
-                                        style={{ flex: 1, fontSize: '11px', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}
-                                        onClick={() => handleSoftDeleteCity(selectedCity)}
-                                    >
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                        Sil
-                                    </button>
-                                </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                                <button
+                                                    type="button"
+                                                    style={{
+                                                        height: '34px',
+                                                        fontSize: '11.5px',
+                                                        fontWeight: 700,
+                                                        borderRadius: '6px',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '6px',
+                                                        cursor: 'pointer',
+                                                        background: '#2563eb',
+                                                        border: '1px solid #1d4ed8',
+                                                        color: '#ffffff',
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                    onClick={() => {
+                                                        setFormData({
+                                                            plate: selectedCity.plate.toString(),
+                                                            name: selectedCity.name,
+                                                            region: selectedCity.region || selectedCity.sea || '',
+                                                            wkt: selectedCity.wkt || '',
+                                                            entityType: selectedCity.isMaritime ? 'MARITIME' : 'LAND',
+                                                            isMaritime: selectedCity.isMaritime
+                                                        });
+                                                        setIsEditModalOpen(true);
+                                                    }}
+                                                >
+                                                    <EditIcon size={13} />
+                                                    <span>{isTr ? 'Düzenle' : 'Edit'}</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    style={{
+                                                        height: '34px',
+                                                        fontSize: '11.5px',
+                                                        fontWeight: 700,
+                                                        borderRadius: '6px',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '6px',
+                                                        cursor: 'pointer',
+                                                        background: '#dc2626',
+                                                        border: '1px solid #b91c1c',
+                                                        color: '#ffffff',
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                    onClick={() => handleSoftDeleteCity(selectedCity)}
+                                                >
+                                                    <TrashIcon size={13} />
+                                                    <span>{isTr ? 'Sil' : 'Delete'}</span>
+                                                </button>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         )}
 
@@ -3260,7 +3409,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                             <div style={{ position: 'relative', flex: 1.5, display: 'flex', alignItems: 'center' }}>
                                 <input
                                     type="text"
-                                    placeholder="İl, Deniz Alanı, Plaka..."
+                                    placeholder={isTr ? "İl, Deniz Alanı, Plaka..." : "Province, Maritime Zone, Code..."}
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     className="geo-search-input compact-search"
@@ -3281,7 +3430,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                                 alignItems: 'center',
                                                 justifyContent: 'center'
                                             }}
-                                            title="Aramayı Temizle"
+                                            title={isTr ? "Aramayı Temizle" : "Clear Search"}
                                         >
                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -3296,8 +3445,8 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 onChange={(e) => setSelectedRegion(e.target.value)}
                                 className="geo-region-select compact-select"
                             >
-                                <option value="ALL">Bölgeler & Denizler (Tümü)</option>
-                                <option value="NONE">Bölgesiz / Belirtilmemiş</option>
+                                <option value="ALL">{isTr ? 'Bölgeler & Denizler (Tümü)' : 'Regions & Maritime (All)'}</option>
+                                <option value="NONE">{isTr ? 'Bölgesiz / Belirtilmemiş' : 'Unspecified Region'}</option>
                                 {availableRegions.map(r => (
                                     <option key={r} value={r}>{r}</option>
                                 ))}
@@ -3307,20 +3456,40 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 onChange={(e) => setStatusFilter(e.target.value)}
                                 className="geo-region-select compact-select"
                             >
-                                <option value="ACTIVE">Aktifler</option>
-                                <option value="DELETED">Silinenler</option>
-                                <option value="ALL">Tümü</option>
+                                <option value="ACTIVE">{isTr ? 'Aktifler' : 'Active'}</option>
+                                <option value="DELETED">{isTr ? 'Silinenler' : 'Deleted'}</option>
+                                <option value="ALL">{isTr ? 'Tümü' : 'All'}</option>
                             </select>
+                        </div>
+
+                        {/* BÖLGE / FİLTRE METRİK ÖZET ÇUBUĞU */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '6px 10px',
+                            margin: '4px 8px',
+                            borderRadius: '6px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            fontSize: '10.5px'
+                        }}>
+                            <span style={{ color: '#94a3b8' }}>
+                                {isTr ? 'Toplam Alan:' : 'Total Area:'} <strong style={{ color: '#38bdf8', fontWeight: '700' }}>{regionMetrics.formattedTotalArea}</strong>
+                            </span>
+                            <span style={{ color: '#94a3b8' }}>
+                                {isTr ? 'Toplam Çevre:' : 'Total Perimeter:'} <strong style={{ color: '#a78bfa', fontWeight: '700' }}>{regionMetrics.formattedTotalPerimeter}</strong>
+                            </span>
                         </div>
 
                         <div className="geo-table-container compact-table-container">
                             <table className="geo-table compact-table">
                                 <thead>
                                     <tr>
-                                        <th style={{ width: '42px' }}>Kod</th>
-                                        <th>Alan / İl Adı</th>
-                                        <th>Bölge / Deniz</th>
-                                        <th style={{ width: '54px' }}>İşlem</th>
+                                        <th style={{ width: '48px' }}>{isTr ? 'Kod' : 'Code'}</th>
+                                        <th>{isTr ? 'Alan / İl Adı & Yüzölçümü' : 'Area / Province Name & Size'}</th>
+                                        <th style={{ width: '125px' }}>{isTr ? 'Bölge / Deniz' : 'Region / Sea'}</th>
+                                        <th style={{ width: '68px', textAlign: 'center' }}>{isTr ? 'İşlem' : 'Action'}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -3328,6 +3497,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                         const isSelected = selectedCities.some(c => c.plate === city.plate);
                                         const isPrimary = selectedCity && (selectedCity.plate === city.plate || selectedCity.id === city.id);
                                         const isMaritime = city.isMaritime;
+                                        const metrics = calculateGeometryMetrics(city);
 
                                         return (
                                             <tr
@@ -3345,11 +3515,18 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                                         <span className="plate-badge compact-badge">{city.plate.toString().padStart(2, '0')}</span>
                                                     )}
                                                 </td>
-                                                <td className="city-name compact-city" style={isMaritime ? { color: '#38bdf8', fontWeight: '600' } : undefined}>
-                                                    {city.name}
+                                                <td className="city-name compact-city">
+                                                    <div style={{ color: isMaritime ? (isDarkMode ? '#38bdf8' : '#0284c7') : (isPrimary ? '#2563eb' : (isDarkMode ? '#f8fafc' : '#0f172a')), fontWeight: '600', fontSize: '12px' }}>
+                                                        {city.name}
+                                                    </div>
+                                                    <div style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', gap: '6px', marginTop: '1px' }}>
+                                                        <span>{metrics.formattedArea}</span>
+                                                        <span>•</span>
+                                                        <span>{metrics.formattedPerimeter}</span>
+                                                    </div>
                                                 </td>
                                                 <td>
-                                                    <span className="region-tag compact-tag" style={isMaritime ? { background: 'rgba(2, 132, 199, 0.25)', color: '#38bdf8' } : undefined}>
+                                                    <span className="region-tag compact-tag" style={{ background: 'transparent', color: isMaritime ? (isDarkMode ? '#38bdf8' : '#0284c7') : (isDarkMode ? '#94a3b8' : '#475569'), fontSize: '11px', fontWeight: '500' }}>
                                                         {city.sea || city.region || 'Belirtilmemiş'}
                                                     </span>
                                                 </td>
@@ -3369,8 +3546,8 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                                         ) : (
                                                             <>
                                                                 <button
-                                                                    className="icon-btn edit-btn compact-icon"
-                                                                    title="Bilgileri Düzenle"
+                                                                    className="admin-action-btn edit-icon-btn"
+                                                                    title={isTr ? "Bilgileri Düzenle" : "Edit Details"}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         setSelectedCity(city);
@@ -3384,18 +3561,20 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                                                         });
                                                                         setIsEditModalOpen(true);
                                                                     }}
+                                                                    style={{ width: '28px', height: '28px', borderRadius: '6px' }}
                                                                 >
-                                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                                    <EditIcon size={14} />
                                                                 </button>
                                                                 <button
-                                                                    className="icon-btn delete-btn compact-icon"
-                                                                    title="Kalıcı Sil (Soft Delete)"
+                                                                    className="admin-action-btn delete-icon-btn"
+                                                                    title={isTr ? "Kalıcı Sil (Soft Delete)" : "Delete"}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         handleSoftDeleteCity(city);
                                                                     }}
+                                                                    style={{ width: '28px', height: '28px', borderRadius: '6px' }}
                                                                 >
-                                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                                    <TrashIcon size={14} />
                                                                 </button>
                                                             </>
                                                         )}
@@ -3415,15 +3594,17 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
             {isBackupModalOpen && (
                 <div className="admin-modal-overlay">
                     <div className="admin-modal-content" style={{ maxWidth: '650px' }}>
-                        <h3>Harita Versiyon Yedeği Geçmişi</h3>
+                        <h3>{isTr ? 'Harita Versiyon Yedeği Geçmişi' : 'Map Version Backup History'}</h3>
                         <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '15px' }}>
-                            Daha önce "Değişiklikleri Kaydet" butonuna her bastığınızda eski harita sürümleri otomatik olarak yedeklenir. İstediğiniz sürümü tek tıkla geri yükleyebilirsiniz.
+                            {isTr 
+                                ? 'Daha önce "Değişiklikleri Kaydet" butonuna her bastığınızda eski harita sürümleri otomatik olarak yedeklenir. İstediğiniz sürümü tek tıkla geri yükleyebilirsiniz.' 
+                                : 'Previous map versions are automatically backed up whenever you click "Save Changes". You can restore any previous version with a single click.'}
                         </p>
 
                         <div className="backup-list-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>
                             {backupsList.length === 0 ? (
-                                <div style={{ padding: '20px', textAlgin: 'center', color: '#64748b' }}>
-                                    Henüz geçmiş bir harita yedeği bulunmuyor.
+                                <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>
+                                    {isTr ? 'Henüz geçmiş bir harita yedeği bulunmuyor.' : 'No backup versions found yet.'}
                                 </div>
                             ) : (
                                 backupsList.map((b, idx) => (
@@ -3435,17 +3616,17 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                             justifyContent: 'space-between',
                                             padding: '12px',
                                             marginBottom: '8px',
-                                            backgroundColor: '#1e293b',
+                                            backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc',
                                             borderRadius: '8px',
-                                            border: '1px solid #334155'
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`
                                         }}
                                     >
                                         <div>
-                                            <div style={{ fontWeight: 'bold', color: '#f8fafc', fontSize: '14px' }}>
+                                            <div style={{ fontWeight: 'bold', color: isDarkMode ? '#f8fafc' : '#0f172a', fontSize: '14px' }}>
                                                 {b.dateStr}
                                             </div>
                                             <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-                                                {b.note || 'Otomatik Harita Yedeği'} ({b.citiesCount || 81} Aktif İl)
+                                                {b.note || (isTr ? 'Otomatik Harita Yedeği' : 'Automatic Map Backup')} ({b.citiesCount || 81} {isTr ? 'Aktif İl' : 'Active Provinces'})
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px' }}>
@@ -3454,14 +3635,15 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                                 style={{ padding: '4px 10px', fontSize: '11px' }}
                                                 onClick={() => handleRestoreBackup(b)}
                                             >
-                                                Bu Yedeği Yükle
+                                                {isTr ? 'Bu Yedeği Yükle' : 'Restore This Backup'}
                                             </button>
                                             <button
-                                                className="icon-btn delete-btn compact-icon"
-                                                title="Yedeği Sil"
+                                                className="admin-action-btn delete-icon-btn"
+                                                title={isTr ? "Yedeği Sil" : "Delete Backup"}
                                                 onClick={() => handleDeleteBackup(b.id)}
+                                                style={{ width: '28px', height: '28px', borderRadius: '6px' }}
                                             >
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                <TrashIcon size={14} />
                                             </button>
                                         </div>
                                     </div>
@@ -3470,7 +3652,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                         </div>
 
                         <div className="modal-footer" style={{ marginTop: '20px' }}>
-                            <button className="btn btn-secondary btn-sm" onClick={() => setIsBackupModalOpen(false)}>Kapat</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => setIsBackupModalOpen(false)}>{isTr ? 'Kapat' : 'Close'}</button>
                         </div>
                     </div>
                 </div>
@@ -3478,39 +3660,82 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
 
             {/* Modal: Edit City / Maritime Zone */}
             {isEditModalOpen && (
-                <div className="admin-modal-overlay">
-                    <div className="admin-modal-content">
+                <div className="admin-modal-overlay" style={{ backgroundColor: 'rgba(0, 0, 0, 0.65)' }}>
+                    <div className="admin-modal-content" style={{
+                        maxWidth: '520px',
+                        width: '90%',
+                        borderRadius: '12px',
+                        border: '1px solid #334155',
+                        boxShadow: 'none',
+                        padding: '24px 28px',
+                        background: '#1e293b'
+                    }}>
                         {(() => {
                             const isMaritime = formData.isMaritime || formData.entityType === 'MARITIME' || (selectedCity && selectedCity.isMaritime);
                             return (
                                 <>
-                                    <h3>{isMaritime ? `Deniz Yetki Alanı Düzenle: ${formData.name}` : `İl / Bölge Düzenle: ${formData.name}`}</h3>
-                                    <div className="form-group">
-                                        <label>{isMaritime ? 'Deniz Alan Kodu / No (901-999):' : 'Plaka Kodu (Değiştirilebilir):'}</label>
+                                    <h3 style={{ margin: '0 0 16px 0', fontSize: '17px', fontWeight: 800, color: '#ffffff' }}>
+                                        {isMaritime ? (isTr ? `Deniz Yetki Alanı Düzenle: ${formData.name}` : `Edit Maritime Zone: ${formData.name}`) : (isTr ? `İl / Bölge Düzenle: ${formData.name}` : `Edit Province / Region: ${formData.name}`)}
+                                    </h3>
+                                    <div className="form-group" style={{ marginBottom: '14px' }}>
+                                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '4px', display: 'block' }}>
+                                            {isMaritime ? (isTr ? 'Deniz Alan Kodu / No (901-999):' : 'Maritime Code / ID (901-999):') : (isTr ? 'Plaka Kodu (Değiştirilebilir):' : 'Plate Code / ID:')}
+                                        </label>
                                         <input
                                             type="number"
                                             value={formData.plate}
                                             onChange={(e) => setFormData({ ...formData, plate: e.target.value })}
                                             className="form-control"
-                                            placeholder={isMaritime ? 'Deniz Alan Kodu (901-999)' : 'Plaka Kodu'}
+                                            style={{
+                                                height: '38px',
+                                                borderRadius: '6px',
+                                                backgroundColor: '#0f172a',
+                                                border: '1px solid #334155',
+                                                color: '#ffffff',
+                                                padding: '8px 12px',
+                                                fontSize: '13px'
+                                            }}
+                                            placeholder={isMaritime ? (isTr ? 'Deniz Alan Kodu (901-999)' : 'Maritime Code (901-999)') : (isTr ? 'Plaka Kodu' : 'Plate Code')}
                                         />
                                     </div>
-                                    <div className="form-group">
-                                        <label>{isMaritime ? 'Deniz Alanı / Havza Adı:' : 'İl Adı:'}</label>
+                                    <div className="form-group" style={{ marginBottom: '14px' }}>
+                                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '4px', display: 'block' }}>
+                                            {isMaritime ? (isTr ? 'Deniz Alanı / Havza Adı:' : 'Maritime Area / Basin Name:') : (isTr ? 'İl Adı:' : 'Province Name:')}
+                                        </label>
                                         <input
                                             type="text"
                                             value={formData.name}
                                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                             className="form-control"
+                                            style={{
+                                                height: '38px',
+                                                borderRadius: '6px',
+                                                backgroundColor: '#0f172a',
+                                                border: '1px solid #334155',
+                                                color: '#ffffff',
+                                                padding: '8px 12px',
+                                                fontSize: '13px'
+                                            }}
                                         />
                                     </div>
-                                    <div className="form-group">
-                                        <label>{isMaritime ? 'Deniz Havzası:' : 'Coğrafi Bölge (İsteğe Bağlı):'}</label>
+                                    <div className="form-group" style={{ marginBottom: '14px' }}>
+                                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '4px', display: 'block' }}>
+                                            {isMaritime ? (isTr ? 'Deniz Havzası:' : 'Sea Basin:') : (isTr ? 'Coğrafi Bölge (İsteğe Bağlı):' : 'Geographical Region (Optional):')}
+                                        </label>
                                         {isMaritime ? (
                                             <select
                                                 value={formData.region || 'Karadeniz'}
                                                 onChange={(e) => setFormData({ ...formData, region: e.target.value })}
                                                 className="form-control"
+                                                style={{
+                                                    height: '38px',
+                                                    borderRadius: '6px',
+                                                    backgroundColor: '#0f172a',
+                                                    border: '1px solid #334155',
+                                                    color: '#ffffff',
+                                                    padding: '8px 12px',
+                                                    fontSize: '13px'
+                                                }}
                                             >
                                                 <option value="Karadeniz">Karadeniz</option>
                                                 <option value="Marmara Denizi">Marmara Denizi</option>
@@ -3527,33 +3752,86 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                                     value={formData.region || ''}
                                                     onChange={(e) => setFormData({ ...formData, region: e.target.value })}
                                                     className="form-control"
-                                                    placeholder="Listeden seçin veya yeni bölge adı yazın..."
+                                                    style={{
+                                                        height: '38px',
+                                                        borderRadius: '6px',
+                                                        backgroundColor: '#0f172a',
+                                                        border: '1px solid #334155',
+                                                        color: '#ffffff',
+                                                        padding: '8px 12px',
+                                                        fontSize: '13px'
+                                                    }}
+                                                    placeholder={isTr ? "Listeden seçin veya yeni bölge adı yazın..." : "Select from list or type custom region name..."}
                                                 />
                                                 <datalist id="region-options-list-edit">
                                                     {availableRegions.map(r => (
                                                         <option key={r} value={r} />
                                                     ))}
                                                 </datalist>
-                                                <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', display: 'block' }}>
-                                                    İsteğe bağlıdır. Mevcut bölgelerden seçebilir veya doğrudan yeni bir bölge ismi yazabilirsiniz.
+                                                <small style={{ color: '#64748b', fontSize: '11px', marginTop: '2px', display: 'block' }}>
+                                                    {isTr 
+                                                        ? 'İsteğe bağlıdır. Mevcut bölgelerden seçebilir veya doğrudan yeni bir bölge ismi yazabilirsiniz.' 
+                                                        : 'Optional. Choose an existing region or enter a new region name.'}
                                                 </small>
                                             </>
                                         )}
                                     </div>
-                                    <div className="form-group">
-                                        <label>Sınır WKT Dizgisi (Well-Known Text):</label>
+                                    <div className="form-group" style={{ marginBottom: '16px' }}>
+                                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '4px', display: 'block' }}>
+                                            {isTr ? 'Sınır WKT Dizgisi (Well-Known Text):' : 'Boundary WKT (Well-Known Text):'}
+                                        </label>
                                         <textarea
                                             rows="4"
                                             value={formData.wkt}
                                             onChange={(e) => setFormData({ ...formData, wkt: e.target.value })}
                                             className="form-control code-text"
+                                            style={{
+                                                borderRadius: '6px',
+                                                backgroundColor: '#0f172a',
+                                                border: '1px solid #334155',
+                                                color: '#38bdf8',
+                                                padding: '8px 12px',
+                                                fontSize: '12px',
+                                                fontFamily: 'monospace'
+                                            }}
                                             placeholder="POLYGON((lon lat, ...))"
                                         />
                                     </div>
-                                    <div className="modal-footer">
-                                        <button className="btn btn-secondary btn-sm" onClick={() => setIsEditModalOpen(false)}>İptal</button>
-                                        <button className="btn btn-primary btn-sm" onClick={handleSaveEdit}>
-                                            {isMaritime ? 'Deniz Alanını Güncelle' : 'Değişiklikleri Kaydet'}
+                                    <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+                                        <button
+                                            type="button"
+                                            style={{
+                                                height: '36px',
+                                                padding: '0 16px',
+                                                borderRadius: '6px',
+                                                backgroundColor: '#334155',
+                                                border: '1px solid #475569',
+                                                color: '#cbd5e1',
+                                                fontSize: '12px',
+                                                fontWeight: 600,
+                                                cursor: 'pointer'
+                                            }}
+                                            onClick={() => setIsEditModalOpen(false)}
+                                        >
+                                            {isTr ? 'İptal' : 'Cancel'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            style={{
+                                                height: '36px',
+                                                padding: '0 20px',
+                                                borderRadius: '6px',
+                                                background: '#2563eb',
+                                                border: '1px solid #1d4ed8',
+                                                color: '#ffffff',
+                                                fontSize: '12.5px',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                boxShadow: 'none'
+                                            }}
+                                            onClick={handleSaveEdit}
+                                        >
+                                            {isMaritime ? (isTr ? 'Deniz Alanını Güncelle' : 'Update Maritime Zone') : (isTr ? 'Değişiklikleri Kaydet' : 'Save Changes')}
                                         </button>
                                     </div>
                                 </>
@@ -3563,70 +3841,148 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                 </div>
             )}
 
-            {/* Modal: Add New City */}
-            {/* Modal: Add New City / Maritime Zone */}
+            {/* Modal: Add New City / Maritime Zone (DÜZ FLAT MODAL) */}
             {isAddModalOpen && (
-                <div className="admin-modal-overlay">
-                    <div className="admin-modal-content">
-                        <h3>{formData.entityType === 'MARITIME' ? (formData.wkt ? 'Yeni Deniz Alanı Poligonunu Kaydet' : 'Yeni Deniz Yetki Alanı Ekle') : (formData.wkt ? 'Yeni İl / Bölge Poligonunu Kaydet' : 'Yeni İl / Bölge Ekle')}</h3>
+                <div className="admin-modal-overlay" style={{ backgroundColor: 'rgba(0, 0, 0, 0.65)' }}>
+                    <div className="admin-modal-content" style={{
+                        maxWidth: '520px',
+                        width: '90%',
+                        borderRadius: '12px',
+                        border: '1px solid #334155',
+                        boxShadow: 'none',
+                        padding: '24px 28px',
+                        background: '#1e293b'
+                    }}>
+                        <h3 style={{
+                            margin: '0 0 16px 0',
+                            fontSize: '17px',
+                            fontWeight: 800,
+                            color: '#ffffff',
+                            letterSpacing: '-0.3px'
+                        }}>
+                            {formData.entityType === 'MARITIME' ? (formData.wkt ? (isTr ? 'Yeni Deniz Alanı Poligonunu Kaydet' : 'Save New Maritime Polygon') : (isTr ? 'Yeni Deniz Yetki Alanı Ekle' : 'Add New Maritime Zone')) : (formData.wkt ? (isTr ? 'Yeni İl / Bölge Poligonunu Kaydet' : 'Save New Province Polygon') : (isTr ? 'Yeni İl / Bölge Ekle' : 'Add New Province / Region'))}
+                        </h3>
                         
                         {/* POLİGON TÜRÜ SEÇİCİ (İL / DENİZ) */}
-                        <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', background: '#090d1a', padding: '4px', borderRadius: '8px', border: '1px solid #334155' }}>
+                        <div style={{
+                            display: 'flex',
+                            gap: '6px',
+                            marginBottom: '16px',
+                            background: '#0f172a',
+                            padding: '4px',
+                            borderRadius: '8px',
+                            border: '1px solid #334155'
+                        }}>
                             <button
                                 type="button"
-                                className={`btn btn-xs ${formData.entityType !== 'MARITIME' ? 'btn-primary' : 'btn-secondary'}`}
-                                style={{ flex: 1, padding: '7px 8px', fontSize: '11.5px', fontWeight: formData.entityType !== 'MARITIME' ? '700' : '500' }}
+                                style={{
+                                    flex: 1,
+                                    padding: '8px 12px',
+                                    fontSize: '12px',
+                                    fontWeight: formData.entityType !== 'MARITIME' ? 700 : 500,
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    backgroundColor: formData.entityType !== 'MARITIME' ? '#2563eb' : 'transparent',
+                                    color: formData.entityType !== 'MARITIME' ? '#ffffff' : '#94a3b8',
+                                    boxShadow: 'none',
+                                    transition: 'all 0.15s ease'
+                                }}
                                 onClick={() => {
                                     const nextPlate = Math.max(0, ...cities.filter(c => !c.isDeleted).map(c => Number(c.plate) || 0)) + 1;
                                     setFormData({ ...formData, entityType: 'LAND', plate: nextPlate.toString(), region: 'Marmara Bölgesi' });
                                 }}
                             >
-                                İl / Kara Bölgesi
+                                {isTr ? 'İl / Kara Bölgesi' : 'Province / Land'}
                             </button>
                             <button
                                 type="button"
-                                className={`btn btn-xs ${formData.entityType === 'MARITIME' ? 'btn-primary' : 'btn-secondary'}`}
-                                style={{ flex: 1, padding: '7px 8px', fontSize: '11.5px', fontWeight: formData.entityType === 'MARITIME' ? '700' : '500' }}
+                                style={{
+                                    flex: 1,
+                                    padding: '8px 12px',
+                                    fontSize: '12px',
+                                    fontWeight: formData.entityType === 'MARITIME' ? 700 : 500,
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    backgroundColor: formData.entityType === 'MARITIME' ? '#0284c7' : 'transparent',
+                                    color: formData.entityType === 'MARITIME' ? '#ffffff' : '#94a3b8',
+                                    boxShadow: 'none',
+                                    transition: 'all 0.15s ease'
+                                }}
                                 onClick={() => {
                                     const nextPlate = Math.max(900, ...maritimeZones.filter(m => !m.isDeleted).map(m => Number(m.plate) || 0)) + 1;
                                     setFormData({ ...formData, entityType: 'MARITIME', plate: nextPlate.toString(), region: 'Karadeniz' });
                                 }}
                             >
-                                Deniz Yetki Alanı
+                                {isTr ? 'Deniz Yetki Alanı' : 'Maritime Zone'}
                             </button>
                         </div>
 
-                        <div className="form-group">
-                            <label>{formData.entityType === 'MARITIME' ? 'Deniz Alan Kodu / No (901-999):' : 'Plaka Kodu / ID (Benzersiz Olmalıdır):'}</label>
+                        <div className="form-group" style={{ marginBottom: '14px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '4px', display: 'block' }}>
+                                {formData.entityType === 'MARITIME' ? (isTr ? 'Deniz Alan Kodu / No (901-999):' : 'Maritime Code / ID (901-999):') : (isTr ? 'Plaka Kodu / ID (Benzersiz Olmalıdır):' : 'Plate Code / Unique ID:')}
+                            </label>
                             <input
                                 type="number"
                                 value={formData.plate}
                                 onChange={(e) => setFormData({ ...formData, plate: e.target.value })}
                                 className="form-control"
-                                placeholder={formData.entityType === 'MARITIME' ? 'Örn: 913' : 'Örn: 82'}
+                                style={{
+                                    height: '38px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#0f172a',
+                                    border: '1px solid #334155',
+                                    color: '#ffffff',
+                                    padding: '8px 12px',
+                                    fontSize: '13px'
+                                }}
+                                placeholder={formData.entityType === 'MARITIME' ? (isTr ? 'Örn: 913' : 'e.g. 913') : (isTr ? 'Örn: 82' : 'e.g. 82')}
                             />
-                            <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px', display: 'block' }}>
-                                {formData.entityType === 'MARITIME' ? 'Deniz alanları için 901-999 arası benzersiz kod kullanılır.' : 'Not: Bu ID diğer kayıtlı illerle aynı olamaz.'}
+                            <small style={{ color: '#64748b', fontSize: '11px', marginTop: '3px', display: 'block' }}>
+                                {formData.entityType === 'MARITIME' ? (isTr ? 'Deniz alanları için 901-999 arası benzersiz kod kullanılır.' : 'Unique code between 901-999 is used for maritime zones.') : (isTr ? 'Not: Bu ID diğer kayıtlı illerle aynı olamaz.' : 'Note: This ID must be unique among registered provinces.')}
                             </small>
                         </div>
-                        <div className="form-group">
-                            <label>{formData.entityType === 'MARITIME' ? 'Deniz Alanı / Havza Adı:' : 'İl Adı:'}</label>
+                        <div className="form-group" style={{ marginBottom: '14px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '4px', display: 'block' }}>
+                                {formData.entityType === 'MARITIME' ? (isTr ? 'Deniz Alanı / Havza Adı:' : 'Maritime Area / Basin Name:') : (isTr ? 'İl Adı:' : 'Province Name:')}
+                            </label>
                             <input
                                 type="text"
                                 value={formData.name}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 className="form-control"
-                                placeholder={formData.entityType === 'MARITIME' ? 'Örn: Güllük Körfezi Yetki Alanı' : 'Örn: Yalova'}
+                                style={{
+                                    height: '38px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#0f172a',
+                                    border: '1px solid #334155',
+                                    color: '#ffffff',
+                                    padding: '8px 12px',
+                                    fontSize: '13px'
+                                }}
+                                placeholder={formData.entityType === 'MARITIME' ? (isTr ? 'Örn: Çandarlı Körfezi Yetki Alanı' : 'e.g. Candarli Gulf Zone') : (isTr ? 'Örn: Yalova' : 'e.g. Yalova')}
                                 autoFocus
                             />
                         </div>
-                        <div className="form-group">
-                            <label>{formData.entityType === 'MARITIME' ? 'Deniz Havzası:' : 'Coğrafi Bölge (İsteğe Bağlı):'}</label>
+                        <div className="form-group" style={{ marginBottom: '14px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '4px', display: 'block' }}>
+                                {formData.entityType === 'MARITIME' ? (isTr ? 'Deniz Havzası:' : 'Sea Basin:') : (isTr ? 'Coğrafi Bölge (İsteğe Bağlı):' : 'Geographical Region (Optional):')}
+                            </label>
                             {formData.entityType === 'MARITIME' ? (
                                 <select
                                     value={formData.region || 'Karadeniz'}
                                     onChange={(e) => setFormData({ ...formData, region: e.target.value })}
                                     className="form-control"
+                                    style={{
+                                        height: '38px',
+                                        borderRadius: '6px',
+                                        backgroundColor: '#0f172a',
+                                        border: '1px solid #334155',
+                                        color: '#ffffff',
+                                        padding: '8px 12px',
+                                        fontSize: '13px'
+                                    }}
                                 >
                                     <option value="Karadeniz">Karadeniz</option>
                                     <option value="Marmara">Marmara Denizi</option>
@@ -3643,7 +3999,16 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                         value={formData.region || ''}
                                         onChange={(e) => setFormData({ ...formData, region: e.target.value })}
                                         className="form-control"
-                                        placeholder="Listeden seçin veya yeni bölge adı yazın..."
+                                        style={{
+                                            height: '38px',
+                                            borderRadius: '6px',
+                                            backgroundColor: '#0f172a',
+                                            border: '1px solid #334155',
+                                            color: '#ffffff',
+                                            padding: '8px 12px',
+                                            fontSize: '13px'
+                                        }}
+                                        placeholder={isTr ? "Listeden seçin veya yeni bölge adı yazın..." : "Select from list or type region name..."}
                                     />
                                     <datalist id="region-options-list-add">
                                         {availableRegions.map(r => (
@@ -3653,19 +4018,27 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 </>
                             )}
                         </div>
-                        <div className="form-group">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                <label style={{ margin: 0 }}>Sınır WKT Poligonu:</label>
+                        <div className="form-group" style={{ marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1', margin: 0 }}>{isTr ? 'Sınır WKT Poligonu:' : 'Boundary WKT Polygon:'}</label>
                                 <button
                                     type="button"
-                                    className="btn btn-secondary btn-sm"
-                                    style={{ fontSize: '11px', padding: '3px 8px' }}
+                                    style={{
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        background: '#334155',
+                                        border: '1px solid #475569',
+                                        color: '#38bdf8',
+                                        cursor: 'pointer'
+                                    }}
                                     onClick={() => {
                                         setIsAddModalOpen(false);
                                         toggleMapTool('draw');
                                     }}
                                 >
-                                    Haritada Çiz
+                                    {isTr ? 'Haritada Çiz' : 'Draw on Map'}
                                 </button>
                             </div>
                             <textarea
@@ -3673,13 +4046,53 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
                                 value={formData.wkt}
                                 onChange={(e) => setFormData({ ...formData, wkt: e.target.value })}
                                 className="form-control code-text"
-                                placeholder="Haritadan çizebilir veya WKT yapıştırabilirsiniz: POLYGON((32.8 39.9, ...))"
+                                style={{
+                                    borderRadius: '6px',
+                                    backgroundColor: '#0f172a',
+                                    border: '1px solid #334155',
+                                    color: '#38bdf8',
+                                    padding: '8px 12px',
+                                    fontSize: '12px',
+                                    fontFamily: 'monospace'
+                                }}
+                                placeholder={isTr ? "Haritadan çizebilir veya WKT yapıştırabilirsiniz: POLYGON((32.8 39.9, ...))" : "Draw on map or paste WKT: POLYGON((32.8 39.9, ...))"}
                             />
                         </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-secondary btn-sm" onClick={handleCancelAdd}>İptal</button>
-                            <button className="btn btn-primary btn-sm" onClick={handleSaveAdd}>
-                                {formData.entityType === 'MARITIME' ? 'Deniz Alanını Kaydet' : 'İli Kaydet'}
+                        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+                            <button
+                                type="button"
+                                style={{
+                                    height: '36px',
+                                    padding: '0 16px',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#334155',
+                                    border: '1px solid #475569',
+                                    color: '#cbd5e1',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}
+                                onClick={handleCancelAdd}
+                            >
+                                {isTr ? 'İptal' : 'Cancel'}
+                            </button>
+                            <button
+                                type="button"
+                                style={{
+                                    height: '36px',
+                                    padding: '0 20px',
+                                    borderRadius: '6px',
+                                    background: '#2563eb',
+                                    border: '1px solid #1d4ed8',
+                                    color: '#ffffff',
+                                    fontSize: '12.5px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)'
+                                }}
+                                onClick={handleSaveAdd}
+                            >
+                                {formData.entityType === 'MARITIME' ? (isTr ? 'Deniz Alanını Kaydet' : 'Save Maritime Zone') : (isTr ? 'İli Kaydet' : 'Save Province')}
                             </button>
                         </div>
                     </div>

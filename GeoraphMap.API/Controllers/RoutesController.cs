@@ -67,10 +67,10 @@ namespace GeoraphMap.API.Controllers
         }
 
         [HttpPost("{id}/stops/{stopId}")]
-        public async Task<IActionResult> AddStop(int id, int stopId)
+        public async Task<IActionResult> AddStop(int id, int stopId, [FromQuery] string position = "end", [FromQuery] int? targetStopId = null)
         {
-            var success = await _transportService.AddStopToRouteAsync(id, stopId);
-            if (!success) return BadRequest(new { message = "Durak güzergaha eklenemedi." });
+            var success = await _transportService.AddStopToRouteAsync(id, stopId, position, targetStopId);
+            if (!success) return BadRequest(new { message = "Durak güzergaha eklenemedi. Farklı sınıftaki duraklar bu güzergaha bağlanamaz." });
 
             var updatedRoute = await _transportService.GetRouteByIdAsync(id);
             return Ok(new { message = "Durak güzergaha başarıyla bağlandı.", route = updatedRoute });

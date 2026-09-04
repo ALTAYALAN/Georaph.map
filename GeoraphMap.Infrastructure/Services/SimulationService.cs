@@ -74,7 +74,7 @@ namespace GeoraphMap.Infrastructure.Services
             }
 
             // Düzgün ve akıcı bir animasyon için güzergah üzerinde ara noktaları (interpolation) hesapla
-            var interpolatedSteps = GenerateInterpolatedSteps(pathPoints, sortedStops, targetStepCount: 75);
+            var interpolatedSteps = GenerateInterpolatedSteps(pathPoints, sortedStops, targetStepCount: 160);
             if (interpolatedSteps.Count < 2)
             {
                 return null;
@@ -218,7 +218,7 @@ namespace GeoraphMap.Infrastructure.Services
                         // Duraklatma kontrolü: Simülasyon duraklatıldıysa bekle
                         while (sim.IsPaused && !token.IsCancellationRequested)
                         {
-                            await Task.Delay(400, token);
+                            await Task.Delay(300, token);
                         }
 
                         if (token.IsCancellationRequested) return;
@@ -243,13 +243,13 @@ namespace GeoraphMap.Infrastructure.Services
                             await _hubNotifier.BroadcastSimulationCompletedAsync(sim.RouteId, sim.RouteName);
                             // Tur tamamlandıktan sonra sıradaki tura başa dönerek devam et
                             sim.CurrentStepIndex = 0;
-                            // Son durakta 3.5 saniye bekle, ardından yeni sefere başla (Operatör durdurana kadar hat canlı kalır)
-                            await Task.Delay(3500, token);
+                            // Son durakta 2.5 saniye bekle, ardından yeni sefere başla (Operatör durdurana kadar hat canlı kalır)
+                            await Task.Delay(2500, token);
                             break;
                         }
 
-                        // Her adım arası 850 milisaniye bekleme (akıcı harita kayması için ideal hız)
-                        await Task.Delay(850, token);
+                        // Her adım arası 320 milisaniye bekleme (istemcideki 60fps interpolasyon ile tereyağı kıvamında akıcı hareket)
+                        await Task.Delay(320, token);
                     }
                 }
             }
@@ -336,7 +336,7 @@ namespace GeoraphMap.Infrastructure.Services
         private List<SimulationStep> GenerateInterpolatedSteps(
             List<Coordinate> pathCoords,
             List<StopFeature> stops,
-            int targetStepCount = 75)
+            int targetStepCount = 160)
         {
             var result = new List<SimulationStep>();
             if (pathCoords.Count < 2) return result;
@@ -354,8 +354,9 @@ namespace GeoraphMap.Infrastructure.Services
 
             if (totalDistance <= 0) return result;
 
-            // Adım sayısını mesafeye göre uyarla (en az 40, en çok 120 adım)
-            int numSteps = Math.Clamp(targetStepCount, 40, 120);
+            // Hat uzunluğuna ve viraj hassasiyetine göre yüksek çözünürlüklü dinamik adım hesabı (100 - 360 adım)
+            int calculatedSteps = Math.Max(targetStepCount, (int)Math.Ceiling(totalDistance / 16.0));
+            int numSteps = Math.Clamp(calculatedSteps, 100, 360);
             double stepDistance = totalDistance / (numSteps - 1);
 
             int currentSeg = 0;

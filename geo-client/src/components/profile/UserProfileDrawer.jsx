@@ -23,13 +23,21 @@ export default function UserProfileDrawer({
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
 
+    // Settings / Profile Edit state
+    const [editEmail, setEditEmail] = useState(currentUser?.email || '');
+    const [editPhone, setEditPhone] = useState(currentUser?.phone || '');
+    const [newPassword, setNewPassword] = useState('');
+    const [isSavingProfile, setIsSavingProfile] = useState(false);
+
     const trans = t || (translations[lang] || translations.tr);
 
     useEffect(() => {
         if (isOpen && token) {
             loadPersonalData();
+            if (currentUser?.email) setEditEmail(currentUser.email);
+            if (currentUser?.phone) setEditPhone(currentUser.phone);
         }
-    }, [isOpen, token]);
+    }, [isOpen, token, currentUser]);
 
     const loadPersonalData = async () => {
         try {
@@ -45,6 +53,26 @@ export default function UserProfileDrawer({
             setError(err.message || (lang === 'tr' ? 'Veriler yüklenemedi.' : 'Failed to load data.'));
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSaveProfile = async (e) => {
+        e.preventDefault();
+        try {
+            setIsSavingProfile(true);
+            setError('');
+            await userPersonalApi.updateProfile({
+                email: editEmail || null,
+                phoneNumber: editPhone || null,
+                newPassword: newPassword || null
+            }, token);
+            setSuccessMsg(lang === 'tr' ? 'Profil bilgileri başarıyla güncellendi.' : 'Profile updated successfully.');
+            setNewPassword('');
+            setTimeout(() => setSuccessMsg(''), 3000);
+        } catch (err) {
+            setError(err.message || (lang === 'tr' ? 'Profil güncellenirken hata oluştu.' : 'Failed to update profile.'));
+        } finally {
+            setIsSavingProfile(false);
         }
     };
 
@@ -77,7 +105,7 @@ export default function UserProfileDrawer({
 
     const username = currentUser?.username || (lang === 'tr' ? 'Kullanıcı' : 'User');
     const role = currentUser?.role || 'Viewer';
-    const email = currentUser?.email || '';
+    const email = editEmail || currentUser?.email || '';
 
     return (
         <div
@@ -100,9 +128,9 @@ export default function UserProfileDrawer({
         >
             <div
                 style={{
-                    width: '450px',
+                    width: '460px',
                     maxWidth: '94vw',
-                    maxHeight: '84vh',
+                    maxHeight: '86vh',
                     backgroundColor: isDarkMode ? '#0b1329' : '#ffffff',
                     color: isDarkMode ? '#f8fafc' : '#0f172a',
                     boxShadow: '0 20px 45px rgba(0, 0, 0, 0.55)',
@@ -257,8 +285,8 @@ export default function UserProfileDrawer({
                             padding: '11px 4px',
                             background: 'none',
                             border: 'none',
-                            borderBottom: activeTab === 'account' ? '2.5px solid #3b82f6' : '2.5px solid transparent',
-                            color: activeTab === 'account' ? '#38bdf8' : (isDarkMode ? '#94a3b8' : '#64748b'),
+                            borderBottom: activeTab === 'account' ? '2.5px solid #2563eb' : '2.5px solid transparent',
+                            color: activeTab === 'account' ? '#2563eb' : (isDarkMode ? '#94a3b8' : '#64748b'),
                             fontWeight: activeTab === 'account' ? 700 : 500,
                             fontSize: '12.5px',
                             cursor: 'pointer',
@@ -273,7 +301,7 @@ export default function UserProfileDrawer({
                             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                             <circle cx="12" cy="7" r="4" />
                         </svg>
-                        <span>{trans.tabAccount}</span>
+                        <span>{lang === 'tr' ? 'Hesap & Ayarlar' : 'Account & Settings'}</span>
                     </button>
                 </div>
 
@@ -556,43 +584,173 @@ export default function UserProfileDrawer({
                         </div>
                     )}
 
-                    {/* TAB 3: HESAP BİLGİLERİ */}
+                    {/* TAB 3: HESAP BİLGİLERİ VE AYARLAR */}
                     {!loading && activeTab === 'account' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {/* Özet Kartı */}
                             <div style={{
-                                backgroundColor: isDarkMode ? '#131e36' : '#ffffff',
+                                backgroundColor: isDarkMode ? '#131e36' : '#f8fafc',
                                 borderRadius: '10px',
                                 border: `1px solid ${isDarkMode ? '#1e2e4a' : '#e2e8f0'}`,
-                                padding: '14px 16px',
+                                padding: '12px 14px',
                                 display: 'flex',
                                 flexDirection: 'column',
-                                gap: '10px'
+                                gap: '8px'
                             }}>
-                                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#38bdf8' }}>
-                                    {trans.accountInfo}
-                                </h4>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#2563eb' }}>
+                                        {trans.accountInfo || 'Hesap Özeti'}
+                                    </h4>
+                                    <span style={{
+                                        fontSize: '10.5px',
+                                        fontWeight: 700,
+                                        padding: '1px 7px',
+                                        borderRadius: '6px',
+                                        backgroundColor: role === 'Admin' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(37, 99, 235, 0.12)',
+                                        color: role === 'Admin' ? '#ef4444' : '#2563eb'
+                                    }}>
+                                        {role}
+                                    </span>
+                                </div>
 
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
-                                    <span style={{ color: '#94a3b8' }}>{trans.usernameLabel}:</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                    <span style={{ color: '#94a3b8' }}>{trans.usernameLabel || 'Kullanıcı Adı'}:</span>
                                     <span style={{ fontWeight: 600 }}>{username}</span>
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
-                                    <span style={{ color: '#94a3b8' }}>{trans.emailLabel}:</span>
-                                    <span style={{ fontWeight: 600 }}>{email || (lang === 'tr' ? 'Belirtilmedi' : 'Not specified')}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
-                                    <span style={{ color: '#94a3b8' }}>{trans.userRoleLabel}:</span>
-                                    <span style={{ fontWeight: 700, color: role === 'Admin' ? '#ef4444' : '#38bdf8' }}>{role}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
-                                    <span style={{ color: '#94a3b8' }}>{trans.savedRoutesCount}</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                    <span style={{ color: '#94a3b8' }}>{trans.savedRoutesCount || 'Kayıtlı Güzergah'}:</span>
                                     <span style={{ fontWeight: 600 }}>{savedRoutes.length} {lang === 'tr' ? 'Adet' : 'Items'}</span>
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
-                                    <span style={{ color: '#94a3b8' }}>{trans.favoritePoisCount}</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                    <span style={{ color: '#94a3b8' }}>{trans.favoritePoisCount || 'Favori İlgi Noktası'}:</span>
                                     <span style={{ fontWeight: 600 }}>{favoritePois.length} {lang === 'tr' ? 'Adet' : 'Items'}</span>
                                 </div>
                             </div>
+
+                            {/* Ayarlar & Bilgileri Güncelleme Formu */}
+                            <form
+                                onSubmit={handleSaveProfile}
+                                style={{
+                                    backgroundColor: isDarkMode ? '#131e36' : '#ffffff',
+                                    borderRadius: '10px',
+                                    border: `1px solid ${isDarkMode ? '#1e2e4a' : '#e2e8f0'}`,
+                                    padding: '14px 16px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '12px'
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.2">
+                                        <circle cx="12" cy="12" r="3" />
+                                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                                    </svg>
+                                    <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>
+                                        {lang === 'tr' ? 'Profil Ayarları' : 'Profile Settings'}
+                                    </h4>
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                                        {trans.emailLabel || 'E-posta Adresi'}
+                                    </label>
+                                    <input
+                                        type="email"
+                                        value={editEmail}
+                                        onChange={(e) => setEditEmail(e.target.value)}
+                                        placeholder="ornek@alan.com"
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px 10px',
+                                            fontSize: '12.5px',
+                                            borderRadius: '6px',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                            backgroundColor: isDarkMode ? '#0b1329' : '#ffffff',
+                                            color: isDarkMode ? '#f8fafc' : '#0f172a',
+                                            outline: 'none',
+                                            boxSizing: 'border-box'
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                                        {lang === 'tr' ? 'Telefon Numarası' : 'Phone Number'}
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        value={editPhone}
+                                        onChange={(e) => setEditPhone(e.target.value)}
+                                        placeholder="+90 555 123 45 67"
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px 10px',
+                                            fontSize: '12.5px',
+                                            borderRadius: '6px',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                            backgroundColor: isDarkMode ? '#0b1329' : '#ffffff',
+                                            color: isDarkMode ? '#f8fafc' : '#0f172a',
+                                            outline: 'none',
+                                            boxSizing: 'border-box'
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                                        {lang === 'tr' ? 'Yeni Şifre (Değiştirmek istemiyorsanız boş bırakın)' : 'New Password (Leave blank to keep current)'}
+                                    </label>
+                                    <input
+                                        type="password"
+                                        value={newPassword}
+                                        onChange={(e) => setNewPassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        minLength={6}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px 10px',
+                                            fontSize: '12.5px',
+                                            borderRadius: '6px',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                            backgroundColor: isDarkMode ? '#0b1329' : '#ffffff',
+                                            color: isDarkMode ? '#f8fafc' : '#0f172a',
+                                            outline: 'none',
+                                            boxSizing: 'border-box'
+                                        }}
+                                    />
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={isSavingProfile}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px',
+                                        padding: '9px 12px',
+                                        backgroundColor: '#2563eb',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        borderRadius: '7px',
+                                        fontWeight: 700,
+                                        fontSize: '12.5px',
+                                        cursor: isSavingProfile ? 'not-allowed' : 'pointer',
+                                        opacity: isSavingProfile ? 0.7 : 1,
+                                        marginTop: '4px',
+                                        transition: 'background-color 0.15s ease'
+                                    }}
+                                    onMouseOver={(e) => { if (!isSavingProfile) e.currentTarget.style.backgroundColor = '#1d4ed8'; }}
+                                    onMouseOut={(e) => { if (!isSavingProfile) e.currentTarget.style.backgroundColor = '#2563eb'; }}
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                                        <polyline points="17 21 17 13 7 13 7 21" />
+                                        <polyline points="7 3 7 8 15 8" />
+                                    </svg>
+                                    <span>{isSavingProfile ? (lang === 'tr' ? 'Kaydediliyor...' : 'Saving...') : (lang === 'tr' ? 'Ayarları Kaydet' : 'Save Settings')}</span>
+                                </button>
+                            </form>
 
                             {onLogout && (
                                 <button
@@ -603,15 +761,15 @@ export default function UserProfileDrawer({
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         gap: '6px',
-                                        padding: '10px',
+                                        padding: '9px 12px',
                                         backgroundColor: 'rgba(239, 68, 68, 0.12)',
                                         color: '#ef4444',
                                         border: '1px solid rgba(239, 68, 68, 0.3)',
                                         borderRadius: '8px',
                                         fontWeight: 700,
-                                        fontSize: '13px',
+                                        fontSize: '12.5px',
                                         cursor: 'pointer',
-                                        marginTop: '4px',
+                                        marginTop: '2px',
                                         transition: 'all 0.15s ease'
                                     }}
                                     onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)'}
