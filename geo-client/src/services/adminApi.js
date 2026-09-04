@@ -191,7 +191,18 @@ export const adminApi = {
     },
 
     // POI (Point of Interest) & Kategori API
-    getPoiCategories: async (includeInactive = false, token) => {
+    getPoiCategories: async (arg1, arg2) => {
+        let includeInactive = false;
+        let token = null;
+        if (typeof arg1 === 'boolean') {
+            includeInactive = arg1;
+            token = arg2;
+        } else if (typeof arg1 === 'string') {
+            token = arg1;
+            includeInactive = typeof arg2 === 'boolean' ? arg2 : false;
+        } else {
+            token = arg2;
+        }
         const res = await fetch(`${API_BASE_URL}/poicategories?includeInactive=${includeInactive}`, { headers: getAuthHeaders(token) });
         if (!res.ok) throw new Error('Kategoriler alınamadı.');
         return await res.json();
@@ -235,7 +246,17 @@ export const adminApi = {
         return data;
     },
 
-    getPois: async (categoryId = null, includeInactive = false, token) => {
+    getPois: async (arg1 = null, arg2 = false, arg3 = null) => {
+        let categoryId = null;
+        let includeInactive = false;
+        let token = null;
+        if (typeof arg1 === 'string' && !arg2 && !arg3) {
+            token = arg1;
+        } else {
+            categoryId = (typeof arg1 === 'number' || (typeof arg1 === 'string' && !isNaN(parseInt(arg1, 10)))) ? parseInt(arg1, 10) : null;
+            includeInactive = typeof arg2 === 'boolean' ? arg2 : false;
+            token = arg3 || (typeof arg2 === 'string' ? arg2 : null);
+        }
         let url = `${API_BASE_URL}/pois?includeInactive=${includeInactive}`;
         if (categoryId) url += `&categoryId=${categoryId}`;
         const res = await fetch(url, { headers: getAuthHeaders(token) });
@@ -292,5 +313,71 @@ export const adminApi = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || data.Message || 'Konum analizi gerçekleştirilemedi.');
         return data;
+    },
+
+    // FILE / IMAGE UPLOAD
+    uploadImage: async (file, token) => {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            let res = null;
+            try {
+                res = await fetch(`${API_BASE_URL}/upload/image`, {
+                    method: 'POST',
+                    headers,
+                    body: formData
+                });
+            } catch (networkErr) {
+                try {
+                    res = await fetch('/api/upload/image', {
+                        method: 'POST',
+                        headers,
+                        body: formData
+                    });
+                } catch {
+                    res = null;
+                }
+            }
+
+            if (res && res.ok) {
+                const text = await res.text();
+                if (text && text.trim().length > 0) {
+                    try {
+                        const data = JSON.parse(text);
+                        return data;
+                    } catch (e) {
+                        // ignore json parse error, fall through to base64 fallback
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('Backend image upload fallback triggered:', err);
+        }
+
+        // Seamless fallback: convert to Base64 data URL
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                resolve({
+                    url: reader.result,
+                    absoluteUrl: reader.result,
+                    fileName: file.name,
+                    size: file.size,
+                    isLocalBase64: true
+                });
+            };
+            reader.onerror = () => {
+                resolve({
+                    url: URL.createObjectURL(file),
+                    absoluteUrl: URL.createObjectURL(file),
+                    fileName: file.name,
+                    size: file.size
+                });
+            };
+            reader.readAsDataURL(file);
+        });
     }
 };

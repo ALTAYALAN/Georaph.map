@@ -135,5 +135,35 @@ namespace GeoraphMap.API.Controllers
             bool isFav = await _personalService.IsPoiFavoriteAsync(userId, poiId);
             return Ok(new { isFavorite = isFav });
         }
+
+        // ==========================================
+        // 4. KULLANICI PROFİL AYARLARI
+        // ==========================================
+        [HttpPut("profile")]
+        public async Task<IActionResult> UpdateProfile([FromBody] UpdateUserProfileDto dto)
+        {
+            int userId = GetUserId();
+            if (userId <= 0) return Unauthorized(new { message = "Kullanıcı kimliği doğrulanamadı." });
+
+            if (dto == null) return BadRequest(new { message = "Güncellenecek profil verisi eksik." });
+
+            try
+            {
+                var updated = await _personalService.UpdateProfileAsync(userId, dto);
+                return Ok(new { message = "Profil bilgileriniz başarıyla güncellendi.", user = updated });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Profil güncellenirken hata: {ex.Message}" });
+            }
+        }
     }
 }

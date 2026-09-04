@@ -63,6 +63,7 @@ namespace GeoraphMap.Core.DTOs
         public string? Description { get; set; }
         public int CategoryId { get; set; }
         public string? WorkingHours { get; set; }
+        public string? ImageUrl { get; set; }
         public string Wkt { get; set; } = string.Empty; // Format: POINT(lon lat)
     }
 
@@ -72,6 +73,7 @@ namespace GeoraphMap.Core.DTOs
         public string? Description { get; set; }
         public int CategoryId { get; set; }
         public string? WorkingHours { get; set; }
+        public string? ImageUrl { get; set; }
         public string? Wkt { get; set; }
         public bool IsActive { get; set; } = true;
     }
@@ -88,6 +90,7 @@ namespace GeoraphMap.Core.DTOs
         public string? CategoryIcon { get; set; }
         public int CategoryDisplayOrder { get; set; } = 1;
         public string? WorkingHours { get; set; }
+        public string? ImageUrl { get; set; }
         public string Wkt { get; set; } = string.Empty;
         public double Longitude { get; set; }
         public double Latitude { get; set; }

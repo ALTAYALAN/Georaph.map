@@ -19,5 +19,8 @@ namespace GeoraphMap.Core.Services
         Task<List<UserFavoritePoiDto>> GetFavoritePoisAsync(int userId);
         Task<bool> ToggleFavoritePoiAsync(int userId, int poiId);
         Task<bool> IsPoiFavoriteAsync(int userId, int poiId);
+
+        // Profil Bilgilerini Güncelleme
+        Task<UserDetailDto> UpdateProfileAsync(int userId, UpdateUserProfileDto dto);
     }
 }

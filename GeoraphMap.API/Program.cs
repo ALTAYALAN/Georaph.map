@@ -87,6 +87,7 @@ using (var scope = app.Services.CreateScope())
     dbContext.Database.Migrate();
     DbSeeder.EnsureTablesCreatedAsync(dbContext).GetAwaiter().GetResult();
     DbSeeder.SeedAsdfUserAndAssignDrawingsAsync(dbContext).GetAwaiter().GetResult();
+    DbSeeder.SeedKeciorenEgoLinesAsync(dbContext).GetAwaiter().GetResult();
 }
 
 // Configure the HTTP request pipeline.

@@ -41,14 +41,24 @@ import { HistoricalTimelineSlider } from './components/common/HistoricalTimeline
 import { adminApi } from './services/adminApi';
 import { transportApi } from './services/transportApi';
 import { userPersonalApi } from './services/userPersonalApi';
-import { getPoiCategoryBadgeSvg } from './constants/poiIcons';
+import { getPoiCategoryBadgeSvg, getLocalizedPoiCategoryLabel } from './constants/poiIcons';
 import { simulationHubService } from './services/simulationHubService';
 import { formatDuration } from './utils/formatUtils';
 import { getRouteClassInfo, getVehicleClassInnerSvg, RouteClassIcon } from './constants/routeClasses';
 import { calculateTransitRoute } from './utils/transitRouting';
 import { getZoomSettings, DEFAULT_ZOOM_SETTINGS } from './constants/zoomSettings';
-import { cleanPortName } from './constants/seaports';
+import { cleanPortName, getSeaportInfo, TURKISH_SEAPORTS } from './constants/seaports';
+import { cleanAirportName, getAirportInfo, TURKISH_AIRPORTS } from './constants/airports';
+import { calculateGeometryMetrics } from './utils/geometryUtils';
 import './App.css';
+
+// Açısal En Kısa Yol İnterpolasyonu (Angle Shortest Path Lerp - 360 dönüş sıçramalarını önler)
+export function lerpAngle(startRad, targetRad, t) {
+    let diff = (targetRad - startRad) % (2 * Math.PI);
+    if (diff < -Math.PI) diff += 2 * Math.PI;
+    if (diff > Math.PI) diff -= 2 * Math.PI;
+    return startRad + diff * t;
+}
 
 // CANLI SİMÜLASYON ARAÇ İKONU & ROTASYONLU STİL OLUŞTURUCU
 export function createSimulatedVehicleStyle(vehicleData) {
@@ -318,13 +328,32 @@ export function getFerryTerminalPinSvg(routeColor = '#0891b2') {
     </svg>`;
 }
 
-// Genel / Standart Durak İkonu Seçici (Sayı yok, her türe özel vektörel simge)
-export function getStopPinSvg(routeClass = 'araba', routeColor = '#3b82f6') {
-    const rc = (routeClass || '').toLowerCase();
+// Genel / Standart Durak İkonu Seçici (Sayı yok, her 6 türe özel vektörel simge)
+export function getStopPinSvg(routeClass = 'otobus', routeColor = '#3b82f6') {
+    const rc = (routeClass || '').toLowerCase().trim();
+    if (rc === 'havayolu' || rc === 'havalimani' || rc === 'ucak' || rc === 'airport') {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="${routeColor || '#0284c7'}" stroke="#ffffff" stroke-width="2"/>
+            <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill="#ffffff"/>
+        </svg>`;
+    }
     if (rc === 'metro') return getMetroStopPinSvg(routeColor);
     if (rc === 'otobus' || rc === 'bus') return getBusStopPinSvg(routeColor);
-    if (rc === 'gemi') return getFerryTerminalPinSvg(routeColor);
-    if (rc === 'tren') {
+    if (rc === 'gemi' || rc === 'deniz' || rc === 'vapur') return getFerryTerminalPinSvg(routeColor);
+    if (rc === 'tramvay' || rc === 'tram') {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
+            <path d="M17 14.5V6a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v8.5a2 2 0 0 0 1.5 1.95V18a1 1 0 0 0 1 1h1v-1h3v1h1a1 1 0 0 0 1-1v-1.55a2 2 0 0 0 1.5-1.95zM8 6h8v3H8V6zm1.5 8.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm5 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z" fill="#ffffff"/>
+        </svg>`;
+    }
+    if (rc === 'metrobus') {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
+            <path d="M5 14c0 .8.3 1.5.8 1.9V17c0 .5.4 1 1 1h1v-1h8v1h1c.6 0 1-.5 1-1v-1.1c.5-.4.8-1.1.8-1.9V6c0-2.8-2.8-3-6.8-3s-6.8.2-6.8 3v8zm2.5.5c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1zm9 0c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1zM18 9H6V5.5h12V9z" fill="#ffffff"/>
+            <path d="M12 2l1.5 1.5h-3L12 2z" fill="#ffffff"/>
+        </svg>`;
+    }
+    if (rc === 'tren' || rc === 'train') {
         return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
             <path d="M8 6h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" fill="none" stroke="#ffffff" stroke-width="1.5"/>
@@ -342,11 +371,8 @@ export function getStopPinSvg(routeClass = 'araba', routeColor = '#3b82f6') {
 }
 
 // GOOGLE MAPS TARZI AKILLI ULAŞIM GÜZERGAH STİLİ
-// 1. Gemi, metro ve otobüs hatları daha narin ve silik (subtle)
-// 2. Şehir dışı zoom seviyesinde (zoom < 10.5) şehir içi hatlar gizlenir
-// 3. Otobüs hatları yalnızca otobüs numarasına tıklandığında görünür
-// 4. Gemi hatları kesikli çizgi (lineDash) ile gösterilir
-// 5. Hat üstünde güzergah adı / varış-kalkış yönü Google Haritalar tarzı yazılır
+// 1. Gemi, metro, uçak ve otobüs hatları dinamik zoom ayarına göre gösterilir
+// 2. Havayolu uçuş koridorları kesikli şık parabolik yay olarak çizilir
 export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
     if (!feature) return null;
     const geom = feature.getGeometry();
@@ -359,21 +385,27 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
     const routeId = r?.id || feature.get('id');
     const isSelected = selectedRouteId === routeId;
 
+    const isHavayolu = rClass === 'havayolu' || rClass === 'ucak' || rClass === 'flight' || rClass === 'airway';
     const isBus = rClass === 'otobus' || rClass === 'bus';
     const isMetro = rClass === 'metro';
-    const isGemi = rClass === 'gemi';
-    const isTren = rClass === 'tren';
+    const isGemi = rClass === 'gemi' || rClass === 'deniz';
+    const isTren = rClass === 'tren' || rClass === 'train';
 
     const zs = getZoomSettings();
-    const minRouteZoom = isBus 
-        ? (zs.busRouteMinZoom ?? 11.5) 
-        : (isGemi 
-            ? (zs.shipRouteMinZoom ?? 8.5) 
-            : (isMetro 
-                ? (zs.metroRouteMinZoom ?? 11.5) 
-                : (isTren 
-                    ? (zs.trainRouteMinZoom ?? 10.0) 
-                    : (zs.routeMinZoom ?? 11.5))));
+    let minRouteZoom;
+    if (isHavayolu) {
+        minRouteZoom = zs.flightRouteMinZoom ?? 4.5;
+    } else if (isGemi) {
+        minRouteZoom = zs.shipRouteMinZoom ?? 8.5;
+    } else if (isMetro) {
+        minRouteZoom = zs.metroRouteMinZoom ?? 11.5;
+    } else if (isTren) {
+        minRouteZoom = zs.trainRouteMinZoom ?? 10.0;
+    } else if (isBus) {
+        minRouteZoom = zs.busRouteMinZoom ?? 11.5;
+    } else {
+        minRouteZoom = zs.routeMinZoom ?? 11.5;
+    }
 
     // 1. Otobüs güzergahları YALNIZCA otobüs numarasına / hattına tıklandığında görünsün
     if (isBus && !isSelected) {
@@ -385,14 +417,14 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
         return null;
     }
 
-    // 3. Daha silik, rafine Google Haritalar tarzı çizgi kalınlıkları (Metro ve Gemi daha da silikleştirildi)
-    const baseWidth = isSelected ? 4.2 : (isBus ? 2.4 : (isGemi ? 2.2 : (isMetro ? 2.2 : 2.2)));
-    const outlineWidth = baseWidth + (isSelected ? 2.6 : 1.4);
+    // 3. Çizgi kalınlıkları
+    const baseWidth = isSelected ? 4.6 : (isHavayolu ? 3.4 : (isMetro ? 3.8 : (isTren ? 3.2 : (isBus ? 2.6 : (isGemi ? 2.4 : 2.4)))));
+    const outlineWidth = baseWidth + (isSelected ? 2.8 : (isHavayolu ? 2.0 : (isMetro ? 2.2 : 1.6)));
 
-    // 4. Gemi güzergahları kesikli çizgi (dashed line)
-    const lineDash = isGemi ? [8, 8] : undefined;
+    // 4. Kesikli çizgiler (Havayolu ve Gemi)
+    const lineDash = isHavayolu ? [10, 6] : (isGemi ? [8, 8] : undefined);
 
-    // Renkler: Yumuşatılmış, silik (subtle) opaklık
+    // Renkler
     let strokeColor;
     let outlineColor;
 
@@ -400,18 +432,24 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
         strokeColor = routeColor;
         outlineColor = '#ffffff';
     } else {
-        if (isGemi) {
-            strokeColor = 'rgba(6, 182, 212, 0.45)'; // Çok daha silik deniz yolu
-            outlineColor = 'rgba(255, 255, 255, 0.35)';
+        if (isHavayolu) {
+            strokeColor = 'rgba(2, 132, 199, 0.90)';
+            outlineColor = 'rgba(255, 255, 255, 0.70)';
+        } else if (isGemi) {
+            strokeColor = 'rgba(6, 182, 212, 0.70)';
+            outlineColor = 'rgba(255, 255, 255, 0.60)';
         } else if (isMetro) {
-            strokeColor = hexToRgba(routeColor, 0.42); // Çok daha silik metro çizgisi
-            outlineColor = 'rgba(255, 255, 255, 0.35)';
+            strokeColor = hexToRgba(routeColor, 0.95);
+            outlineColor = '#ffffff';
+        } else if (isTren) {
+            strokeColor = hexToRgba(routeColor, 0.85);
+            outlineColor = 'rgba(255, 255, 255, 0.65)';
         } else if (isBus) {
-            strokeColor = hexToRgba(routeColor, 0.70);
-            outlineColor = 'rgba(255, 255, 255, 0.50)';
+            strokeColor = hexToRgba(routeColor, 0.75);
+            outlineColor = 'rgba(255, 255, 255, 0.55)';
         } else {
-            strokeColor = hexToRgba(routeColor, 0.45);
-            outlineColor = 'rgba(255, 255, 255, 0.35)';
+            strokeColor = hexToRgba(routeColor, 0.65);
+            outlineColor = 'rgba(255, 255, 255, 0.45)';
         }
     }
 
@@ -425,7 +463,7 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
                 lineCap: 'round',
                 lineJoin: 'round'
             }),
-            zIndex: isSelected ? 29 : (isGemi ? 15 : 12)
+            zIndex: isSelected ? 34 : (isMetro ? 25 : (isTren ? 23 : (isGemi ? 17 : 14)))
         }),
         // Ana güzergah çizgisi
         new Style({
@@ -436,11 +474,11 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
                 lineCap: 'round',
                 lineJoin: 'round'
             }),
-            zIndex: isSelected ? 30 : (isGemi ? 16 : 13)
+            zIndex: isSelected ? 35 : (isMetro ? 26 : (isTren ? 24 : (isGemi ? 18 : 15)))
         })
     ];
 
-    // 5. Hat ismi yalnızca yeterli zoom seviyesinde veya hat seçildiğinde gösterilsin
+    // 5. Hat ismi yalnızca yeterli zoom seviyesinde veya hat seçildiğinde gösterilsin (Kesişimlerde çakışmasın)
     const routeName = r?.name || feature.get('routeName') || '';
     // Gemi hatlarında çizgi üstünde sade isim göster: "Mersin - Girne" (Liman/Limanı/Port kelimeleri olmadan)
     const displayLabel = isGemi ? (() => {
@@ -457,14 +495,14 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
                 text: new Text({
                     text: displayLabel,
                     placement: 'line',
-                    maxAngle: Math.PI / 4,
-                    repeat: isGemi ? 500 : 380,
-                    overflow: true,
+                    maxAngle: Math.PI / 6, // Keskin viraj ve kavşak çakışmalarını önle
+                    repeat: isGemi ? 700 : (isMetro ? 550 : 600), // Kesişen hatların üst üste binmesini önleyen geniş aralık
+                    overflow: false, // Çakışmaları engelle
                     font: isSelected
                         ? '700 11.5px Inter, -apple-system, system-ui, sans-serif'
-                        : '600 10.5px Inter, -apple-system, system-ui, sans-serif',
+                        : (isMetro ? '700 11px Inter, -apple-system, system-ui, sans-serif' : '600 10.5px Inter, -apple-system, system-ui, sans-serif'),
                     fill: new Fill({
-                        color: isSelected ? '#0f172a' : (isGemi ? '#0891b2' : (isMetro ? '#b91c1c' : '#1e3a8a'))
+                        color: isSelected ? '#0f172a' : (isMetro ? routeColor : (isGemi ? '#0891b2' : '#1e3a8a'))
                     }),
                     stroke: new Stroke({
                         color: '#ffffff',
@@ -473,7 +511,7 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
                     }),
                     offsetY: -7
                 }),
-                zIndex: isSelected ? 32 : 17
+                zIndex: isSelected ? 36 : (isMetro ? 27 : 20)
             })
         );
     }
@@ -573,6 +611,537 @@ const CloseIcon = ({ size = 15, strokeWidth = 2.4, color = "currentColor" }) => 
     </svg>
 );
 
+function parsePoiImages(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(x => typeof x === 'string' && x.trim());
+    if (typeof raw !== 'string') return [];
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) return parsed.filter(x => typeof x === 'string' && x.trim());
+        } catch { }
+    }
+    if (trimmed.startsWith('data:image/')) {
+        return [trimmed];
+    }
+    if (trimmed.includes('||')) {
+        return trimmed.split('||').map(s => s.trim()).filter(Boolean);
+    }
+    if (trimmed.includes(',') && !trimmed.startsWith('data:')) {
+        return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return [trimmed];
+}
+
+function serializePoiImages(images = []) {
+    if (!Array.isArray(images) || images.length === 0) return null;
+    const clean = images.filter(x => typeof x === 'string' && x.trim());
+    if (clean.length === 0) return null;
+    if (clean.length === 1) return clean[0];
+    return JSON.stringify(clean);
+}
+
+// Bilinen Ankara ve Türkiye Noktaları İçin Yüksek Çözünürlüklü Yedek Galeri Veritabanı
+const KNOWN_LANDMARK_GALLERY = {
+    atakule: [
+        'https://images.unsplash.com/photo-1596422846543-75c6fc197f07?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=1000&q=80',
+        'https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Atakule_Ankara_Turkey.jpg/800px-Atakule_Ankara_Turkey.jpg'
+    ],
+    botanik: [
+        'https://images.unsplash.com/photo-1588880331179-bc9b93a8cb5e?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?auto=format&fit=crop&w=1000&q=80'
+    ],
+    kugulu: [
+        'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=1000&q=80'
+    ],
+    genclik: [
+        'https://images.unsplash.com/photo-1572276596237-5db2c3e16c5d?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1477959858617-67f30bc75b82?auto=format&fit=crop&w=1000&q=80'
+    ],
+    meclis: [
+        'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?auto=format&fit=crop&w=1000&q=80'
+    ],
+    tbmm: [
+        'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?auto=format&fit=crop&w=1000&q=80'
+    ],
+    hilton: [
+        'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1000&q=80'
+    ],
+    sheraton: [
+        'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1000&q=80'
+    ],
+    karum: [
+        'https://images.unsplash.com/photo-1567449303078-57ad995bd301?auto=format&fit=crop&w=1000&q=80'
+    ],
+    hastane: [
+        'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1586773860418-d37222d8fce3?auto=format&fit=crop&w=1000&q=80'
+    ],
+    muze: [
+        'https://images.unsplash.com/photo-1566127444979-b3d2b654e3d7?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1574958269340-fa927503f3dd?auto=format&fit=crop&w=1000&q=80'
+    ],
+    cami: [
+        'https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1548013146-72479768bada?auto=format&fit=crop&w=1000&q=80'
+    ],
+    anitkabir: [
+        'https://images.unsplash.com/photo-1597212618440-806262de4f6b?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1627918544976-787cbdafe87c?auto=format&fit=crop&w=1000&q=80'
+    ],
+    airport: [
+        'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?auto=format&fit=crop&w=1000&q=80',
+        'https://images.unsplash.com/photo-1508873696983-2df570464756?auto=format&fit=crop&w=1000&q=80'
+    ]
+};
+
+// Koordinattan Dinamik Yüksek Çözünürlüklü Uydu Harita Önizlemesi Üretici
+function getStaticSatellitePreviewUrl(lat, lon, zoom = 16) {
+    if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
+        return 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1000&q=80';
+    }
+    const latRad = (lat * Math.PI) / 180;
+    const n = Math.pow(2, zoom);
+    const xTile = Math.floor(((lon + 180) / 360) * n);
+    const yTile = Math.floor(((1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2) * n);
+    return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${yTile}/${xTile}`;
+}
+
+// POI Fotoğraflarını Çözümleme (Kullanıcı Yüklemesi > Bilinen Nokta Galerisi > Dinamik Uydu/Harita Önizlemesi)
+function resolveAllPoiImages(poi) {
+    if (!poi) return [];
+    const raw = poi.imageUrl || poi.image_url || poi.photoUrl || poi.imgUrl || poi.photo;
+    const parsed = parsePoiImages(raw);
+    if (parsed.length > 0) {
+        return parsed.map(img => ({
+            url: img,
+            isUserUploaded: true,
+            isSatelliteFallback: false
+        }));
+    }
+
+    // İsim veya Açıklamadan Bilinen Landmark Eşleştirmesi
+    const nameLower = (poi.name || '').toLowerCase().replace(/ı/g, 'i').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c');
+    for (const [key, urls] of Object.entries(KNOWN_LANDMARK_GALLERY)) {
+        if (nameLower.includes(key)) {
+            return urls.map(u => ({
+                url: u,
+                isUserUploaded: false,
+                isLandmarkPreset: true,
+                isSatelliteFallback: false
+            }));
+        }
+    }
+
+    // Koordinat Varsa Dinamik Uydu & Harita Önizlemesi
+    if (poi.latitude != null && poi.longitude != null) {
+        const satUrl = getStaticSatellitePreviewUrl(poi.latitude, poi.longitude, 16);
+        const osmUrl = `https://tile.openstreetmap.org/16/${Math.floor(((poi.longitude + 180) / 360) * Math.pow(2, 16))}/${Math.floor(((1 - Math.asinh(Math.tan((poi.latitude * Math.PI) / 180)) / Math.PI) / 2) * Math.pow(2, 16))}.png`;
+        return [
+            { url: satUrl, isUserUploaded: false, isSatelliteFallback: true, label: 'Esri Gerçek Zamanlı Uydu Önizlemesi' },
+            { url: osmUrl, isUserUploaded: false, isSatelliteFallback: true, label: 'Sokak & Topoloji Haritası' }
+        ];
+    }
+
+    // Genel Şehir Önizlemesi
+    return [{
+        url: 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1000&q=80',
+        isUserUploaded: false,
+        isSatelliteFallback: true
+    }];
+}
+
+// AI Destekli Görsel Odak & Konumlandırma Hesaplayıcı (Otomatik Kadraj & Hizalama)
+function getAiOptimalObjectPosition(poi, currentImage) {
+    if (!poi) return 'center center';
+    const name = (poi.name || '').toLowerCase();
+    const cat = (poi.categoryName || poi.parentCategoryName || '').toLowerCase();
+    const isSat = currentImage?.isSatelliteFallback;
+
+    if (isSat) return 'center center';
+
+    // Kule, anıt, yüksek yapılar (Atakule vb.)
+    if (name.includes('atakule') || name.includes('kule') || name.includes('tower') || name.includes('anit') || name.includes('anıtkabir')) {
+        return 'center 20%';
+    }
+    // Dini yapılar, camiler, minareler
+    if (name.includes('cami') || name.includes('kilise') || cat.includes('dini') || cat.includes('ibadet')) {
+        return 'center 25%';
+    }
+    // Müze ve tarihi kültürel miras
+    if (cat.includes('muze') || cat.includes('müze') || cat.includes('tarih') || cat.includes('saray')) {
+        return 'center 30%';
+    }
+    // Park, botanik bahçe, doğa alanları
+    if (cat.includes('park') || cat.includes('bahce') || cat.includes('botanik') || cat.includes('vadi')) {
+        return 'center 45%';
+    }
+    // AVM, hastane, idari binalar
+    if (cat.includes('avm') || cat.includes('alisveris') || cat.includes('saglik') || cat.includes('hastane')) {
+        return 'center 35%';
+    }
+    return 'center center';
+}
+
+// Üst Başlık Banner Galeri Bileşeni (Doğrudan Tıklamayla Tam Ekran Lightbox + Otomatik AI Kadrajı)
+const PoiHeaderBannerGallery = ({
+    poi,
+    isDarkMode = true,
+    onOpenEditModal,
+    onOpenFullscreen
+}) => {
+    const [currentIndex, setCurrentIndex] = useState(0);
+
+    const imageObjects = useMemo(() => resolveAllPoiImages(poi), [poi]);
+
+    useEffect(() => {
+        setCurrentIndex(0);
+    }, [poi?.id, poi?.imageUrl, poi?.latitude, poi?.longitude]);
+
+    if (!imageObjects || imageObjects.length === 0) return null;
+
+    const safeIndex = Math.min(currentIndex, imageObjects.length - 1);
+    const currentImgObj = imageObjects[safeIndex] || imageObjects[0];
+
+    const resolveUrl = (img) => {
+        if (!img) return '';
+        const trimmed = typeof img === 'string' ? img.trim() : (img.url ? img.url.trim() : '');
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+            return trimmed;
+        }
+        if (trimmed.startsWith('/uploads/') || trimmed.startsWith('uploads/')) {
+            const p = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+            return `http://localhost:5041${p}`;
+        }
+        if (trimmed.startsWith('/')) {
+            return `http://localhost:5041${trimmed}`;
+        }
+        return `http://localhost:5041/${trimmed}`;
+    };
+
+    const currentImgUrl = resolveUrl(currentImgObj.url || currentImgObj);
+    const aiFocalPosition = getAiOptimalObjectPosition(poi, currentImgObj);
+
+    const handleImgError = (e) => {
+        if (e.currentTarget.src && e.currentTarget.src.includes('localhost:5041/uploads/')) {
+            e.currentTarget.src = e.currentTarget.src.replace('http://localhost:5041', '');
+            return;
+        }
+        // Hata durumunda uydu önizlemesine dön
+        if (poi.latitude != null && poi.longitude != null) {
+            e.currentTarget.src = getStaticSatellitePreviewUrl(poi.latitude, poi.longitude, 16);
+        } else {
+            e.currentTarget.src = 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=1000&q=80';
+        }
+    };
+
+    // Fotoğrafa tıklandığında doğrudan büyük halde Lightbox açılır
+    const handleBannerClick = () => {
+        if (onOpenFullscreen) {
+            onOpenFullscreen(currentImgUrl, safeIndex);
+        }
+    };
+
+    return (
+        <div style={{ width: '100%', position: 'relative', overflow: 'hidden', borderTopLeftRadius: '14px', borderTopRightRadius: '14px', background: '#090d16' }}>
+            {/* Banner Görsel Alanı (Tıklanınca Tam Ekran Büyütür) */}
+            <div
+                onClick={handleBannerClick}
+                style={{
+                    position: 'relative',
+                    width: '100%',
+                    height: '160px',
+                    cursor: 'zoom-in',
+                    overflow: 'hidden',
+                    userSelect: 'none'
+                }}
+                title="Büyük boyutta görüntülemek ve fotoğraflar arası gezmek için tıklayınız"
+            >
+                <img
+                    src={currentImgUrl}
+                    alt={`${poi.name || 'POI'} - Fotoğraf ${safeIndex + 1}`}
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        objectPosition: aiFocalPosition,
+                        display: 'block',
+                        transition: 'transform 0.35s ease, opacity 0.2s ease'
+                    }}
+                    onError={handleImgError}
+                />
+
+                {/* Karartma Gradyanı (Okunabilirlik İçin) */}
+                <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.7) 0%, rgba(15, 23, 42, 0) 35%, rgba(15, 23, 42, 0.4) 70%, rgba(15, 23, 42, 0.95) 100%)',
+                    pointerEvents: 'none'
+                }} />
+
+                {/* Üst Sol: Aktif POI & Kategori Rozetleri */}
+                <div style={{
+                    position: 'absolute',
+                    top: '10px',
+                    left: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    zIndex: 2,
+                    pointerEvents: 'none'
+                }}>
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        padding: '3px 9px',
+                        borderRadius: '20px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        color: '#f8fafc',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                    }}>
+                        <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block', boxShadow: '0 0 8px #10b981' }} />
+                        <span>{currentImgObj.isSatelliteFallback ? 'AI Uydu Önizlemesi' : 'Aktif POI'}</span>
+                    </div>
+
+                    {poi.categoryName && (
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            backgroundColor: poi.categoryColor ? `${poi.categoryColor}33` : 'rgba(59, 130, 246, 0.3)',
+                            backdropFilter: 'blur(8px)',
+                            border: `1px solid ${poi.categoryColor || '#3b82f6'}66`,
+                            padding: '3px 8px',
+                            borderRadius: '20px',
+                            fontSize: '10.5px',
+                            fontWeight: '600',
+                            color: poi.categoryColor || '#60a5fa'
+                        }}>
+                            {poi.categoryName}
+                        </div>
+                    )}
+                </div>
+
+                {/* Üst Sağ: Fotoğraf Sayacı & Büyüt Butonu */}
+                <div style={{
+                    position: 'absolute',
+                    top: '10px',
+                    right: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    zIndex: 3
+                }}>
+                    {imageObjects.length > 1 && (
+                        <div style={{
+                            backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                            backdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                            color: '#ffffff',
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            padding: '3px 8px',
+                            borderRadius: '16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            pointerEvents: 'none'
+                        }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                            <span>{safeIndex + 1} / {imageObjects.length}</span>
+                        </div>
+                    )}
+
+                    {onOpenFullscreen && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenFullscreen(currentImgUrl, safeIndex);
+                            }}
+                            style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(255, 255, 255, 0.25)',
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                padding: 0,
+                                transition: 'all 0.15s ease'
+                            }}
+                            title="Büyük Boyutta Aç (Lightbox)"
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                        </button>
+                    )}
+                </div>
+
+                {/* Çoklu Fotoğraf İçin Sol / Sağ Hızlı Değiştirme Butonları */}
+                {imageObjects.length > 1 && (
+                    <>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentIndex(prev => (prev === 0 ? imageObjects.length - 1 : prev - 1));
+                            }}
+                            style={{
+                                position: 'absolute',
+                                left: '10px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                width: '30px',
+                                height: '30px',
+                                borderRadius: '50%',
+                                backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                padding: 0,
+                                zIndex: 3,
+                                transition: 'all 0.15s ease'
+                            }}
+                            title="Önceki Fotoğraf"
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6" /></svg>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentIndex(prev => (prev === imageObjects.length - 1 ? 0 : prev + 1));
+                            }}
+                            style={{
+                                position: 'absolute',
+                                right: '10px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                width: '30px',
+                                height: '30px',
+                                borderRadius: '50%',
+                                backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                padding: 0,
+                                zIndex: 3,
+                                transition: 'all 0.15s ease'
+                            }}
+                            title="Sonraki Fotoğraf"
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
+                        </button>
+                    </>
+                )}
+
+                {/* Alt Orta: Dot İndikatörleri */}
+                {imageObjects.length > 1 && (
+                    <div style={{
+                        position: 'absolute',
+                        bottom: '8px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        display: 'flex',
+                        gap: '5px',
+                        alignItems: 'center',
+                        zIndex: 2,
+                        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+                        backdropFilter: 'blur(4px)',
+                        padding: '3px 8px',
+                        borderRadius: '12px'
+                    }}>
+                        {imageObjects.map((_, idx) => (
+                            <span
+                                key={idx}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCurrentIndex(idx);
+                                }}
+                                style={{
+                                    width: idx === safeIndex ? '16px' : '6px',
+                                    height: '6px',
+                                    borderRadius: '3px',
+                                    backgroundColor: idx === safeIndex ? '#38bdf8' : 'rgba(255, 255, 255, 0.5)',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            />
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Alt Mini Küçük Resim Şeridi (Birden Fazla Resim Varsa) */}
+            {imageObjects.length > 1 && (
+                <div style={{
+                    display: 'flex',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    backgroundColor: '#070b14',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                    overflowX: 'auto',
+                    scrollbarWidth: 'none'
+                }}>
+                    {imageObjects.map((imgObj, idx) => {
+                        const u = resolveUrl(imgObj.url || imgObj);
+                        const isActive = idx === safeIndex;
+                        return (
+                            <button
+                                key={idx}
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCurrentIndex(idx);
+                                }}
+                                style={{
+                                    width: '42px',
+                                    height: '28px',
+                                    flexShrink: 0,
+                                    padding: 0,
+                                    borderRadius: '4px',
+                                    overflow: 'hidden',
+                                    border: isActive ? '2px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.15)',
+                                    opacity: isActive ? 1 : 0.6,
+                                    cursor: 'pointer',
+                                    background: '#000000',
+                                    boxShadow: isActive ? '0 0 8px rgba(56, 189, 248, 0.5)' : 'none',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <img src={u} alt={`Thumb ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
 function parseJwt(token) {
     try {
         if (!token) return null;
@@ -600,14 +1169,26 @@ function App() {
     const showAppToast = (config) => {
         if (!toastRef.current || !config) return;
         const now = Date.now();
-        const key = `${config.severity || 'info'}_${config.summary || ''}_${config.detail || ''}`;
+        const currentLang = localStorage.getItem('lang') || 'tr';
+        let summary = config.summary;
+        if (currentLang === 'en') {
+            if (summary === 'Başarılı') summary = 'Success';
+            else if (summary === 'Hata') summary = 'Error';
+            else if (summary === 'Uyarı') summary = 'Warning';
+            else if (summary === 'Bilgi') summary = 'Info';
+            else if (summary === 'Başarısız') summary = 'Failed';
+            else if (summary === 'Kayıt Başarılı') summary = 'Saved Successfully';
+            else if (summary === 'Konum Analizi Başarılı') summary = 'Location Analysis Success';
+        }
+        const key = `${config.severity || 'info'}_${summary || ''}_${config.detail || ''}`;
         if (lastToastRef.current.key === key && (now - lastToastRef.current.time < 2000)) {
             return; // 2 saniye içinde aynı bildirimi tekrar gösterme (bug/spam engelleme)
         }
         lastToastRef.current = { key, time: now };
         toastRef.current.show({
             life: 3200,
-            ...config
+            ...config,
+            summary
         });
     };
     const placeColorInputRef = useRef(null);
@@ -618,6 +1199,7 @@ function App() {
     const [lang, setLang] = useState(() => localStorage.getItem('lang') || 'tr');
     const t = translations[lang] || translations.tr;
     const trans = t;
+    const isTr = (lang || 'tr') === 'tr';
 
     const toggleLang = () => {
         setLang(prev => {
@@ -696,6 +1278,7 @@ function App() {
     const [stops, setStops] = useState([]);
     const [selectedStopInfo, setSelectedStopInfo] = useState(null);
     const [selectedRouteInfo, setSelectedRouteInfo] = useState(null);
+    const [selectedBoundaryInfo, setSelectedBoundaryInfo] = useState(null);
     const selectedRouteInfoRef = useRef(null);
     selectedRouteInfoRef.current = selectedRouteInfo;
     const [isModifyingRoute, setIsModifyingRoute] = useState(false);
@@ -717,12 +1300,24 @@ function App() {
     const [currentZoom, setCurrentZoom] = useState(6.5);
 
     const [layerVisibility, setLayerVisibility] = useState({
+        cities: true,
+        maritime: true,
         routes: true,
         stops: true,
         pois: true,
         drawings: true,
-        heatmap: false
+        heatmap: false,
+        routeTypes: { metro: true, otobus: true, tren: true, gemi: true, araba: true },
+        stopTypes: { metro: true, otobus: true, tren: true, gemi: true },
+        poiCategories: {},
+        poiTypes: {
+            hastane: true, eczane: true, okul: true, muze: true, kutuphane: true,
+            sanat: true, anit: true, spor: true, akaryakit: true, atm: true,
+            plaj: true, kafe: true, restoran: true, otel: true, park: true, market: true
+        }
     });
+    const layerVisibilityRef = useRef(layerVisibility);
+    layerVisibilityRef.current = layerVisibility;
     const [hiddenRouteIds, setHiddenRouteIds] = useState(new Set());
     const [isGeneratingOsrmOnMapId, setIsGeneratingOsrmOnMapId] = useState(null);
 
@@ -733,6 +1328,14 @@ function App() {
     const poiLayerRef = useRef(null);
     const drawingsLayerRef = useRef(null);
     const savedPlacesLayerRef = useRef(null);
+    const cityBoundarySourceRef = useRef(new VectorSource());
+    const maritimeBoundarySourceRef = useRef(new VectorSource());
+    const cityBoundaryLayerRef = useRef(null);
+    const maritimeBoundaryLayerRef = useRef(null);
+    const vehicleAnimMapRef = useRef(new Map());
+    const [simSpeedMap, setSimSpeedMap] = useState({});
+    const simSpeedMapRef = useRef(simSpeedMap);
+    simSpeedMapRef.current = simSpeedMap;
     const [zoomSettings, setZoomSettings] = useState(getZoomSettings);
 
     // DİNAMİK HARİTA ZOOM & GÖRÜNÜRLÜK AYARLARI DİNLENMESİ
@@ -857,12 +1460,92 @@ function App() {
             setIsHeatmapActive(prev => !prev);
             return;
         }
+        if (layerKey.startsWith('routeType_')) {
+            const subKey = layerKey.replace('routeType_', '');
+            setLayerVisibility(prev => {
+                const cur = prev.routeTypes || { metro: true, otobus: true, tren: true, gemi: true, araba: true };
+                const nextState = {
+                    ...prev,
+                    routeTypes: { ...cur, [subKey]: !cur[subKey] }
+                };
+                layerVisibilityRef.current = nextState;
+                return nextState;
+            });
+            if (routeLayerRef.current) routeLayerRef.current.changed();
+            return;
+        }
+        if (layerKey.startsWith('stopType_')) {
+            const subKey = layerKey.replace('stopType_', '');
+            setLayerVisibility(prev => {
+                const cur = prev.stopTypes || { metro: true, otobus: true, tren: true, gemi: true };
+                const nextState = {
+                    ...prev,
+                    stopTypes: { ...cur, [subKey]: !cur[subKey] }
+                };
+                layerVisibilityRef.current = nextState;
+                return nextState;
+            });
+            if (stopLayerRef.current) stopLayerRef.current.changed();
+            return;
+        }
+        if (layerKey.startsWith('poiCategory_')) {
+            const rawId = layerKey.replace('poiCategory_', '');
+            const numId = Number(rawId) || rawId;
+            setLayerVisibility(prev => {
+                const cur = prev.poiCategories || {};
+                const currentVal = cur[numId] !== false && cur[rawId] !== false;
+                const nextVal = !currentVal;
+                const nextCategories = {
+                    ...cur,
+                    [numId]: nextVal,
+                    [rawId]: nextVal,
+                    [String(numId)]: nextVal
+                };
+                const allCats = poiCategoriesRef.current || [];
+                const catObj = allCats.find(c => c.id === numId || c.id === rawId || String(c.id) === String(rawId));
+                if (catObj?.name) {
+                    nextCategories[catObj.name] = nextVal;
+                    nextCategories[catObj.name.toLowerCase()] = nextVal;
+                }
+                const nextState = {
+                    ...prev,
+                    poiCategories: nextCategories
+                };
+                layerVisibilityRef.current = nextState;
+                return nextState;
+            });
+            if (poiLayerRef.current) {
+                poiLayerRef.current.changed();
+            }
+            return;
+        }
+        if (layerKey.startsWith('poiType_')) {
+            const subKey = layerKey.replace('poiType_', '');
+            setLayerVisibility(prev => {
+                const cur = prev.poiTypes || { hastane: true, okul: true, eczane: true, akaryakit: true, otel: true, restoran: true, park: true, market: true };
+                const nextState = {
+                    ...prev,
+                    poiTypes: { ...cur, [subKey]: !cur[subKey] }
+                };
+                layerVisibilityRef.current = nextState;
+                return nextState;
+            });
+            if (poiLayerRef.current) poiLayerRef.current.changed();
+            return;
+        }
+
         setLayerVisibility(prev => {
             const next = { ...prev, [layerKey]: !prev[layerKey] };
+            layerVisibilityRef.current = next;
             if (layerKey === 'routes' && routeLayerRef.current) routeLayerRef.current.setVisible(next.routes);
             if (layerKey === 'stops' && stopLayerRef.current) stopLayerRef.current.setVisible(next.stops);
-            if (layerKey === 'pois' && poiLayerRef.current) poiLayerRef.current.setVisible(next.pois);
+            if (layerKey === 'pois' && poiLayerRef.current) {
+                poiLayerRef.current.setVisible(next.pois);
+                poiLayerRef.current.changed();
+            }
             if (layerKey === 'drawings' && drawingsLayerRef.current) drawingsLayerRef.current.setVisible(next.drawings);
+            if (layerKey === 'cities' && cityBoundaryLayerRef.current) cityBoundaryLayerRef.current.setVisible(next.cities);
+            if (layerKey === 'maritime' && maritimeBoundaryLayerRef.current) maritimeBoundaryLayerRef.current.setVisible(next.maritime);
             return next;
         });
     };
@@ -870,6 +1553,199 @@ function App() {
     useEffect(() => {
         setLayerVisibility(prev => ({ ...prev, heatmap: isHeatmapActive }));
     }, [isHeatmapActive]);
+
+    // İl Sınırları & Deniz Yetki Alanları Katman Verilerini Şehir & Bölge Yönetiminden Yükleme
+    useEffect(() => {
+        const loadBoundariesFromGeoManagement = async () => {
+            const geojsonFormat = new GeoJSON();
+            const wktFormat = new WKT();
+
+            // 1. İL SINIRLARI YÜKLEME
+            try {
+                let cityFeatures = [];
+                let loadedFromDbOrStorage = false;
+
+                // A) Veritabanından Şehir Sınırlarını Çek (adminApi.getCities)
+                try {
+                    const dbCities = await adminApi.getCities(true, token);
+                    if (Array.isArray(dbCities) && dbCities.length > 0) {
+                        const activeCities = dbCities.filter(c => !c.isDeleted && (c.wkt || c.geometry));
+                        if (activeCities.length > 0) {
+                            cityFeatures = activeCities.map(c => {
+                                let feature = null;
+                                if (c.wkt) {
+                                    try {
+                                        feature = wktFormat.readFeature(c.wkt, {
+                                            dataProjection: 'EPSG:4326',
+                                            featureProjection: 'EPSG:3857'
+                                        });
+                                    } catch (e) {}
+                                } else if (c.geometry) {
+                                    try {
+                                        feature = geojsonFormat.readFeature({ type: 'Feature', geometry: c.geometry }, {
+                                            dataProjection: 'EPSG:4326',
+                                            featureProjection: 'EPSG:3857'
+                                        });
+                                    } catch (e) {}
+                                }
+                                if (feature) {
+                                    feature.setProperties({
+                                        plate: c.plate || c.id,
+                                        name: c.name,
+                                        region: c.region,
+                                        isDeleted: c.isDeleted
+                                    });
+                                }
+                                return feature;
+                            }).filter(Boolean);
+
+                            if (cityFeatures.length > 0) {
+                                loadedFromDbOrStorage = true;
+                            }
+                        }
+                    }
+                } catch (dbErr) {
+                    console.warn('[City Boundaries] DB yükleme hatası, yerel depolamaya geçiliyor:', dbErr);
+                }
+
+                // B) LocalStorage (Şehir Yönetimi Yayın Kaydı)
+                if (!loadedFromDbOrStorage) {
+                    try {
+                        const savedPublishedRaw = localStorage.getItem('admin_turkey_cities_published_v38');
+                        if (savedPublishedRaw) {
+                            const parsed = JSON.parse(savedPublishedRaw);
+                            if (parsed && Array.isArray(parsed.cities) && parsed.cities.length > 0) {
+                                const activeSaved = parsed.cities.filter(c => !c.isDeleted && (c.wkt || c.geometry));
+                                cityFeatures = activeSaved.map(c => {
+                                    let feature = null;
+                                    if (c.wkt) {
+                                        try {
+                                            feature = wktFormat.readFeature(c.wkt, {
+                                                dataProjection: 'EPSG:4326',
+                                                featureProjection: 'EPSG:3857'
+                                            });
+                                        } catch (e) {}
+                                    } else if (c.geometry) {
+                                        try {
+                                            feature = geojsonFormat.readFeature({ type: 'Feature', geometry: c.geometry }, {
+                                                dataProjection: 'EPSG:4326',
+                                                featureProjection: 'EPSG:3857'
+                                            });
+                                        } catch (e) {}
+                                    }
+                                    if (feature) {
+                                        feature.setProperties({
+                                            plate: c.plate || c.id,
+                                            name: c.name,
+                                            region: c.region,
+                                            isDeleted: c.isDeleted
+                                        });
+                                    }
+                                    return feature;
+                                }).filter(Boolean);
+
+                                if (cityFeatures.length > 0) {
+                                    loadedFromDbOrStorage = true;
+                                }
+                            }
+                        }
+                    } catch (storageErr) {
+                        console.warn('[City Boundaries] LocalStorage yükleme hatası:', storageErr);
+                    }
+                }
+
+                // C) Fallback: turkey-cities.json
+                if (!loadedFromDbOrStorage) {
+                    const res = await fetch('/data/turkey-cities.json');
+                    const geojson = await res.json();
+                    cityFeatures = geojsonFormat.readFeatures(geojson, { featureProjection: 'EPSG:3857' });
+                }
+
+                if (cityBoundarySourceRef.current && cityFeatures.length > 0) {
+                    cityBoundarySourceRef.current.clear();
+                    cityBoundarySourceRef.current.addFeatures(cityFeatures);
+                }
+            } catch (err) {
+                console.warn('İl sınırları yüklenemedi:', err);
+            }
+
+            // 2. DENİZ YETKİ ALANLARI / BÖLGELERİ YÜKLEME
+            try {
+                let maritimeFeatures = [];
+                let loadedMaritimeFromStorage = false;
+
+                // A) LocalStorage (Şehir ve Bölge yönetiminde tanımlanan deniz alanları)
+                try {
+                    const savedMaritimeRaw = localStorage.getItem('admin_turkey_maritime_published_v38');
+                    if (savedMaritimeRaw) {
+                        const parsed = JSON.parse(savedMaritimeRaw);
+                        const zones = parsed?.maritimeZones || parsed?.zones;
+                        if (Array.isArray(zones) && zones.length > 0) {
+                            const activeZones = zones.filter(z => !z.isDeleted && (z.wkt || z.geometry));
+                            maritimeFeatures = activeZones.map(z => {
+                                let feature = null;
+                                if (z.wkt) {
+                                    try {
+                                        feature = wktFormat.readFeature(z.wkt, {
+                                            dataProjection: 'EPSG:4326',
+                                            featureProjection: 'EPSG:3857'
+                                        });
+                                    } catch (e) {}
+                                } else if (z.geometry) {
+                                    try {
+                                        feature = geojsonFormat.readFeature({ type: 'Feature', geometry: z.geometry }, {
+                                            dataProjection: 'EPSG:4326',
+                                            featureProjection: 'EPSG:3857'
+                                        });
+                                    } catch (e) {}
+                                }
+                                if (feature) {
+                                    feature.setProperties({
+                                        id: z.id,
+                                        name: z.name || z.zoneName,
+                                        zoneName: z.name || z.zoneName,
+                                        region: z.region,
+                                        sea: z.sea,
+                                        isDeleted: z.isDeleted
+                                    });
+                                }
+                                return feature;
+                            }).filter(Boolean);
+
+                            if (maritimeFeatures.length > 0) {
+                                loadedMaritimeFromStorage = true;
+                            }
+                        }
+                    }
+                } catch (mErr) {
+                    console.warn('[Maritime Boundaries] LocalStorage okuma hatası:', mErr);
+                }
+
+                // B) Fallback: turkey-coastal-maritime.json
+                if (!loadedMaritimeFromStorage) {
+                    const res = await fetch('/data/turkey-coastal-maritime.json');
+                    const geojson = await res.json();
+                    maritimeFeatures = geojsonFormat.readFeatures(geojson, { featureProjection: 'EPSG:3857' });
+                }
+
+                if (maritimeBoundarySourceRef.current && maritimeFeatures.length > 0) {
+                    maritimeBoundarySourceRef.current.clear();
+                    maritimeBoundarySourceRef.current.addFeatures(maritimeFeatures);
+                }
+            } catch (err) {
+                console.warn('Deniz sınırları yüklenemedi:', err);
+            }
+        };
+
+        loadBoundariesFromGeoManagement();
+
+        const handleBoundariesUpdated = () => {
+            loadBoundariesFromGeoManagement();
+        };
+
+        window.addEventListener('geomap_boundaries_updated', handleBoundariesUpdated);
+        return () => window.removeEventListener('geomap_boundaries_updated', handleBoundariesUpdated);
+    }, [token]);
 
     // Rol ve Yetki Kontrolleri (Operatör ve Ulaşım Kullanıcısı kısıtlamaları)
     const isTransportOperator = userRole === 'Operatör' || userRole === 'Operator';
@@ -1003,7 +1879,7 @@ function App() {
                 new XYZ({
                     url: layerConfig.url,
                     crossOrigin: 'anonymous',
-                    maxZoom: 20
+                    maxZoom: layerConfig.maxZoom || 19
                 })
             );
         }
@@ -1049,8 +1925,15 @@ function App() {
     // POI (POINT OF INTEREST) & HİYERARŞİK KATEGORİ DURUMLARI
     const [pois, setPois] = useState([]);
     const [poiCategories, setPoiCategories] = useState([]);
+    const poiCategoriesRef = useRef(poiCategories);
+    poiCategoriesRef.current = poiCategories;
     const [selectedPoiInfo, setSelectedPoiInfo] = useState(null);
+    const [showPoiLightbox, setShowPoiLightbox] = useState(false);
+    const [lightboxImages, setLightboxImages] = useState([]);
+    const [lightboxIndex, setLightboxIndex] = useState(0);
     const [showCreatePoiModal, setShowCreatePoiModal] = useState(false);
+    const [editingPoiModalData, setEditingPoiModalData] = useState(null); // POI düzenleme modu için
+    const [uploadingPoiImage, setUploadingPoiImage] = useState(false);
     const [poiParentCatId, setPoiParentCatId] = useState('');
     const [poiDrawGeometryType, setPoiDrawGeometryType] = useState('Point'); // 'Point' | 'Polygon'
     const [draftPoiData, setDraftPoiData] = useState(null); // { wkt, lon, lat, isPolygon, area, feature }
@@ -1063,6 +1946,8 @@ function App() {
         description: '',
         categoryId: '',
         workingHours: 'Hafta İçi 08:30 - 18:00',
+        images: [],
+        customImageUrl: '',
         wkt: '',
         lon: 0,
         lat: 0,
@@ -1144,6 +2029,10 @@ function App() {
         }
 
         setSelectedPoiInfo(poi);
+        setSelectedStopInfo(null);
+        setSelectedRouteInfo(null);
+        setSelectedBoundaryInfo(null);
+        setSelectedPointInfo(null);
     };
 
     // SHIFT TUŞU İLE POLİGON POI MODUNA GEÇİŞ DİNLEYİCİSİ
@@ -1202,12 +2091,15 @@ function App() {
         setPoiTimeStart('08:30');
         setPoiTimeEnd('18:00');
         setPoiIs24Hours(false);
+        setEditingPoiModalData(null);
 
         setNewPoiForm({
             name: '',
             description: '',
             categoryId: chosenCat ? chosenCat.id : '',
             workingHours: 'Hafta İçi 08:30 - 18:00',
+            images: [],
+            customImageUrl: '',
             wkt: draftPoiData.wkt,
             lon: draftPoiData.lon,
             lat: draftPoiData.lat,
@@ -1215,6 +2107,58 @@ function App() {
             area: draftPoiData.area || 0
         });
 
+        setShowCreatePoiModal(true);
+    };
+
+    // Harita Bilgi Kartından POI Bilgilerini ve Fotoğraflarını Düzenleme Modalı Açma
+    const handleOpenEditPoiModal = (poi) => {
+        if (!poi) return;
+        const canEdit = isAdmin || userRole === 'Admin' || userRole === 'Editor' || userRole === 'Editör' || poi.userId === loggedInUserId;
+        if (!canEdit) {
+            if (toastRef.current) {
+                toastRef.current.show({ severity: 'warn', summary: 'Yetki Gerekli', detail: 'Bu POI\'yi düzenleme yetkiniz bulunmuyor.', life: 3000 });
+            }
+            return;
+        }
+
+        const cat = (poiCategories || []).find(c => c.id === poi.categoryId);
+        const parentId = cat?.parentId ? String(cat.parentId) : String(poi.categoryId || '');
+        setPoiParentCatId(parentId);
+
+        const wh = poi.workingHours || '';
+        const is24 = wh.includes('24 Saat') || wh.includes('24 Hours');
+        setPoiIs24Hours(is24);
+        if (wh.includes('Her Gün')) setPoiTimeDays('Her Gün');
+        else if (wh.includes('Pzt - Cmt')) setPoiTimeDays('Pzt - Cmt');
+        else if (wh.includes('Hafta Sonu')) setPoiTimeDays('Hafta Sonu');
+        else setPoiTimeDays('Hafta İçi');
+
+        const timeMatch = wh.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+        if (timeMatch) {
+            setPoiTimeStart(timeMatch[1]);
+            setPoiTimeEnd(timeMatch[2]);
+        } else {
+            setPoiTimeStart('08:30');
+            setPoiTimeEnd('18:00');
+        }
+
+        const rawImgs = poi.imageUrl || poi.image_url || poi.photoUrl || poi.imgUrl || poi.photo;
+        const loadedImages = parsePoiImages(rawImgs);
+
+        setEditingPoiModalData(poi);
+        setNewPoiForm({
+            name: poi.name || '',
+            description: poi.description || '',
+            categoryId: poi.categoryId || '',
+            workingHours: poi.workingHours || 'Hafta İçi 08:30 - 18:00',
+            images: loadedImages,
+            customImageUrl: '',
+            wkt: poi.wkt || '',
+            lon: poi.longitude || 0,
+            lat: poi.latitude || 0,
+            isPolygon: poi.wkt ? poi.wkt.toUpperCase().includes('POLYGON') : false,
+            area: 0
+        });
         setShowCreatePoiModal(true);
     };
 
@@ -1800,16 +2744,126 @@ function App() {
 
     // ZOOM SEVİYESİNE VE KATEGORİYE DUYARLI POI STİL FONKSİYONU
     const createPoiStyle = (feature, resolution) => {
+        const vis = layerVisibilityRef.current || {};
+        if (vis.pois === false) return [];
+
         const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : (mapRef.current?.getView()?.getZoom() || 0);
 
         const poi = feature.get('poiData') || {};
         const priority = poi.categoryDisplayOrder || 1;
-        const poiColor = poi.categoryColor || '#3b82f6';
+        const poiColor = poi.categoryColor || '#8b5cf6';
         const catName = poi.categoryName || poi.name || '';
-        const isCritical = priority <= 2 || catName.toLowerCase().includes('sağlık') || catName.toLowerCase().includes('hastane') || catName.toLowerCase().includes('ulaşım') || catName.toLowerCase().includes('terminal');
+        const catLower = (catName || '').toLowerCase();
+        const allCats = poiCategoriesRef.current || [];
+
+        // 1. POI'nin ait olduğu ana (üst) kategoriyi ve alt kategoriyi tespit et
+        let rootCatId = null;
+        let rootCatName = null;
+        let directCat = null;
+
+        if (poi.categoryId && allCats.length > 0) {
+            directCat = allCats.find(c => c.id === poi.categoryId);
+            if (directCat) {
+                if (directCat.parentId && directCat.parentId !== 0) {
+                    rootCatId = directCat.parentId;
+                    const parentCat = allCats.find(c => c.id === directCat.parentId);
+                    rootCatName = parentCat?.name;
+                } else {
+                    rootCatId = directCat.id;
+                    rootCatName = directCat.name;
+                }
+            }
+        }
+
+        // POI üstündeki parentCategoryName veya categoryName ile fallback eşleme
+        if (!rootCatId && allCats.length > 0) {
+            const pName = (poi.parentCategoryName || '').trim().toLowerCase();
+            const cName = (poi.categoryName || '').trim().toLowerCase();
+            if (pName) {
+                const foundParent = allCats.find(c => (!c.parentId || c.parentId === 0) && c.name?.trim().toLowerCase() === pName);
+                if (foundParent) {
+                    rootCatId = foundParent.id;
+                    rootCatName = foundParent.name;
+                }
+            }
+            if (!rootCatId && cName) {
+                const foundCat = allCats.find(c => c.name?.trim().toLowerCase() === cName);
+                if (foundCat) {
+                    rootCatId = (foundCat.parentId && foundCat.parentId !== 0) ? foundCat.parentId : foundCat.id;
+                    const parentCat = (foundCat.parentId && foundCat.parentId !== 0) ? allCats.find(c => c.id === foundCat.parentId) : foundCat;
+                    rootCatName = parentCat?.name;
+                }
+            }
+        }
+
+        // 2. KATMAN GÖRÜNÜRLÜĞÜ FİLTRESİ KONTROLÜ (Üst ve Alt Kategori)
+        if (vis.poiCategories) {
+            // Ana kategori ID kontrolü (number veya string)
+            if (rootCatId != null) {
+                if (vis.poiCategories[rootCatId] === false || vis.poiCategories[String(rootCatId)] === false) {
+                    return [];
+                }
+            }
+            // Ana kategori İsim kontrolü
+            if (rootCatName && (vis.poiCategories[rootCatName] === false || vis.poiCategories[rootCatName.toLowerCase()] === false)) {
+                return [];
+            }
+            // Doğrudan alt kategori ID kontrolü
+            if (poi.categoryId != null) {
+                if (vis.poiCategories[poi.categoryId] === false || vis.poiCategories[String(poi.categoryId)] === false) {
+                    return [];
+                }
+            }
+            if (poi.categoryName && (vis.poiCategories[poi.categoryName] === false || vis.poiCategories[poi.categoryName.toLowerCase()] === false)) {
+                return [];
+            }
+        }
+
+        // Kategori Eşleştirmesi veya Dinamik Kategori Anahtarı
+        let catKey = null;
+        const isAirportPoi = catLower.includes('havaliman') || catLower.includes('uçuş') || catLower.includes('ucus') || catLower.includes('airport') || poi.isSystemAirport;
+        if (isAirportPoi) catKey = 'havalimani';
+        else if (catLower.includes('alışveriş') || catLower.includes('alisveris') || catLower.includes('avm') || catLower.includes('mağaza') || catLower.includes('magaza') || catLower.includes('butik') || catLower.includes('giyim') || catLower.includes('kuyumcu')) catKey = 'alisveris';
+        else if (catLower.includes('market') || catLower.includes('bakkal') || catLower.includes('süpermarket') || catLower.includes('supermarket') || catLower.includes('şarküteri') || catLower.includes('manav')) catKey = 'market';
+        else if (catLower.includes('sağlık') || catLower.includes('saglik') || catLower.includes('hastane') || catLower.includes('klinik') || catLower.includes('doktor') || catLower.includes('tıp') || catLower.includes('poliklinik')) catKey = 'hastane';
+        else if (catLower.includes('eczane') || catLower.includes('ilaç') || catLower.includes('ilac') || catLower.includes('medikal')) catKey = 'eczane';
+        else if (catLower.includes('eğitim') || catLower.includes('egitim') || catLower.includes('okul') || catLower.includes('üniversite') || catLower.includes('universite') || catLower.includes('lise') || catLower.includes('kolej') || catLower.includes('fakülte')) catKey = 'okul';
+        else if (catLower.includes('müze') || catLower.includes('muze') || catLower.includes('museum') || catLower.includes('ören') || catLower.includes('tarih') || catLower.includes('antik') || catLower.includes('kale')) catKey = 'muze';
+        else if (catLower.includes('kütüphane') || catLower.includes('kutuphane') || catLower.includes('library') || catLower.includes('kitap') || catLower.includes('kitabevi') || catLower.includes('kırtasiye') || catLower.includes('arşiv')) catKey = 'kutuphane';
+        else if (catLower.includes('sanat') || catLower.includes('kültür') || catLower.includes('kultur') || catLower.includes('galeri') || catLower.includes('tiyatro') || catLower.includes('sergi') || catLower.includes('konser') || catLower.includes('sinema')) catKey = 'sanat';
+        else if (catLower.includes('anıt') || catLower.includes('anit') || catLower.includes('heykel') || catLower.includes('abide') || catLower.includes('türbe') || catLower.includes('anıtı') || catLower.includes('şehitlik')) catKey = 'anit';
+        else if (catLower.includes('spor') || catLower.includes('saha') || catLower.includes('stadyum') || catLower.includes('stadium') || catLower.includes('fitness') || catLower.includes('kort') || catLower.includes('gym') || catLower.includes('havuz')) catKey = 'spor';
+        else if (catLower.includes('akaryakıt') || catLower.includes('akaryakit') || catLower.includes('benzin') || catLower.includes('petrol') || catLower.includes('gaz') || catLower.includes('şarj') || catLower.includes('sarj')) catKey = 'akaryakit';
+        else if (catLower.includes('tamir') || catLower.includes('sanayi') || catLower.includes('oto servis') || catLower.includes('oto yıkama') || catLower.includes('lastik') || catLower.includes('rent a car') || catLower.includes('kiralama')) catKey = 'oto_servis';
+        else if (catLower.includes('otopark') || catLower.includes('park yeri')) catKey = 'otopark';
+        else if (catLower.includes('atm') || catLower.includes('bankamatik') || catLower.includes('banka') || catLower.includes('finans') || catLower.includes('döviz') || catLower.includes('kredi')) catKey = 'atm';
+        else if (catLower.includes('plaj') || catLower.includes('kumsal') || catLower.includes('sahil') || catLower.includes('beach') || catLower.includes('koy') || catLower.includes('marina') || catLower.includes('deniz') || catLower.includes('iskele')) catKey = 'plaj';
+        else if (catLower.includes('kafe') || catLower.includes('cafe') || catLower.includes('kahve') || catLower.includes('çay') || catLower.includes('cay') || catLower.includes('pastane') || catLower.includes('tatlı') || catLower.includes('dondurma')) catKey = 'kafe';
+        else if (catLower.includes('yeme') || catLower.includes('restoran') || catLower.includes('yemek') || catLower.includes('lokanta') || catLower.includes('kebap') || catLower.includes('burger') || catLower.includes('pizza') || catLower.includes('döner')) catKey = 'restoran';
+        else if (catLower.includes('otel') || catLower.includes('hotel') || catLower.includes('konaklama') || catLower.includes('pansiyon') || catLower.includes('tatil') || catLower.includes('motel') || catLower.includes('resort')) catKey = 'otel';
+        else if (catLower.includes('park') || catLower.includes('doğa') || catLower.includes('doga') || catLower.includes('bahçe') || catLower.includes('bahce') || catLower.includes('koru') || catLower.includes('orman') || catLower.includes('yeşil') || catLower.includes('botanik') || catLower.includes('kamp') || catLower.includes('dağ')) catKey = 'park';
+        else if (catLower.includes('cami') || catLower.includes('mescit') || catLower.includes('kilise') || catLower.includes('dini') || catLower.includes('ibadethane')) catKey = 'dini';
+        else if (catLower.includes('belediye') || catLower.includes('valilik') || catLower.includes('adliye') || catLower.includes('mahkeme') || catLower.includes('noter') || catLower.includes('ptt') || catLower.includes('postane') || catLower.includes('karakol') || catLower.includes('polis') || catLower.includes('itfaiye')) catKey = 'kamu';
+        else if (poi.categoryId) catKey = `cat_${poi.categoryId}`;
+        else if (catName) catKey = `cat_${catName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+        // Katman Görünürlüğü POI Alt Kategori Filtresi (poiTypes)
+        if (vis.poiTypes && catKey && vis.poiTypes[catKey] === false) {
+            return [];
+        }
 
         const zs = getZoomSettings();
-        const minPoiZoom = isCritical ? (zs.poiCriticalMinZoom ?? 12.0) : (zs.poiMinZoom ?? 13.5);
+        let minPoiZoom;
+        if (isAirportPoi) {
+            minPoiZoom = zs.airportStopMinZoom ?? (zs.poi_havalimani_minZoom ?? 4.5);
+        } else if (catKey && zs[`poi_${catKey}_minZoom`] !== undefined) {
+            minPoiZoom = zs[`poi_${catKey}_minZoom`];
+        } else if (poi.categoryId && zs[`poi_cat_${poi.categoryId}_minZoom`] !== undefined) {
+            minPoiZoom = zs[`poi_cat_${poi.categoryId}_minZoom`];
+        } else {
+            const isCritical = priority <= 2 || catKey === 'hastane' || catKey === 'muze' || catKey === 'anit' || catLower.includes('ulaşım') || catLower.includes('terminal');
+            minPoiZoom = isCritical ? (zs.poiCriticalMinZoom ?? 5.0) : (zs.poiMinZoom ?? 5.5);
+        }
 
         if (zoom < minPoiZoom) {
             return [];
@@ -1820,14 +2874,14 @@ function App() {
         const geomType = feature.getGeometry() ? feature.getGeometry().getType() : 'Point';
 
         // İsim etiketleri: Yakın zoomda (zoom >= poiNameMinZoom) görünür
-        const poiNameMinZoom = zs.poiNameMinZoom ?? 15.5;
+        const poiNameMinZoom = zs.poiNameMinZoom ?? 11.5;
         const showLabel = name && zoom >= poiNameMinZoom;
         const textStyle = showLabel ? new Text({
             text: name,
-            font: '600 10.5px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            font: '600 11px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             fill: new Fill({ color: '#ffffff' }),
             stroke: new Stroke({ color: '#0f172a', width: 2.5 }),
-            offsetY: -14,
+            offsetY: -18,
             overflow: false
         }) : undefined;
 
@@ -1835,8 +2889,8 @@ function App() {
         const dynamicZIndex = Math.max(1, 100 - priority * 10);
         const categoryBadgeSvg = getPoiCategoryBadgeSvg(catName, catIcon, poiColor);
 
-        // Küçültülmüş, daha narin ve kompakt ikon boyutu (0.48 - 0.52)
-        const iconScale = priority <= 2 ? 0.52 : 0.48;
+        // Zoom seviyesine göre ölçekleme (%30 büyütülmüş net rozet görünümü)
+        const iconScale = zoom < 8.5 ? 0.50 : (zoom < 12 ? 0.60 : 0.68);
 
         if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
             const interiorPt = feature.getGeometry().getInteriorPoint ? feature.getGeometry().getInteriorPoint() : new Point(getCenter(feature.getGeometry().getExtent()));
@@ -1877,15 +2931,60 @@ function App() {
                 adminApi.getPois(null, false, token).catch(() => []),
                 adminApi.getPoiCategories(false, token).catch(() => [])
             ]);
-            setPois(poisData || []);
-            if (Array.isArray(catsData)) {
-                setPoiCategories(catsData);
+
+            const dbPois = Array.isArray(poisData) ? poisData : [];
+            const dbPoisNameSet = new Set(dbPois.map(p => (p.name || '').toLowerCase().trim()));
+
+            let effectiveCats = Array.isArray(catsData) ? [...catsData] : [];
+            let airportCat = effectiveCats.find(c => (c.name || '').toLowerCase().includes('havaliman') || c.key === 'havalimani');
+            if (!airportCat) {
+                airportCat = {
+                    id: 9901,
+                    name: 'Havalimanı & Uçuş',
+                    key: 'havalimani',
+                    color: '#0284c7',
+                    icon: 'plane',
+                    displayOrder: 2,
+                    isActive: true
+                };
+                effectiveCats.push(airportCat);
             }
+
+            const airportPois = (TURKISH_AIRPORTS || []).filter(apt => !dbPoisNameSet.has(apt.name.toLowerCase().trim())).map((apt, idx) => ({
+                id: apt.id || `apt_${idx + 1}`,
+                name: apt.name,
+                description: `${apt.type} • ${apt.runways} • IATA: ${apt.iata} • ICAO: ${apt.icao} • ${apt.description}`,
+                categoryName: airportCat.name,
+                parentCategoryName: 'Ulaşım',
+                categoryId: airportCat.id,
+                categoryColor: '#0284c7',
+                categoryIcon: 'plane',
+                workingHours: '7/24 Açık (24 Saat Kesintisiz Uçuş)',
+                imageUrl: apt.imageUrl,
+                wkt: `POINT(${apt.coordinates[0]} ${apt.coordinates[1]})`,
+                latitude: apt.coordinates[1],
+                longitude: apt.coordinates[0],
+                username: 'Sistem Kaydı',
+                createdAt: '2026-09-04 12:00',
+                isActive: true,
+                isAirport: true,
+                iata: apt.iata,
+                icao: apt.icao,
+                city: apt.city,
+                region: apt.region,
+                runways: apt.runways,
+                type: apt.type
+            }));
+
+            const combinedPois = [...dbPois, ...airportPois];
+            setPois(combinedPois);
+            setPoiCategories(effectiveCats);
+            poiCategoriesRef.current = effectiveCats;
 
             if (poiSourceRef.current) {
                 poiSourceRef.current.clear();
                 const wktFormat = new WKT();
-                (poisData || []).forEach((poi) => {
+                combinedPois.forEach((poi) => {
                     try {
                         if (!poi.wkt) return;
                         const feat = wktFormat.readFeature(poi.wkt, {
@@ -1894,13 +2993,15 @@ function App() {
                         });
                         feat.set('isPoi', true);
                         feat.set('poiData', poi);
-                        feat.setStyle(createPoiStyle);
 
                         poiSourceRef.current.addFeature(feat);
                     } catch (e) {
                         console.error('POI Feature render hatası:', e);
                     }
                 });
+                if (poiLayerRef.current) {
+                    poiLayerRef.current.changed();
+                }
             }
         } catch (err) {
             console.error('POI verileri getirilirken hata:', err);
@@ -2120,16 +3221,23 @@ function App() {
 
     // =========================================================
     // CANLI ARAÇ SİMÜLASYONU & SIGNALR ÇİFT YÖNLÜ VERİ YÖNETİMİ
+    // ULTRA AKICI 60 FPS HAREKET VE YÖN İNTERPOLASYON MOTORU
     // =========================================================
     const updateVehicleFeatureOnMap = (loc) => {
         if (!loc || !simulationSourceRef.current) return;
         const source = simulationSourceRef.current;
         const rawId = loc.routeId;
         const numId = Number(rawId);
-        const coord = fromLonLat([loc.longitude, loc.latitude]);
+        const targetCoord = fromLonLat([loc.longitude, loc.latitude]);
+        const targetBearingDeg = loc.bearing || 0;
+        const targetBearingRad = (targetBearingDeg * Math.PI) / 180;
+        const targetPercent = loc.progressPercentage || 0;
 
         if (!vehicleFeaturesMapRef.current || typeof vehicleFeaturesMapRef.current.get !== 'function') {
             vehicleFeaturesMapRef.current = new Map();
+        }
+        if (!vehicleAnimMapRef.current) {
+            vehicleAnimMapRef.current = new Map();
         }
 
         const matchedRoute = routesRef.current?.find?.(r => r.id === numId) || routes?.find?.(r => r.id === numId) || (selectedRouteInfo?.id === numId ? selectedRouteInfo : null);
@@ -2145,23 +3253,95 @@ function App() {
 
         if (!feature) {
             feature = new Feature({
-                geometry: new Point(coord),
+                geometry: new Point(targetCoord),
                 isSimulatedVehicle: true,
                 routeId: numId,
                 vehicleData: enrichedLoc
             });
             feature.setStyle(createSimulatedVehicleStyle(enrichedLoc));
+            feature.set('currentBearingRad', targetBearingRad);
+            feature.set('lastClass', resolvedRouteClass);
+            feature.set('lastColor', enrichedLoc.routeColor);
             source.addFeature(feature);
+
             try {
                 vehicleFeaturesMapRef.current.set(numId, feature);
                 vehicleFeaturesMapRef.current.set(rawId, feature);
                 vehicleFeaturesMapRef.current.set(String(numId), feature);
             } catch (_) { }
         } else {
-            feature.getGeometry().setCoordinates(coord);
+            const geom = feature.getGeometry();
+            const startCoord = geom ? geom.getCoordinates() : targetCoord;
+            const startAngleRad = Number.isFinite(feature.get('currentBearingRad')) ? feature.get('currentBearingRad') : targetBearingRad;
+
+            // Stil güncellemesi gerekiyorsa (renk veya sınıf değiştiğinde) stili yenile
+            const prevClass = feature.get('lastClass');
+            const prevColor = feature.get('lastColor');
+            if (prevClass !== resolvedRouteClass || prevColor !== enrichedLoc.routeColor) {
+                feature.setStyle(createSimulatedVehicleStyle(enrichedLoc));
+                feature.set('lastClass', resolvedRouteClass);
+                feature.set('lastColor', enrichedLoc.routeColor);
+            }
+
+            // Önceki animasyonu durdur
+            const prevAnim = vehicleAnimMapRef.current.get(numId);
+            if (prevAnim?.rafId) cancelAnimationFrame(prevAnim.rafId);
+
+            const startTime = performance.now();
+            let lastTimestamp = startTime;
+            let currentInterpolationT = 0;
+
+            const animStep = (now) => {
+                const currentSpeed = Number(simSpeedMapRef.current?.[numId]) || 1;
+                const dt = Math.max(0, now - lastTimestamp);
+                lastTimestamp = now;
+
+                // Dinamik adaptif akışkanlık (Hız arttıkça 60 FPS pürüzsüz mikro-adım enterpolasyonu)
+                const baseStepDuration = 320;
+                currentInterpolationT += (dt * currentSpeed) / baseStepDuration;
+                const t = Math.min(currentInterpolationT, 1);
+
+                // Kesintisiz pürüzsüz doğrusal interpolasyon (Aksın gitsin)
+                const curX = startCoord[0] + (targetCoord[0] - startCoord[0]) * t;
+                const curY = startCoord[1] + (targetCoord[1] - startCoord[1]) * t;
+                const curAngle = lerpAngle(startAngleRad, targetBearingRad, t);
+
+                if (geom) {
+                    geom.setCoordinates([curX, curY]);
+                }
+                feature.set('currentBearingRad', curAngle);
+
+                // Nesne tahsisi yapmadan doğrudan ikon dönüş açısını güncelle (60 FPS pürüzsüz)
+                const style = feature.getStyle();
+                if (style && typeof style.getImage === 'function') {
+                    const img = style.getImage();
+                    if (img && typeof img.setRotation === 'function') {
+                        img.setRotation(curAngle);
+                    }
+                    const txt = style.getText && style.getText();
+                    if (txt) {
+                        const pctStr = `%${Math.round(targetPercent)}`;
+                        if (txt.getText() !== pctStr) {
+                            txt.setText(pctStr);
+                        }
+                    }
+                }
+
+                // Kamera Otomatik Araç Takibi (Auto-pan Follow Mode) 60 FPS senkron kayma
+                if (Number(followingRouteIdRef.current) === numId && mapRef.current) {
+                    mapRef.current.getView().setCenter([curX, curY]);
+                }
+
+                if (t < 1) {
+                    const nextRaf = requestAnimationFrame(animStep);
+                    vehicleAnimMapRef.current.set(numId, { rafId: nextRaf });
+                }
+            };
+
+            const rafId = requestAnimationFrame(animStep);
+            vehicleAnimMapRef.current.set(numId, { rafId });
+
             feature.set('vehicleData', enrichedLoc);
-            feature.setStyle(createSimulatedVehicleStyle(enrichedLoc));
-            // KRİTİK: Eğer feature daha önce source'tan silinmişse tekrar katmana ekle
             if (!source.getFeatures().includes(feature)) {
                 source.addFeature(feature);
             }
@@ -2176,6 +3356,24 @@ function App() {
     const removeVehicleFeatureFromMap = (routeId) => {
         if (!simulationSourceRef.current) return;
         const numId = Number(routeId);
+
+        // 0. Varsa devam eden animasyon karesini derhal durdur
+        if (!vehicleAnimMapRef.current || typeof vehicleAnimMapRef.current.get !== 'function') {
+            vehicleAnimMapRef.current = new Map();
+        }
+
+        try {
+            const runningAnim = vehicleAnimMapRef.current.get(numId) || vehicleAnimMapRef.current.get(routeId);
+            if (runningAnim?.rafId) {
+                cancelAnimationFrame(runningAnim.rafId);
+            }
+            if (typeof vehicleAnimMapRef.current.delete === 'function') {
+                vehicleAnimMapRef.current.delete(numId);
+                vehicleAnimMapRef.current.delete(routeId);
+                vehicleAnimMapRef.current.delete(String(numId));
+                vehicleAnimMapRef.current.delete(String(routeId));
+            }
+        } catch (_) { }
 
         // 1. Ref haritasından güvenle kaldır
         if (!vehicleFeaturesMapRef.current || typeof vehicleFeaturesMapRef.current.delete !== 'function') {
@@ -2288,7 +3486,7 @@ function App() {
                 return next;
             });
 
-            // Harita üzerindeki araç simgesini yumuşakça hareket ettir ve döndür
+            // Harita üzerindeki araç simgesini pürüzsüz 60 FPS süzülme ile hareket ettir ve döndür
             updateVehicleFeatureOnMap(loc);
 
             // Pop-up açıksa tamamlanma yüzdesini ve durakları anlık güncelle
@@ -2298,14 +3496,6 @@ function App() {
                 }
                 return curr;
             });
-
-            // Kamera Otomatik Araç Takibi (Auto-pan Follow Mode)
-            if (Number(followingRouteIdRef.current) === rId && mapRef.current) {
-                mapRef.current.getView().animate({
-                    center: fromLonLat([loc.longitude, loc.latitude]),
-                    duration: 650
-                });
-            }
         });
 
         // 2. Simülasyon Başlatıldı Bildirimi
@@ -3600,6 +4790,8 @@ function App() {
             setSelectedPoiInfo(poi);
             setSelectedStopInfo(null);
             setSelectedRouteInfo(null);
+            setSelectedBoundaryInfo(null);
+            setSelectedPointInfo(null);
         }
     };
 
@@ -3767,10 +4959,17 @@ function App() {
     const handleSaveStopRepositioning = async () => {
         if (!modifyingStop || !modifiedStopCoords.wkt) return;
         try {
-            // 1. Durağın Yeni Konumunu Kaydet
+            const currentRouteIds = modifyingStop.routeIds && modifyingStop.routeIds.length > 0
+                ? modifyingStop.routeIds
+                : (modifyingStop.routes ? modifyingStop.routes.map(r => r.id) : (modifyingStop.routeId ? [modifyingStop.routeId] : []));
+
+            // 1. Durağın Yeni Konumunu Kaydet (Mevcut tüm hat bağlantılarını koruyarak)
             await transportApi.updateStop(modifyingStop.id, {
                 name: modifyingStop.name,
+                stopCode: modifyingStop.stopCode,
+                stopClass: modifyingStop.stopClass,
                 routeId: modifyingStop.routeId,
+                routeIds: currentRouteIds,
                 description: modifyingStop.description,
                 orderIndex: modifyingStop.orderIndex,
                 wkt: modifiedStopCoords.wkt
@@ -3790,10 +4989,19 @@ function App() {
                 } catch (e) { }
             }
 
+            // 3. Bağlı olan diğer tüm güzergahların hat çizgilerini de yeni konuma göre güncelle
+            for (const rId of currentRouteIds) {
+                if (rId !== modifyingStop.routeId) {
+                    try {
+                        await transportApi.generateOsrmRoute(rId, token);
+                    } catch (e) { }
+                }
+            }
+
             toastRef.current?.show({
                 severity: 'success',
                 summary: 'Durak ve Hat Güncellendi',
-                detail: `"${modifyingStop.name}" durağının yeni konumu ve bağlı hat geometrisi başarıyla kaydedildi!`,
+                detail: `"${modifyingStop.name}" durağının yeni konumu ve tüm bağlı hat geometrileri başarıyla kaydedildi!`,
                 life: 3500
             });
 
@@ -4095,7 +5303,7 @@ function App() {
                 source: new XYZ({
                     url: activeBaseConfig.url,
                     crossOrigin: 'anonymous',
-                    maxZoom: 20
+                    maxZoom: activeBaseConfig.maxZoom || 19
                 })
             });
             tileLayerRef.current = baseTileLayer;
@@ -4158,11 +5366,71 @@ function App() {
             });
             drawingsLayerRef.current = drawingsLayer;
 
+            const cityBoundaryLayer = new VectorLayer({
+                source: cityBoundarySourceRef.current,
+                zIndex: 6,
+                visible: layerVisibility.cities,
+                style: (feature, resolution) => {
+                    const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : 8;
+                    const name = feature.get('name') || feature.get('NAME') || feature.get('il_adi') || '';
+                    return new Style({
+                        stroke: new Stroke({
+                            color: isDarkMode ? 'rgba(56, 189, 248, 0.45)' : 'rgba(2, 132, 199, 0.55)',
+                            width: 1.2
+                        }),
+                        fill: new Fill({
+                            color: 'transparent'
+                        }),
+                        text: (name && zoom >= 8.5 && zoom <= 13) ? new Text({
+                            text: name,
+                            font: '600 11px Inter, sans-serif',
+                            fill: new Fill({ color: isDarkMode ? '#94a3b8' : '#64748b' }),
+                            stroke: new Stroke({ color: isDarkMode ? '#0f172a' : '#ffffff', width: 2.5 }),
+                            overflow: false
+                        }) : undefined
+                    });
+                }
+            });
+            cityBoundaryLayerRef.current = cityBoundaryLayer;
+
+            const maritimeBoundaryLayer = new VectorLayer({
+                source: maritimeBoundarySourceRef.current,
+                zIndex: 7,
+                visible: layerVisibility.maritime,
+                style: (feature, resolution) => {
+                    const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : 8;
+                    const zoneName = feature.get('name') || feature.get('NAME') || feature.get('zoneName') || 'Deniz Yetki Alanı';
+                    return new Style({
+                        stroke: new Stroke({
+                            color: '#0891b2',
+                            width: 1.6,
+                            lineDash: [6, 4]
+                        }),
+                        fill: new Fill({
+                            color: 'rgba(8, 145, 178, 0.06)'
+                        }),
+                        text: (zoneName && zoom >= 7.0 && zoom <= 12) ? new Text({
+                            text: zoneName,
+                            font: '600 11.5px Inter, sans-serif',
+                            fill: new Fill({ color: '#0891b2' }),
+                            stroke: new Stroke({ color: isDarkMode ? '#0f172a' : '#ffffff', width: 2.5 }),
+                            overflow: false
+                        }) : undefined
+                    });
+                }
+            });
+            maritimeBoundaryLayerRef.current = maritimeBoundaryLayer;
+
             const routeLayer = new VectorLayer({
                 source: routeSourceRef.current,
                 zIndex: 18,
                 visible: layerVisibility.routes,
                 style: (feature, resolution) => {
+                    const r = feature.get('routeData');
+                    const rClass = (r?.routeClass || feature.get('routeClass') || 'araba').toLowerCase().trim();
+                    if (layerVisibility.routeTypes && layerVisibility.routeTypes[rClass] === false) {
+                        return null;
+                    }
                     return createTransitRouteStyle(feature, resolution, selectedRouteInfoRef.current?.id);
                 }
             });
@@ -4185,24 +5453,31 @@ function App() {
                 style: (feature, resolution) => {
                     const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : (mapRef.current?.getView()?.getZoom() || 0);
                     const featureRouteClass = (feature.get('stopClass') || feature.get('routeClass') || 'otobus').toLowerCase();
+                    if (layerVisibility.stopTypes && layerVisibility.stopTypes[featureRouteClass] === false) {
+                        return null;
+                    }
+
                     const featureRouteId = feature.get('routeId');
                     const isIndependent = !featureRouteId;
+                    const isAirport = featureRouteClass === 'havayolu' || featureRouteClass === 'havalimani' || featureRouteClass === 'airport' || featureRouteClass === 'ucak';
                     const isBus = featureRouteClass === 'otobus' || featureRouteClass === 'bus';
-                    const isGemi = featureRouteClass === 'gemi' || featureRouteClass === 'liman';
+                    const isGemi = featureRouteClass === 'gemi' || featureRouteClass === 'liman' || featureRouteClass === 'deniz';
                     const isMetro = featureRouteClass === 'metro';
-                    const isTren = featureRouteClass === 'tren';
+                    const isTren = featureRouteClass === 'tren' || featureRouteClass === 'train';
                     const isSelectedRoute = selectedRouteInfoRef.current?.id === featureRouteId;
 
                     const zs = getZoomSettings();
-                    const minStopZoom = isGemi 
-                        ? (zs.shipStopMinZoom ?? 5.0) 
-                        : (isMetro 
-                            ? (zs.metroStopMinZoom ?? 10.0) 
-                            : (isTren 
-                                ? (zs.trainStopMinZoom ?? 8.0) 
-                                : (isBus 
-                                    ? (isIndependent ? 10.5 : (zs.busStopMinZoom ?? 13.5)) 
-                                    : (zs.stopMinZoom ?? 10.0))));
+                    const minStopZoom = isAirport
+                        ? (zs.airportStopMinZoom ?? 4.5)
+                        : (isGemi 
+                            ? (zs.shipStopMinZoom ?? 8.0) 
+                            : (isMetro 
+                                ? (zs.metroStopMinZoom ?? 12.0) 
+                                : (isTren 
+                                    ? (zs.trainStopMinZoom ?? 11.0) 
+                                    : (isBus 
+                                        ? (isIndependent ? 10.5 : (zs.busStopMinZoom ?? 14.5)) 
+                                        : (zs.stopMinZoom ?? 14.0)))));
 
                     if (!isSelectedRoute && zoom < minStopZoom) {
                         return null;
@@ -4214,7 +5489,7 @@ function App() {
                     // Pin SVG icon
                     const pinSvg = getStopPinSvg(featureRouteClass, routeColor);
 
-                    const stopNameMinZoom = isGemi ? 7.5 : (isMetro ? 11.0 : (isTren ? 9.5 : (zs.stopNameMinZoom ?? 14.0)));
+                    const stopNameMinZoom = isAirport ? 6.0 : (isGemi ? 7.5 : (isMetro ? 11.0 : (isTren ? 9.5 : (zs.stopNameMinZoom ?? 14.0))));
                     const showStopLabel = stopName && (zoom >= stopNameMinZoom || isSelectedRoute);
 
                     const textStyle = showStopLabel ? new Text({
@@ -4258,6 +5533,8 @@ function App() {
                 target: container,
                 layers: [
                     baseTileLayer,
+                    cityBoundaryLayer,
+                    maritimeBoundaryLayer,
                     savedPlacesLayer,
                     drawingsLayer,
                     routeLayer,
@@ -4371,8 +5648,31 @@ function App() {
                 });
 
                 if (clickedStop) {
-                    setSelectedStopInfo(clickedStop);
+                    // Bu duraktan geçen BÜTÜN hatları dinamik olarak tespit et (1 durak birden fazla hat paylaşabilir)
+                    const activeRoutesList = routesRef.current || routes || [];
+                    const passingRoutes = activeRoutesList.filter(r => {
+                        if (clickedStop.routeId && (r.id === clickedStop.routeId || String(r.id) === String(clickedStop.routeId))) return true;
+                        if (Array.isArray(r.stops)) {
+                            return r.stops.some(st => 
+                                (clickedStop.id && st.id === clickedStop.id) || 
+                                (st.name && clickedStop.name && st.name.trim().toLowerCase() === clickedStop.name.trim().toLowerCase()) ||
+                                (st.longitude != null && clickedStop.longitude != null && 
+                                 Math.abs(st.longitude - clickedStop.longitude) < 0.0008 && 
+                                 Math.abs(st.latitude - clickedStop.latitude) < 0.0008)
+                            );
+                        }
+                        return false;
+                    });
+
+                    const enrichedStop = {
+                        ...clickedStop,
+                        routes: passingRoutes.length > 0 ? passingRoutes : (clickedStop.routes || (clickedStop.routeId ? [{ id: clickedStop.routeId, name: clickedStop.routeName, color: clickedStop.routeColor, routeClass: clickedStop.routeClass }] : []))
+                    };
+
+                    setSelectedStopInfo(enrichedStop);
                     setSelectedPoiInfo(null);
+                    setSelectedRouteInfo(null);
+                    setSelectedBoundaryInfo(null);
                     setSelectedPointInfo(null);
                     return;
                 }
@@ -4390,6 +5690,7 @@ function App() {
                     setSelectedPoiInfo(clickedPoi);
                     setSelectedStopInfo(null);
                     setSelectedRouteInfo(null);
+                    setSelectedBoundaryInfo(null);
                     setSelectedPointInfo(null);
                     return;
                 }
@@ -4407,8 +5708,44 @@ function App() {
                     setSelectedRouteInfo(clickedRoute);
                     setSelectedStopInfo(null);
                     setSelectedPoiInfo(null);
+                    setSelectedBoundaryInfo(null);
                     setSelectedPointInfo(null);
                     return;
+                }
+
+                // 4. Deniz Yetki Alanı veya İl Sınırı Tıklaması Kontrolü (Yüzölçümü & Çevre)
+                let clickedBoundary = null;
+                map.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+                    if (layer === cityBoundaryLayerRef.current || layer === maritimeBoundaryLayerRef.current || feature.get('isMaritime') || feature.get('NAME') || feature.get('zoneName') || feature.get('il_adi')) {
+                        const isMaritime = layer === maritimeBoundaryLayerRef.current || !!feature.get('isMaritime') || !!feature.get('zoneName');
+                        const name = feature.get('name') || feature.get('NAME') || feature.get('zoneName') || feature.get('il_adi') || (isMaritime ? 'Deniz Yetki Alanı' : 'İl Sınırı');
+                        const region = feature.get('region') || feature.get('sea') || (isMaritime ? 'Deniz Alanı' : 'Bölge');
+                        const plate = feature.get('plate') || feature.get('id') || '';
+                        const metrics = calculateGeometryMetrics(feature.getGeometry());
+                        clickedBoundary = {
+                            name,
+                            region,
+                            plate,
+                            isMaritime,
+                            areaKm2: metrics.areaKm2,
+                            areaHa: metrics.areaHa,
+                            formattedArea: metrics.formattedArea,
+                            formattedAreaHa: metrics.formattedAreaHa,
+                            perimeterKm: metrics.perimeterKm,
+                            formattedPerimeter: metrics.formattedPerimeter
+                        };
+                        return true;
+                    }
+                });
+
+                if (clickedBoundary) {
+                    setSelectedBoundaryInfo(clickedBoundary);
+                    setSelectedPoiInfo(null);
+                    setSelectedStopInfo(null);
+                    setSelectedRouteInfo(null);
+                    setSelectedPointInfo(null);
+                } else {
+                    setSelectedBoundaryInfo(null);
                 }
 
                 const lonLat = toLonLat(evt.coordinate);
@@ -4519,22 +5856,30 @@ function App() {
         };
     }, [token]);
 
-    // HARİTA GÖRÜNÜMÜNE GEÇİLDİĞİNDE VEYA OTURUM AÇILDIĞINDA HARİTA BOYUTUNU DÜZELT
+    // HARİTA GÖRÜNÜMÜNE GEÇİLDİĞİNDE VEYA OTURUM AÇILDIĞINDA HARİTA BOYUTUNU DÜZELT & POI / VERİLERİ YENİLE
     useEffect(() => {
-        if (currentView === 'map' && mapRef.current) {
-            const update = () => {
-                mapRef.current?.updateSize();
-                mapRef.current?.render();
-            };
-            update();
-            const t1 = setTimeout(update, 50);
-            const t2 = setTimeout(update, 200);
-            const t3 = setTimeout(update, 500);
-            return () => {
-                clearTimeout(t1);
-                clearTimeout(t2);
-                clearTimeout(t3);
-            };
+        if (currentView === 'map') {
+            fetchPois();
+            if (token) {
+                fetchRoutesAndStops();
+                fetchDrawings();
+            }
+            if (mapRef.current) {
+                const update = () => {
+                    mapRef.current?.updateSize();
+                    mapRef.current?.render();
+                    if (poiLayerRef.current) poiLayerRef.current.changed();
+                };
+                update();
+                const t1 = setTimeout(update, 50);
+                const t2 = setTimeout(update, 200);
+                const t3 = setTimeout(update, 500);
+                return () => {
+                    clearTimeout(t1);
+                    clearTimeout(t2);
+                    clearTimeout(t3);
+                };
+            }
         }
     }, [currentView, token]);
 
@@ -4907,15 +6252,19 @@ function App() {
             }));
         }
 
-        // 1. Modify: Köşe ve kırılma noktalarını düzenleme
+        // 1. Modify: Köşe ve sınır bükme/düzenleme etkileşimi
         const modify = new Modify({
             features: new Collection([targetFeature])
         });
 
-        // 2. Translate: POI'yi bütün olarak haritada sürükleyip taşıma
-        const translate = new Translate({
-            features: new Collection([targetFeature])
-        });
+        // 2. Translate: SADECE Nokta (Point) POI'ler için geçerlidir.
+        // Poligon POI'ler bütün halinde taşınamaz; sadece sınırları bükülebilir ve düzeltilebilir.
+        let translate = null;
+        if (!isPolygon) {
+            translate = new Translate({
+                features: new Collection([targetFeature])
+            });
+        }
 
         const updateGeomWkt = () => {
             const wktFormat = new WKT();
@@ -4932,12 +6281,14 @@ function App() {
         };
 
         modify.on('modifyend', updateGeomWkt);
-        translate.on('translateend', updateGeomWkt);
-
         mapRef.current.addInteraction(modify);
-        mapRef.current.addInteraction(translate);
         poiModifyInteractionRef.current = modify;
-        poiTranslateInteractionRef.current = translate;
+
+        if (translate) {
+            translate.on('translateend', updateGeomWkt);
+            mapRef.current.addInteraction(translate);
+            poiTranslateInteractionRef.current = translate;
+        }
 
         setEditingPoiState({
             poi,
@@ -4954,9 +6305,9 @@ function App() {
         if (toastRef.current) {
             toastRef.current.show({
                 severity: 'info',
-                summary: isPolygon ? 'Poligon Düzenleme Modu' : 'Konum Taşıma Modu',
+                summary: isPolygon ? 'Poligon Sınır Düzenleme Modu' : 'Konum Taşıma Modu',
                 detail: isPolygon
-                    ? 'Poligonu taşımak için gövdesinden, sınırlarını değiştirmek için köşelerinden sürükleyebilirsiniz.'
+                    ? 'Poligon sınırlarını ve köşelerini sürükleyerek veya bükerek şeklini değiştirebilirsiniz.'
                     : 'İşaretçiyi harita üzerinde yeni konumuna sürükleyip bırakabilirsiniz.',
                 life: 4000
             });
@@ -4973,6 +6324,7 @@ function App() {
                 description: poi.description || '',
                 categoryId: poi.categoryId,
                 workingHours: poi.workingHours || '',
+                imageUrl: poi.imageUrl || null,
                 wkt: editingPoiState.currentWkt,
                 isActive: poi.isActive !== false
             }, token);
@@ -5227,8 +6579,11 @@ function App() {
         }
 
         // Seçilen moda göre varsayılan başlık önerisi
-        const typeLabel = drawType === 'Point' ? 'Nokta' : drawType === 'LineString' ? 'Çizgi' : drawType === 'Polygon' ? 'Poligon' : 'Analiz';
-        setDrawingName(`${typeLabel} Çizimi - ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`);
+        const typeLabel = isTr 
+            ? (drawType === 'Point' ? 'Nokta' : drawType === 'LineString' ? 'Çizgi' : drawType === 'Polygon' ? 'Poligon' : 'Analiz')
+            : (drawType === 'Point' ? 'Point' : drawType === 'LineString' ? 'Line' : drawType === 'Polygon' ? 'Polygon' : 'Analysis');
+        const timeFormatted = new Date().toLocaleTimeString(isTr ? 'tr-TR' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        setDrawingName(isTr ? `${typeLabel} Çizimi - ${timeFormatted}` : `${typeLabel} Drawing - ${timeFormatted}`);
         setDrawingColor('#3b82f6');
         setDraftWkt('');
 
@@ -5549,7 +6904,7 @@ function App() {
         };
     }, [drawType, poiDrawGeometryType, token]);
 
-    // POI HARİTADAN KAYDETME (Operatör / Editör / Admin)
+    // POI HARİTADAN KAYDETME & GÜNCELLEME (Operatör / Editör / Admin)
     const handleSaveNewPoi = async (e) => {
         e.preventDefault();
         if (!newPoiForm.name.trim()) {
@@ -5566,31 +6921,72 @@ function App() {
         }
 
         try {
-            await adminApi.createPoi({
-                name: newPoiForm.name.trim(),
-                description: newPoiForm.description?.trim(),
-                categoryId: parseInt(newPoiForm.categoryId, 10),
-                workingHours: newPoiForm.workingHours?.trim(),
-                wkt: newPoiForm.wkt
-            }, token);
+            const serializedImage = serializePoiImages(newPoiForm.images);
 
-            if (draftFeatureRef.current && drawingsSourceRef.current) {
-                try { drawingsSourceRef.current.removeFeature(draftFeatureRef.current); } catch (e) {}
-                draftFeatureRef.current = null;
-            }
-            setDraftPoiData(null);
-            setDrawType('None');
+            if (editingPoiModalData) {
+                // POI DÜZENLEME
+                await adminApi.updatePoi(editingPoiModalData.id, {
+                    name: newPoiForm.name.trim(),
+                    description: newPoiForm.description?.trim(),
+                    categoryId: parseInt(newPoiForm.categoryId, 10),
+                    workingHours: newPoiForm.workingHours?.trim(),
+                    imageUrl: serializedImage,
+                    wkt: editingPoiModalData.wkt || newPoiForm.wkt,
+                    isActive: editingPoiModalData.isActive !== false
+                }, token);
 
-            if (toastRef.current) {
-                toastRef.current.show({
-                    severity: 'success',
-                    summary: 'Başarılı',
-                    detail: `"${newPoiForm.name}" adlı POI haritaya başarıyla eklendi!`,
-                    life: 3500
-                });
+                if (toastRef.current) {
+                    toastRef.current.show({
+                        severity: 'success',
+                        summary: 'Başarılı',
+                        detail: `"${newPoiForm.name}" adlı POI başarıyla güncellendi!`,
+                        life: 3500
+                    });
+                }
+
+                // Seçili POI info panelini de anında yeni fotoğraflarla güncelle
+                setSelectedPoiInfo(prev => (prev && prev.id === editingPoiModalData.id ? {
+                    ...prev,
+                    name: newPoiForm.name.trim(),
+                    description: newPoiForm.description?.trim(),
+                    categoryId: parseInt(newPoiForm.categoryId, 10),
+                    categoryName: activeCategoryObject?.name || prev.categoryName,
+                    parentCategoryName: activeCategoryObject?.parentName || prev.parentCategoryName,
+                    categoryColor: activeCategoryObject?.color || prev.categoryColor,
+                    categoryIcon: activeCategoryObject?.icon || prev.categoryIcon,
+                    workingHours: newPoiForm.workingHours?.trim(),
+                    imageUrl: serializedImage
+                } : prev));
+            } else {
+                // YENİ POI OLUŞTURMA
+                await adminApi.createPoi({
+                    name: newPoiForm.name.trim(),
+                    description: newPoiForm.description?.trim(),
+                    categoryId: parseInt(newPoiForm.categoryId, 10),
+                    workingHours: newPoiForm.workingHours?.trim(),
+                    imageUrl: serializedImage,
+                    wkt: newPoiForm.wkt
+                }, token);
+
+                if (draftFeatureRef.current && drawingsSourceRef.current) {
+                    try { drawingsSourceRef.current.removeFeature(draftFeatureRef.current); } catch (e) {}
+                    draftFeatureRef.current = null;
+                }
+                setDraftPoiData(null);
+                setDrawType('None');
+
+                if (toastRef.current) {
+                    toastRef.current.show({
+                        severity: 'success',
+                        summary: 'Başarılı',
+                        detail: `"${newPoiForm.name}" adlı POI haritaya başarıyla eklendi!`,
+                        life: 3500
+                    });
+                }
             }
 
             setShowCreatePoiModal(false);
+            setEditingPoiModalData(null);
             fetchPois();
         } catch (err) {
             if (toastRef.current) {
@@ -7149,6 +8545,7 @@ function App() {
                                 </button>
                                 {poiCategories.filter(c => !c.parentId).map(cat => {
                                     const count = pois.filter(p => p.categoryId === cat.id).length;
+                                    const catLocalizedName = getLocalizedPoiCategoryLabel(cat.name, lang);
                                     return (
                                         <button
                                             key={cat.id}
@@ -7160,7 +8557,7 @@ function App() {
                                             }}
                                         >
                                             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: cat.color || '#3b82f6', display: 'inline-block', marginRight: '4px' }} />
-                                            {cat.name} ({count})
+                                            {catLocalizedName} ({count})
                                         </button>
                                     );
                                 })}
@@ -7267,13 +8664,13 @@ function App() {
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                 <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
                             </svg>
-                            Harita Filtreleme
+                            {t.mapFilterTitle || (isTr ? 'Harita Filtreleme' : 'Map Filtering')}
                         </h4>
                         <button
                             type="button"
                             onClick={() => setShowFilterPanel(false)}
                             style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                            title="Kapat"
+                            title={t.closeBtn || 'Kapat'}
                         >
                             <CloseIcon size={15} />
                         </button>
@@ -7282,14 +8679,14 @@ function App() {
                     {/* 1. ŞEKİL TÜRÜ FİLTRESİ */}
                     <div>
                         <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
-                            Şekil Türüne Göre
+                            {t.filterByGeometryType || (isTr ? 'Şekil Türüne Göre' : 'By Feature Type')}
                         </label>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
                             {[
-                                { id: 'ALL', label: 'Tümü' },
-                                { id: 'Point', label: 'Nokta' },
-                                { id: 'Line', label: 'Çizgi' },
-                                { id: 'Polygon', label: 'Poligon' }
+                                { id: 'ALL', label: t.allPois || (isTr ? 'Tümü' : 'All') },
+                                { id: 'Point', label: t.toolPointLabel || (isTr ? 'Nokta' : 'Point') },
+                                { id: 'Line', label: t.toolLineLabel || (isTr ? 'Çizgi' : 'Line') },
+                                { id: 'Polygon', label: t.toolPolygonLabel || (isTr ? 'Poligon' : 'Polygon') }
                             ].map(item => (
                                 <button
                                     key={item.id}
@@ -7315,7 +8712,7 @@ function App() {
                     {/* 2. EDİTÖR / KULLANICI FİLTRESİ */}
                     <div>
                         <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
-                            Editöre / Kullanıcıya Göre
+                            {t.filterByEditor || (isTr ? 'Editöre / Kullanıcıya Göre' : 'By Editor / User')}
                         </label>
                         <select
                             value={selectedEditorFilter}
@@ -7331,8 +8728,8 @@ function App() {
                                 outline: 'none'
                             }}
                         >
-                            <option value="ALL">Tüm Editörler / Kullanıcılar</option>
-                            {Array.from(new Set(savedDrawings.map(d => d.insertedUsername || (d.insertedUserId === 1 ? 'asdf.admin' : `Kullanıcı #${d.insertedUserId}`))))
+                            <option value="ALL">{t.allEditorsUsers || (isTr ? 'Tüm Editörler / Kullanıcılar' : 'All Editors / Users')}</option>
+                            {Array.from(new Set(savedDrawings.map(d => d.insertedUsername || (d.insertedUserId === 1 ? 'asdf.admin' : `${isTr ? 'Kullanıcı' : 'User'} #${d.insertedUserId}`))))
                                 .filter(Boolean)
                                 .map(name => (
                                     <option key={name} value={name}>{name}</option>
@@ -7360,7 +8757,7 @@ function App() {
                                 marginTop: '4px'
                             }}
                         >
-                            Filtreleri Temizle
+                            {t.clearFiltersBtn || (isTr ? 'Filtreleri Temizle' : 'Clear Filters')}
                         </button>
                     )}
                 </div>
@@ -7369,7 +8766,7 @@ function App() {
             {/* HARİTA ÜZERİNDEKİ SAĞ ARAÇ ÇUBUĞU (AMAÇLARINA GÖRE GRUPLANDIRILMIŞ) */}
             <div className="map-draw-toolbar-floating">
                 {/* 1. GRUP: KATMAN & FİLTRELEME ARAÇLARI */}
-                <div className="toolbar-group" title="Katman ve Filtreleme">
+                <div className="toolbar-group" title={isTr ? "Katman ve Filtreleme" : "Layer and Filtering"}>
                     {/* HARİTA KATMANLARI VE GÖRÜNÜRLÜK SEÇİCİ */}
                     <MapLayerSwitcher
                         selectedLayerId={selectedBaseLayer}
@@ -7382,6 +8779,8 @@ function App() {
                         onChangeHeatmapFilter={setHeatmapTypeFilter}
                         heatmapFeatureCount={heatmapSourceRef.current ? heatmapSourceRef.current.getFeatures().length : 0}
                         isOpen={showLayerMenu}
+                        poiCategories={poiCategories}
+                        lang={lang}
                         onToggleOpen={(val) => {
                             setShowLayerMenu(val);
                             if (val) setShowFilterPanel(false);
@@ -7698,28 +9097,54 @@ function App() {
                                                                     </button>
                                                                 </>
                                                             ) : (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => handleStartSimulation(r.id, e)}
-                                                                    disabled={simLoadingId === r.id || isSimLoading}
-                                                                    title="Canlı araç simülasyonu başlat"
-                                                                    style={{
-                                                                        background: 'rgba(16, 185, 129, 0.15)',
-                                                                        border: '1px solid #10b981',
-                                                                        color: '#10b981',
-                                                                        padding: '3px 6px',
-                                                                        cursor: 'pointer',
-                                                                        borderRadius: '4px',
-                                                                        display: 'inline-flex',
-                                                                        alignItems: 'center',
-                                                                        gap: '3px',
-                                                                        fontSize: '10px',
-                                                                        fontWeight: 700
-                                                                    }}
-                                                                >
-                                                                    <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                                                                    <span>Simülasyonu Başlat</span>
-                                                                </button>
+                                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                                    <select
+                                                                        value={simSpeedMap[r.id] || 1}
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        onChange={(e) => {
+                                                                            const val = parseFloat(e.target.value);
+                                                                            setSimSpeedMap(prev => ({ ...prev, [r.id]: val }));
+                                                                        }}
+                                                                        title="Simülasyon Hızı"
+                                                                        style={{
+                                                                            padding: '2px 4px',
+                                                                            borderRadius: '4px',
+                                                                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                                                                            backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+                                                                            color: isDarkMode ? '#94a3b8' : '#64748b',
+                                                                            fontSize: '10px',
+                                                                            fontWeight: 700,
+                                                                            cursor: 'pointer'
+                                                                        }}
+                                                                    >
+                                                                        <option value="1">1x</option>
+                                                                        <option value="1.5">1.5x</option>
+                                                                        <option value="2">2x</option>
+                                                                        <option value="2.5">2.5x</option>
+                                                                    </select>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => handleStartSimulation(r.id, e)}
+                                                                        disabled={simLoadingId === r.id || isSimLoading}
+                                                                        title="Canlı araç simülasyonu başlat"
+                                                                        style={{
+                                                                            background: 'rgba(16, 185, 129, 0.15)',
+                                                                            border: '1px solid #10b981',
+                                                                            color: '#10b981',
+                                                                            padding: '3px 6px',
+                                                                            cursor: 'pointer',
+                                                                            borderRadius: '4px',
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            gap: '3px',
+                                                                            fontSize: '10px',
+                                                                            fontWeight: 700
+                                                                        }}
+                                                                    >
+                                                                        <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                                                        <span>Simülasyonu Başlat</span>
+                                                                    </button>
+                                                                </div>
                                                             )}
                                                             <input
                                                                 type="checkbox"
@@ -7911,17 +9336,17 @@ function App() {
                                     if (drawType === 'Stop') handleCancelDraw();
                                     else {
                                         setDrawType('Stop');
-                                        setInfoMessage('Durak eklemek istediğiniz konuma harita üzerinde tıklayınız.');
+                                        setInfoMessage(t.stopToastPickLocation || (isTr ? 'Durak eklemek istediğiniz konuma harita üzerinde tıklayınız.' : 'Click on the map to select the stop location.'));
                                         toastRef.current?.show({
                                             severity: 'info',
-                                            summary: 'Durak Ekleme Modu Aktif',
-                                            detail: 'Haritada durağın bulunacağı noktaya tıklayınız.',
+                                            summary: isTr ? 'Durak Ekleme Modu Aktif' : 'Add Stop Mode Active',
+                                            detail: t.stopToastPickLocation || (isTr ? 'Haritada durağın bulunacağı noktaya tıklayınız.' : 'Click on the map where you want to add the stop.'),
                                             life: 3000
                                         });
                                     }
                                 }}
-                                title="Haritada Durak Ekle (Point)"
-                                data-tooltip="Durak Ekle"
+                                title={isTr ? "Haritada Durak Ekle (Point)" : "Add Transit Stop (Point)"}
+                                data-tooltip={isTr ? "Durak Ekle" : "Add Stop"}
                                 style={{
                                     backgroundColor: drawType === 'Stop' ? '#dc2626' : undefined,
                                     color: drawType === 'Stop' ? '#ffffff' : '#ef4444',
@@ -7941,7 +9366,7 @@ function App() {
                 {canCreateDrawingsAndPoi && (
                     <>
                         <div className="map-draw-toolbar-divider" />
-                        <div className="toolbar-group" title="Çizim ve İlgi Noktası (POI) Araçları">
+                        <div className="toolbar-group" title={isTr ? "Çizim ve İlgi Noktası (POI) Araçları" : "Drawing & POI Tools"}>
                             {/* POI NOKTASI EKLEME ARACI */}
                             <button
                                 className={`map-tool-icon-btn poi-tool-btn ${drawType === 'Poi' ? 'active' : ''}`}
@@ -7949,11 +9374,18 @@ function App() {
                                     if (drawType === 'Poi') handleCancelDraw();
                                     else {
                                         setDrawType('Poi');
-                                        setInfoMessage('POI eklemek istediğiniz konuma harita üzerinde tıklayınız.');
+                                        const poiMsg = t.poiToastPickLocation || (isTr ? 'POI eklemek istediğiniz konuma harita üzerinde tıklayınız.' : 'Click on the map where you want to add the POI.');
+                                        setInfoMessage(poiMsg);
+                                        toastRef.current?.show({
+                                            severity: 'success',
+                                            summary: isTr ? 'Başarılı' : 'Success',
+                                            detail: poiMsg,
+                                            life: 3000
+                                        });
                                     }
                                 }}
-                                title="POI Noktası Ekle (Point)"
-                                data-tooltip="POI Noktası Ekle"
+                                title={isTr ? "POI Noktası Ekle (Point)" : "Add POI (Point/Polygon)"}
+                                data-tooltip={isTr ? "POI Ekle" : "Add POI"}
                                 style={{ boxShadow: 'none' }}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -8027,8 +9459,8 @@ function App() {
                     <button
                         className={`map-tool-icon-btn location-analysis-tool-btn ${showLocationAnalysisModal || locationAnalysisResult ? 'active' : ''}`}
                         onClick={handleOpenLocationAnalysisModal}
-                        title="Çok Kriterli Konum Analizi (Ağırlıklı Isı Haritası)"
-                        data-tooltip="Konum Analizi"
+                        title={t.locationAnalysisBtnTooltip || (isTr ? "Çok Kriterli Konum Analizi (Ağırlıklı Isı Haritası)" : "Multi-Criteria Location Analysis (Weighted Heatmap)")}
+                        data-tooltip={t.locationAnalysisTitle || (isTr ? "Konum Analizi" : "Location Analysis")}
                         style={{
                             background: (showLocationAnalysisModal || locationAnalysisResult) ? '#2563eb' : undefined,
                             color: (showLocationAnalysisModal || locationAnalysisResult) ? '#ffffff' : undefined,
@@ -8094,7 +9526,7 @@ function App() {
                             <line x1="2" y1="12" x2="22" y2="12" />
                             <line x1="12" y1="2" x2="12" y2="22" />
                         </svg>
-                        <span>{editingPoiState.isPolygon ? 'POLİGON DÜZENLEME' : 'KONUM TAŞIMA'}</span>
+                        <span>{editingPoiState.isPolygon ? (isTr ? 'POLİGON DÜZENLEME' : 'POLYGON EDITING') : (isTr ? 'KONUM TAŞIMA' : 'REPOSITION')}</span>
                     </span>
 
                     {/* POI Adı ve Yönerge */}
@@ -8102,8 +9534,8 @@ function App() {
                         <strong style={{ fontSize: '13px', color: '#f8fafc' }}>{editingPoiState.poi.name}</strong>
                         <span style={{ fontSize: '11px', color: '#94a3b8' }}>
                             {editingPoiState.isPolygon
-                                ? 'Sınırları köşelerden, konumu gövdeden sürükleyin'
-                                : 'İşaretçiyi haritada yeni yerine sürükleyin'}
+                                ? (isTr ? 'Sınırları ve köşeleri sürükleyip bükerek şeklini düzenleyin' : 'Drag or bend vertices to adjust boundaries')
+                                : (isTr ? 'İşaretçiyi haritada yeni yerine sürükleyin' : 'Drag pin to its new position on map')}
                         </span>
                     </div>
 
@@ -8133,7 +9565,7 @@ function App() {
                                 <polyline points="17 21 17 13 7 13 7 21"></polyline>
                                 <polyline points="7 3 7 8 15 8"></polyline>
                             </svg>
-                            <span>{isSavingPoiGeom ? 'Kaydediliyor...' : 'Kaydet'}</span>
+                            <span>{isSavingPoiGeom ? (isTr ? 'Kaydediliyor...' : 'Saving...') : (isTr ? 'Kaydet' : 'Save')}</span>
                         </button>
 
                         <button
@@ -8151,7 +9583,7 @@ function App() {
                                 boxShadow: 'none'
                             }}
                         >
-                            Vazgeç
+                            {isTr ? 'Vazgeç' : 'Cancel'}
                         </button>
                     </div>
                 </div>
@@ -8216,7 +9648,7 @@ function App() {
                                 <polygon points="12 2 22 8.5 18 21 6 21 2 8.5" />
                             </svg>
                         )}
-                        {drawType === 'Point' ? 'NOKTA ÇİZİMİ' : drawType === 'LineString' ? 'ÇİZGİ ÇİZİMİ' : 'POLİGON ÇİZİMİ'}
+                        {drawType === 'Point' ? (t.pointDrawingBanner || (isTr ? 'NOKTA ÇİZİMİ' : 'POINT DRAWING')) : drawType === 'LineString' ? (t.lineDrawingBanner || (isTr ? 'ÇİZGİ ÇİZİMİ' : 'LINE DRAWING')) : (t.polygonDrawingBanner || (isTr ? 'POLİGON ÇİZİMİ' : 'POLYGON DRAWING'))}
                     </span>
 
                     {/* İsim Girişi */}
@@ -8235,7 +9667,7 @@ function App() {
                         }}
                         value={drawingName}
                         onChange={(e) => setDrawingName(e.target.value)}
-                        placeholder={t.drawingNamePlaceholder || "Çizim Adı"}
+                        placeholder={t.drawingNamePlaceholder || (isTr ? "Çizim Adı" : "Drawing Name")}
                     />
 
                     {/* Eski Renk Seçimi Tasarımı (Palet Butonu + Renk Noktaları + Hex Gösterge Rozeti) */}
@@ -8428,11 +9860,11 @@ function App() {
                             <circle cx="11" cy="11" r="8" />
                             <line x1="21" y1="21" x2="16.65" y2="16.65" />
                         </svg>
-                        KESİŞİM KONTROLÜ
+                        {t.intersectionCheckBadge || (isTr ? 'KESİŞİM KONTROLÜ' : 'INTERSECTION CHECK')}
                     </span>
 
                     <span style={{ fontSize: '13px', color: '#cbd5e1', fontWeight: 500 }}>
-                        {isAnalyzing ? (t.intersectionCheckAnalyzing || 'Kesişim analizi yapılıyor...') : (t.intersectionCheckHint || 'Analiz yapılacak alanı haritada çizin (bitirmek için çift tıklayın).')}
+                        {isAnalyzing ? (t.intersectionCheckAnalyzing || (isTr ? 'Kesişim analizi yapılıyor...' : 'Analyzing intersection...')) : (t.intersectionCheckHint || (isTr ? 'Analiz yapılacak alanı haritada çizin (bitirmek için çift tıklayın).' : 'Draw the analysis area on the map (double click to finish).'))}
                     </span>
 
                     <button
@@ -8451,7 +9883,7 @@ function App() {
                             transition: 'all 0.15s ease'
                         }}
                     >
-                        {t.btnCancelDraw || 'İptal'}
+                        {t.btnCancelDraw || (isTr ? 'İptal' : 'Cancel')}
                     </button>
                 </div>
             )}
@@ -8502,11 +9934,11 @@ function App() {
                             <circle cx="7.5" cy="14" r="1.2" fill="currentColor" />
                             <circle cx="16.5" cy="14" r="1.2" fill="currentColor" />
                         </svg>
-                        DURAK EKLE
+                        {t.addStopTitle || (isTr ? 'DURAK EKLE' : 'ADD STOP')}
                     </span>
 
                     <span style={{ fontSize: '13px', color: '#cbd5e1', fontWeight: 500 }}>
-                        Durağın konumunu haritada seçmek için bir noktaya tıklayın.
+                        {t.addStopHint || (isTr ? 'Durağın konumunu haritada seçmek için bir noktaya tıklayın.' : 'Click on the map to select the stop location.')}
                     </span>
 
                     <button
@@ -8525,7 +9957,7 @@ function App() {
                             transition: 'all 0.15s ease'
                         }}
                     >
-                        {t.btnCancelDraw || 'İptal'}
+                        {t.btnCancelDraw || (isTr ? 'İptal' : 'Cancel')}
                     </button>
                 </div>
             )}
@@ -8574,7 +10006,7 @@ function App() {
                             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                             <circle cx="12" cy="10" r="3" />
                         </svg>
-                        POI EKLE
+                        {t.addPoiTitle || (isTr ? 'POI EKLE' : 'ADD POI')}
                     </span>
 
                     {/* Nokta / Poligon Segment Butonları */}
@@ -8601,7 +10033,7 @@ function App() {
                                 transition: 'all 0.15s ease'
                             }}
                         >
-                            Nokta
+                            {t.poiPointMode || (isTr ? 'Nokta' : 'Point')}
                         </button>
                         <button
                             type="button"
@@ -8631,7 +10063,7 @@ function App() {
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                                 <polygon points="12 2 22 8.5 18 21 6 21 2 8.5" />
                             </svg>
-                            Poligon (Shift)
+                            {t.poiPolygonMode || (isTr ? 'Poligon (Shift)' : 'Polygon (Shift)')}
                         </button>
                     </div>
 
@@ -8640,16 +10072,16 @@ function App() {
                         {draftPoiData ? (
                             draftPoiData.isPolygon ? (
                                 <span style={{ color: '#4ade80', fontWeight: 600 }}>
-                                    Alan: {draftPoiData.area >= 1000000 ? (draftPoiData.area / 1000000).toFixed(2) + ' km²' : Math.round(draftPoiData.area).toLocaleString() + ' m²'}
+                                    {(t.areaLabel || (isTr ? 'Alan' : 'Area'))}: {draftPoiData.area >= 1000000 ? (draftPoiData.area / 1000000).toFixed(2) + ' km²' : Math.round(draftPoiData.area).toLocaleString() + ' m²'}
                                 </span>
                             ) : (
                                 <span style={{ color: '#38bdf8', fontWeight: 600 }}>
-                                    Nokta Seçildi
+                                    {t.pointSelected || (isTr ? 'Nokta Seçildi' : 'Point Selected')}
                                 </span>
                             )
                         ) : (
                             <span style={{ color: '#94a3b8' }}>
-                                {poiDrawGeometryType === 'Point' ? 'Haritada nokta seçin' : 'Köşeleri tıklayın'}
+                                {poiDrawGeometryType === 'Point' ? (t.clickMapForPoiPoint || (isTr ? 'Haritada nokta seçin' : 'Select point on map')) : (t.clickMapForPoiPolygon || (isTr ? 'Köşeleri tıklayın' : 'Click vertices on map'))}
                             </span>
                         )}
                     </span>
@@ -8674,14 +10106,14 @@ function App() {
                                 cursor: draftPoiData ? 'pointer' : 'not-allowed',
                                 transition: 'all 0.15s ease'
                             }}
-                            title={draftPoiData ? 'POI Bilgi Giriş Ekranını Aç' : 'Lütfen önce haritada bir nokta veya poligon çizin'}
+                            title={draftPoiData ? (t.saveDraftPoiTooltip || (isTr ? 'POI Bilgi Giriş Ekranını Aç' : 'Open POI Details Modal')) : (t.saveDraftPoiDisabledTooltip || (isTr ? 'Lütfen önce haritada bir nokta veya poligon çizin' : 'Please first draw a point or polygon on the map'))}
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
                                 <polyline points="17 21 17 13 7 13 7 21" />
                                 <polyline points="7 3 7 8 15 8" />
                             </svg>
-                            <span>Kaydet</span>
+                            <span>{t.btnSaveToDb || (isTr ? 'Kaydet' : 'Save')}</span>
                         </button>
 
                         {draftPoiData && (
@@ -8703,9 +10135,9 @@ function App() {
                                     border: '1px solid rgba(255,255,255,0.15)',
                                     cursor: 'pointer'
                                 }}
-                                title="Çizimi sıfırla ve yeniden çiz"
+                                title={isTr ? "Çizimi sıfırla ve yeniden çiz" : "Reset drawing and redraw"}
                             >
-                                Yeniden Çiz
+                                {t.redrawBtn || (isTr ? 'Yeniden Çiz' : 'Redraw')}
                             </button>
                         )}
 
@@ -8730,7 +10162,7 @@ function App() {
                                 cursor: 'pointer'
                             }}
                         >
-                            {t.btnCancelDraw || 'İptal'}
+                            {t.btnCancelDraw || (isTr ? 'İptal' : 'Cancel')}
                         </button>
                     </div>
                 </div>
@@ -9177,9 +10609,9 @@ function App() {
                 </div>
             )}
 
-            {/* OPERATÖR POI EKLEME MODALI */}
+            {/* OPERATÖR & EDİTÖR POI EKLEME / DÜZENLEME MODALI */}
             {showCreatePoiModal && (
-                <div className="modal-overlay" onClick={() => setShowCreatePoiModal(false)}>
+                <div className="modal-overlay" onClick={() => { setShowCreatePoiModal(false); setEditingPoiModalData(null); }}>
                     <div
                         className="poi-create-modal-container"
                         onClick={(e) => e.stopPropagation()}
@@ -9193,13 +10625,17 @@ function App() {
                                     </svg>
                                 </div>
                                 <div>
-                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Yeni POI (İlgi Noktası) Ekle</h3>
-                                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>Haritada işaretlenen konuma POI detaylarını giriniz.</span>
+                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
+                                        {editingPoiModalData ? 'POI Bilgilerini & Fotoğraflarını Düzenle' : 'Yeni POI (İlgi Noktası) Ekle'}
+                                    </h3>
+                                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                                        {editingPoiModalData ? 'POI detaylarını ve fotoğraflarını güncelleyiniz.' : 'Haritada işaretlenen konuma POI detaylarını giriniz.'}
+                                    </span>
                                 </div>
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setShowCreatePoiModal(false)}
+                                onClick={() => { setShowCreatePoiModal(false); setEditingPoiModalData(null); }}
                                 style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '6px', display: 'flex', alignItems: 'center' }}
                                 title="Kapat"
                             >
@@ -9371,6 +10807,196 @@ function App() {
                                 </div>
                             </div>
 
+                            {/* POI ÇOKLU FOTOĞRAF / GÖRSEL YÖNETİMİ */}
+                            <div className="poi-modal-form-group">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                    <label className="poi-modal-form-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                        POI Fotoğrafları (Birden Fazla Eklenebilir)
+                                        {newPoiForm.images.length > 0 && (
+                                            <span style={{ fontSize: '11px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}>
+                                                {newPoiForm.images.length} Fotoğraf
+                                            </span>
+                                        )}
+                                    </label>
+                                    {newPoiForm.images.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setNewPoiForm(prev => ({ ...prev, images: [] }))}
+                                            style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                        >
+                                            Tümünü Temizle
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* URL Ekle & Dosya Seç Butonları */}
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <input
+                                        type="text"
+                                        className="poi-modal-input"
+                                        placeholder="Fotoğraf URL girip 'Ekle'ye basın (https://...)"
+                                        value={newPoiForm.customImageUrl || ''}
+                                        onChange={(e) => setNewPoiForm({ ...newPoiForm, customImageUrl: e.target.value })}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                if (newPoiForm.customImageUrl?.trim()) {
+                                                    const url = newPoiForm.customImageUrl.trim();
+                                                    setNewPoiForm(prev => ({
+                                                        ...prev,
+                                                        images: [...prev.images, url],
+                                                        customImageUrl: ''
+                                                    }));
+                                                }
+                                            }
+                                        }}
+                                        style={{ flex: 1 }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (newPoiForm.customImageUrl?.trim()) {
+                                                const url = newPoiForm.customImageUrl.trim();
+                                                setNewPoiForm(prev => ({
+                                                    ...prev,
+                                                    images: [...prev.images, url],
+                                                    customImageUrl: ''
+                                                }));
+                                            }
+                                        }}
+                                        disabled={!newPoiForm.customImageUrl?.trim()}
+                                        style={{
+                                            padding: '8px 12px',
+                                            borderRadius: '8px',
+                                            backgroundColor: isDarkMode ? '#1e293b' : '#e2e8f0',
+                                            border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                                            color: isDarkMode ? '#ffffff' : '#0f172a',
+                                            fontSize: '12px',
+                                            fontWeight: 600,
+                                            cursor: newPoiForm.customImageUrl?.trim() ? 'pointer' : 'not-allowed',
+                                            opacity: newPoiForm.customImageUrl?.trim() ? 1 : 0.6
+                                        }}
+                                    >
+                                        URL Ekle
+                                    </button>
+                                    <label style={{
+                                        padding: '8px 12px',
+                                        borderRadius: '8px',
+                                        backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff',
+                                        border: '1px solid #3b82f6',
+                                        color: '#3b82f6',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        whiteSpace: 'nowrap'
+                                    }}>
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                        {uploadingPoiImage ? 'Yükleniyor...' : 'Çoklu Dosya Seç'}
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            multiple
+                                            style={{ display: 'none' }}
+                                            disabled={uploadingPoiImage}
+                                            onChange={async (e) => {
+                                                const files = Array.from(e.target.files || []);
+                                                if (files.length === 0) return;
+                                                try {
+                                                    setUploadingPoiImage(true);
+                                                    const uploadPromises = files.map(file => adminApi.uploadImage(file, token).catch(() => null));
+                                                    const results = await Promise.all(uploadPromises);
+                                                    const successfulUrls = results.filter(r => r && (r.url || r.absoluteUrl)).map(r => r.url || r.absoluteUrl);
+
+                                                    if (successfulUrls.length > 0) {
+                                                        setNewPoiForm(prev => ({
+                                                            ...prev,
+                                                            images: [...prev.images, ...successfulUrls]
+                                                        }));
+                                                        if (toastRef.current) {
+                                                            toastRef.current.show({ severity: 'success', summary: 'Başarılı', detail: `${successfulUrls.length} fotoğraf yüklendi.`, life: 2500 });
+                                                        }
+                                                    }
+                                                } catch (err) {
+                                                    console.error('Fotoğraf yükleme hatası:', err);
+                                                } finally {
+                                                    setUploadingPoiImage(false);
+                                                    e.target.value = '';
+                                                }
+                                            }}
+                                        />
+                                    </label>
+                                </div>
+
+                                {/* Fotoğraf Küçük Önizleme Şeridi */}
+                                {newPoiForm.images.length > 0 && (
+                                    <div style={{
+                                        display: 'flex',
+                                        gap: '8px',
+                                        overflowX: 'auto',
+                                        padding: '8px 0 4px 0',
+                                        marginTop: '4px'
+                                    }}>
+                                        {newPoiForm.images.map((img, idx) => {
+                                            const src = img.startsWith('http://') || img.startsWith('https://') || img.startsWith('data:') || img.startsWith('blob:')
+                                                ? img
+                                                : (img.startsWith('/') ? `http://localhost:5041${img}` : `http://localhost:5041/${img}`);
+                                            return (
+                                                <div
+                                                    key={idx}
+                                                    style={{
+                                                        position: 'relative',
+                                                        width: '64px',
+                                                        height: '64px',
+                                                        borderRadius: '6px',
+                                                        overflow: 'hidden',
+                                                        flexShrink: 0,
+                                                        border: '1px solid #475569',
+                                                        backgroundColor: '#0f172a'
+                                                    }}
+                                                >
+                                                    <img
+                                                        src={src}
+                                                        alt={`Önizleme ${idx + 1}`}
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                        onError={(e) => { e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="%23334155"/><text x="50%" y="50%" fill="%2394a3b8" dominant-baseline="middle" text-anchor="middle" font-size="10">Resim Yok</text></svg>'; }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setNewPoiForm(prev => ({
+                                                            ...prev,
+                                                            images: prev.images.filter((_, i) => i !== idx)
+                                                        }))}
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: '2px',
+                                                            right: '2px',
+                                                            width: '18px',
+                                                            height: '18px',
+                                                            borderRadius: '50%',
+                                                            backgroundColor: 'rgba(239, 68, 68, 0.9)',
+                                                            border: 'none',
+                                                            color: '#ffffff',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            cursor: 'pointer',
+                                                            padding: 0
+                                                        }}
+                                                        title="Fotoğrafı Sil"
+                                                    >
+                                                        <CloseIcon size={11} />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
                             <div className="poi-modal-form-group">
                                 <label className="poi-modal-form-label">Açıklama / Detay</label>
                                 <textarea
@@ -9404,14 +11030,14 @@ function App() {
                             </div>
 
                             <div className="poi-modal-actions">
-                                <button type="button" className="poi-btn-cancel" onClick={() => setShowCreatePoiModal(false)}>
+                                <button type="button" className="poi-btn-cancel" onClick={() => { setShowCreatePoiModal(false); setEditingPoiModalData(null); }}>
                                     İptal
                                 </button>
                                 <button type="submit" className="poi-btn-save">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                         <polyline points="20 6 9 17 4 12" />
                                     </svg>
-                                    <span>Haritaya Kaydet</span>
+                                    <span>{editingPoiModalData ? 'Değişiklikleri Kaydet' : 'Haritaya Kaydet'}</span>
                                 </button>
                             </div>
                         </form>
@@ -9419,9 +11045,22 @@ function App() {
                 </div>
             )}
 
-            {/* SEÇİLİ POI BİLGİ PANELİ (INFO CARD / POPUP) */}
+            {/* SEÇİLİ POI BİLGİ PANELİ (INFO CARD / POPUP - KATMAN KARTI BANNER STİLİ) */}
             {selectedPoiInfo && (
                 <div className="poi-info-floating-card">
+                    {/* ÜST GÖRSEL BANNER (Katman Kartı Stili + Fotoğraf Geçişi + AI Analizi) */}
+                    <PoiHeaderBannerGallery
+                        poi={selectedPoiInfo}
+                        isDarkMode={isDarkMode}
+                        onOpenEditModal={() => handleStartEditPoi(selectedPoiInfo)}
+                        onOpenFullscreen={(url, idx) => {
+                            const allImages = resolveAllPoiImages(selectedPoiInfo);
+                            setLightboxImages(allImages.map(x => x.url || x));
+                            setLightboxIndex(idx || 0);
+                            setShowPoiLightbox(true);
+                        }}
+                    />
+
                     <div className="poi-card-header">
                         <div className="poi-card-title-group">
                             <div
@@ -9438,7 +11077,7 @@ function App() {
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                                 <h3 className="poi-card-title">{selectedPoiInfo.name}</h3>
-                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>POI Detayları</span>
+                                <span className="poi-card-subtitle">POI Detayları</span>
                             </div>
                         </div>
                         <button
@@ -9530,28 +11169,14 @@ function App() {
                         )}
                     </div>
 
-                    <div className="poi-card-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.08)', gap: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div className="poi-card-footer">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             {/* YOL TARİFİ BUTONU */}
                             <button
                                 type="button"
+                                className="poi-btn-directions"
                                 onClick={() => handleStartDirectionsToPoi(selectedPoiInfo)}
                                 title="Bu noktaya yol tarifi oluştur"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '7px 12px',
-                                    borderRadius: '7px',
-                                    backgroundColor: '#10b981',
-                                    color: '#ffffff',
-                                    border: 'none',
-                                    fontSize: '12px',
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    boxShadow: 'none',
-                                    transition: 'all 0.15s ease'
-                                }}
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                     <polygon points="3 11 22 2 13 21 11 13 3 11" />
@@ -9562,22 +11187,9 @@ function App() {
                             {/* FAVORİYE EKLE / ÇIKAR BUTONU */}
                             <button
                                 type="button"
+                                className={`poi-btn-fav ${favoritePoiIds.has(selectedPoiInfo.id) ? 'active' : 'inactive'}`}
                                 onClick={() => handleToggleFavoritePoi(selectedPoiInfo)}
                                 title={favoritePoiIds.has(selectedPoiInfo.id) ? 'Favorilerden Çıkar' : 'Favorilere Ekle'}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '5px',
-                                    padding: '7px 11px',
-                                    borderRadius: '7px',
-                                    backgroundColor: favoritePoiIds.has(selectedPoiInfo.id) ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255, 255, 255, 0.08)',
-                                    color: favoritePoiIds.has(selectedPoiInfo.id) ? '#f59e0b' : '#cbd5e1',
-                                    border: favoritePoiIds.has(selectedPoiInfo.id) ? '1px solid #f59e0b' : '1px solid rgba(255, 255, 255, 0.15)',
-                                    fontSize: '12px',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    transition: 'all 0.15s ease'
-                                }}
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill={favoritePoiIds.has(selectedPoiInfo.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -9586,26 +11198,41 @@ function App() {
                             </button>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             {(isAdmin || userRole === 'Admin' || userRole === 'Editor' || userRole === 'Editör' || selectedPoiInfo.userId === loggedInUserId) && (
                                 <button
                                     type="button"
-                                    onClick={() => startPoiEditing(selectedPoiInfo)}
-                                    title={selectedPoiInfo.wkt?.toUpperCase().includes('POLYGON') ? 'POI Poligon Sınırlarını Düzenle ve Taşı' : 'POI Konumunu Haritada Taşı'}
+                                    className="poi-btn-edit-action"
+                                    onClick={() => handleOpenEditPoiModal(selectedPoiInfo)}
+                                    title="POI Bilgilerini ve Fotoğraflarını Düzenle"
                                     style={{
-                                        display: 'flex',
+                                        display: 'inline-flex',
                                         alignItems: 'center',
                                         gap: '5px',
-                                        padding: '7px 11px',
+                                        padding: '6px 10px',
                                         borderRadius: '7px',
-                                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                                        color: '#38bdf8',
-                                        border: '1px solid rgba(59, 130, 246, 0.3)',
-                                        fontSize: '12px',
+                                        backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff',
+                                        border: '1px solid #3b82f6',
+                                        color: '#3b82f6',
+                                        fontSize: '11.5px',
                                         fontWeight: 600,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.15s ease'
+                                        cursor: 'pointer'
                                     }}
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                    </svg>
+                                    <span>Düzenle</span>
+                                </button>
+                            )}
+
+                            {(isAdmin || userRole === 'Admin' || userRole === 'Editor' || userRole === 'Editör' || selectedPoiInfo.userId === loggedInUserId) && (
+                                <button
+                                    type="button"
+                                    className="poi-btn-edit-action"
+                                    onClick={() => startPoiEditing(selectedPoiInfo)}
+                                    title={selectedPoiInfo.wkt?.toUpperCase().includes('POLYGON') ? 'POI Poligon Sınırlarını ve Köşelerini Düzenle' : 'POI Konumunu Haritada Taşı'}
                                 >
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                         <polyline points="5 9 2 12 5 15" />
@@ -9620,34 +11247,20 @@ function App() {
                             )}
 
                             {(isAdmin || userRole === 'Admin' || userRole === 'Editor' || userRole === 'Editör' || selectedPoiInfo.userId === loggedInUserId) && (
-                            <button
-                                type="button"
-                                className="poi-btn-delete-icon"
-                                onClick={() => handleDeletePoiFromMap(selectedPoiInfo.id, selectedPoiInfo.name)}
-                                title="POI'yi Sil"
-                                style={{
-                                    width: '32px',
-                                    height: '32px',
-                                    borderRadius: '8px',
-                                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                                    border: '1px solid rgba(239, 68, 68, 0.35)',
-                                    color: '#ef4444',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: 0,
-                                    transition: 'all 0.15s ease'
-                                }}
-                            >
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                    <line x1="10" y1="11" x2="10" y2="17"></line>
-                                    <line x1="14" y1="11" x2="14" y2="17"></line>
-                                </svg>
-                            </button>
-                        )}
+                                <button
+                                    type="button"
+                                    className="poi-btn-delete-icon"
+                                    onClick={() => handleDeletePoiFromMap(selectedPoiInfo.id, selectedPoiInfo.name)}
+                                    title="POI'yi Sil"
+                                >
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                                    </svg>
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -9662,22 +11275,36 @@ function App() {
                                 className="stop-card-badge-icon"
                                 style={{
                                     backgroundColor: selectedStopInfo.routeColor || '#3b82f6',
-                                    fontSize: '14px'
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
                                 }}
                             >
-                                {(() => {
-                                    const sc = (selectedStopInfo.stopClass || selectedStopInfo.routeClass || 'otobus').toLowerCase();
-                                    if (sc === 'gemi' || sc === 'liman') return '🚢';
-                                    if (sc === 'metro') return '🚇';
-                                    if (sc === 'tren') return '🚆';
-                                    if (sc === 'otobus') return '🚌';
-                                    return '🚗';
-                                })()}
+                                <RouteClassIcon classKey={(selectedStopInfo.stopClass || selectedStopInfo.routeClass || 'otobus').toLowerCase()} size={15} color="#ffffff" />
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <h3 className="stop-card-title">{selectedStopInfo.name}</h3>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    <h3 className="stop-card-title" style={{ margin: 0 }}>{selectedStopInfo.name}</h3>
+                                    {(selectedStopInfo.stopCode || selectedStopInfo.id) && (
+                                        <span
+                                            title="Durak Numarası"
+                                            style={{
+                                                fontFamily: 'monospace',
+                                                fontSize: '11px',
+                                                fontWeight: '700',
+                                                padding: '1px 6px',
+                                                borderRadius: '4px',
+                                                backgroundColor: 'rgba(2, 132, 199, 0.2)',
+                                                color: '#38bdf8',
+                                                border: '1px solid rgba(2, 132, 199, 0.4)'
+                                            }}
+                                        >
+                                            #{selectedStopInfo.stopCode || selectedStopInfo.id}
+                                        </span>
+                                    )}
+                                </div>
                                 <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                    {selectedStopInfo.routeName ? `Hat Durağı (${selectedStopInfo.routeName})` : 'Bağımsız Ulaşım Durağı / Noktası'}
+                                    {selectedStopInfo.routeName ? `Hat Durağı (${selectedStopInfo.routeName})` : (selectedStopInfo.routes && selectedStopInfo.routes.length > 0 ? selectedStopInfo.routes.map(r => r.name).join(', ') : 'Ulaşım Durağı')}
                                 </span>
                             </div>
                         </div>
@@ -9692,6 +11319,23 @@ function App() {
                     </div>
 
                     <div className="stop-card-body">
+                        {selectedStopInfo.imageUrl && (
+                            <div style={{ width: '100%', height: '130px', borderRadius: '8px', overflow: 'hidden', marginBottom: '10px', border: '1px solid rgba(255,255,255,0.1)', background: '#000000' }}>
+                                <img
+                                    src={selectedStopInfo.imageUrl.startsWith('http') ? selectedStopInfo.imageUrl : `http://localhost:5041${selectedStopInfo.imageUrl}`}
+                                    alt={selectedStopInfo.name}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                />
+                            </div>
+                        )}
+                        {/* Durak Numarası Satırı */}
+                        <div className="stop-detail-row">
+                            <span className="stop-detail-label">Durak Numarası:</span>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#38bdf8', fontSize: '12px' }}>
+                                #{selectedStopInfo.stopCode || selectedStopInfo.id}
+                            </span>
+                        </div>
                         {/* Ulaşım Sınıfı */}
                         {(() => {
                             const stopClass = (selectedStopInfo.stopClass || selectedStopInfo.routeClass || 'otobus').toLowerCase();
@@ -9740,33 +11384,141 @@ function App() {
                             );
                         })()}
 
-                        <div className="stop-detail-row">
-                            <span className="stop-detail-label">Bağlı Güzergah:</span>
-                            {selectedStopInfo.routeName ? (
-                                <span
-                                    className="stop-badge"
-                                    style={{
-                                        backgroundColor: selectedStopInfo.routeColor ? `${selectedStopInfo.routeColor}25` : 'rgba(59, 130, 246, 0.15)',
-                                        color: selectedStopInfo.routeColor || '#3b82f6',
-                                        border: `1px solid ${selectedStopInfo.routeColor || '#3b82f6'}60`
-                                    }}
-                                >
-                                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: selectedStopInfo.routeColor || '#3b82f6', display: 'inline-block', marginRight: '5px' }} />
-                                    {selectedStopInfo.routeName}
-                                </span>
-                            ) : (
-                                <span
-                                    className="stop-badge"
-                                    style={{
-                                        backgroundColor: 'rgba(100, 116, 139, 0.15)',
-                                        color: '#94a3b8',
-                                        border: '1px solid rgba(100, 116, 139, 0.3)'
-                                    }}
-                                >
-                                    Bağımsız Durak / POI
-                                </span>
-                            )}
+                        <div className="stop-detail-row" style={{ alignItems: 'flex-start' }}>
+                            <span className="stop-detail-label" style={{ marginTop: '3px' }}>{lang === 'tr' ? 'Geçen Hatlar:' : 'Passing Routes:'}</span>
+                            {(() => {
+                                const routeList = Array.isArray(selectedStopInfo.routes) && selectedStopInfo.routes.length > 0
+                                    ? selectedStopInfo.routes
+                                    : (selectedStopInfo.routeId ? [{ id: selectedStopInfo.routeId, name: selectedStopInfo.routeName || (lang === 'tr' ? 'Bağlı Hat' : 'Route'), color: selectedStopInfo.routeColor, routeClass: selectedStopInfo.routeClass }] : []);
+
+                                if (routeList.length === 0) {
+                                    return (
+                                        <span
+                                            className="stop-badge"
+                                            style={{
+                                                backgroundColor: 'rgba(100, 116, 139, 0.15)',
+                                                color: '#94a3b8',
+                                                border: '1px solid rgba(100, 116, 139, 0.3)'
+                                            }}
+                                        >
+                                            {lang === 'tr' ? 'Bağlı Hat Yok' : 'No Bound Route'}
+                                        </span>
+                                    );
+                                }
+
+                                return (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1 }}>
+                                        {routeList.map(r => {
+                                            const rColor = r.color || '#3b82f6';
+                                            const isCurrentSelected = selectedRouteInfo?.id === r.id;
+                                            return (
+                                                <button
+                                                    key={r.id}
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const targetRoute = routes.find(rt => rt.id === r.id) || r;
+                                                        setSelectedRouteInfo(targetRoute);
+
+                                                        // Hat geometrisine kamerayı yumuşakça odakla
+                                                        const lineFeat = routeSourceRef.current?.getFeatures()?.find(f => f.get('id') === r.id || f.get('routeData')?.id === r.id);
+                                                        if (lineFeat && mapRef.current) {
+                                                            try {
+                                                                const extent = lineFeat.getGeometry().getExtent();
+                                                                mapRef.current.getView().fit(extent, {
+                                                                    padding: [90, 90, 90, 90],
+                                                                    maxZoom: 16,
+                                                                    duration: 650
+                                                                });
+                                                            } catch (err) { }
+                                                        }
+
+                                                        toastRef.current?.show({
+                                                            severity: 'info',
+                                                            summary: r.name || (lang === 'tr' ? 'Güzergah Seçildi' : 'Route Selected'),
+                                                            detail: lang === 'tr' ? 'Hat güzergahı ve durakları haritada görüntülendi.' : 'Route trajectory displayed on map.',
+                                                            life: 2500
+                                                        });
+                                                    }}
+                                                    className="stop-route-interactive-btn"
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '5px',
+                                                        padding: '4px 10px',
+                                                        borderRadius: '8px',
+                                                        fontSize: '11px',
+                                                        fontWeight: 700,
+                                                        backgroundColor: isCurrentSelected ? `${rColor}` : `${rColor}22`,
+                                                        color: isCurrentSelected ? '#ffffff' : rColor,
+                                                        border: `1.5px solid ${isCurrentSelected ? rColor : `${rColor}66`}`,
+                                                        cursor: 'pointer',
+                                                        boxShadow: isCurrentSelected ? `0 2px 8px ${rColor}50` : 'none',
+                                                        transition: 'all 0.18s cubic-bezier(0.16, 1, 0.3, 1)'
+                                                    }}
+                                                    title={`${r.name} - ${lang === 'tr' ? 'Güzergahı ve araçları haritada göster' : 'Show route on map'}`}
+                                                >
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{ opacity: 0.9 }}>
+                                                        <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
+                                                    </svg>
+                                                    <span>{r.name}</span>
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.8 }}>
+                                                        <polyline points="9 18 15 12 9 6" />
+                                                    </svg>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })()}
                         </div>
+
+                        {/* Liman & Deniz Yetki Alanı Bilgileri (Küçük ve Sade Menü) */}
+                        {(() => {
+                            const sc = (selectedStopInfo.stopClass || selectedStopInfo.routeClass || '').toLowerCase();
+                            if (sc === 'gemi' || sc === 'liman' || selectedStopInfo.name?.toLowerCase().includes('liman') || selectedStopInfo.name?.toLowerCase().includes('iskele')) {
+                                const portInfo = getSeaportInfo(selectedStopInfo.name);
+                                if (portInfo) {
+                                    return (
+                                        <div style={{
+                                            margin: '8px 0',
+                                            padding: '8px 10px',
+                                            borderRadius: '8px',
+                                            backgroundColor: isDarkMode ? 'rgba(8, 145, 178, 0.12)' : '#ecfeff',
+                                            border: '1px solid rgba(8, 145, 178, 0.35)',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '4px'
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#0891b2', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M2 12c2.5-3 5-3 7.5 0s5 3 7.5 0 5-3 7.5 0M2 17c2.5-3 5-3 7.5 0s5 3 7.5 0 5-3 7.5 0" /></svg>
+                                                    Deniz Yetki Alanı
+                                                </span>
+                                                <span style={{ fontSize: '10.5px', fontFamily: 'monospace', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(8, 145, 178, 0.2)', color: '#0891b2' }}>
+                                                    {portInfo.maritimeZoneId}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
+                                                <span style={{ color: '#94a3b8' }}>Bölge / Havza:</span>
+                                                <span style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>{portInfo.region} ({portInfo.sea})</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
+                                                <span style={{ color: '#94a3b8' }}>Bağlı İl:</span>
+                                                <span style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>{portInfo.city}</span>
+                                            </div>
+                                            {portInfo.address && (
+                                                <div style={{ fontSize: '10.5px', color: isDarkMode ? '#94a3b8' : '#475569', marginTop: '2px', borderTop: '1px dashed rgba(8, 145, 178, 0.25)', paddingTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
+                                                    <span>{portInfo.address}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                }
+                            }
+                            return null;
+                        })()}
 
                         {selectedStopInfo.routeId && (
                             <div className="stop-detail-row">
@@ -9885,6 +11637,81 @@ function App() {
                                 </button>
                             </>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* SEÇİLİ İL / DENİZ ALANI SINIR BİLGİ KUTUCUĞU (YÜZÖLÇÜMÜ & ÇEVRE UZUNLUĞU) */}
+            {selectedBoundaryInfo && (
+                <div className="stop-info-floating-card" style={{ maxWidth: '320px', zIndex: 1050 }}>
+                    <div className="stop-card-header">
+                        <div className="stop-card-title-group">
+                            <div
+                                className="stop-card-badge-icon"
+                                style={{
+                                    backgroundColor: selectedBoundaryInfo.isMaritime ? '#0284c7' : '#2563eb',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}
+                            >
+                                {selectedBoundaryInfo.isMaritime ? (
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.2"><path d="M2 12c2.5-3 5-3 7.5 0s5 3 7.5 0 5-3 7.5 0M2 17c2.5-3 5-3 7.5 0s5 3 7.5 0 5-3 7.5 0" /></svg>
+                                ) : (
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.2"><path d="M3 21h18M5 21V10M19 21V10M9 21V10M15 21V10M12 2L2 7h20L12 2z" /></svg>
+                                )}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <h3 className="stop-card-title">{selectedBoundaryInfo.name}</h3>
+                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                                    {selectedBoundaryInfo.isMaritime ? 'Deniz Yetki Alanı' : 'İl İdari Sınırı'} {selectedBoundaryInfo.plate ? `(Kod: ${selectedBoundaryInfo.plate})` : ''}
+                                </span>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedBoundaryInfo(null)}
+                            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center' }}
+                            title="Kapat"
+                        >
+                            <CloseIcon size={14} />
+                        </button>
+                    </div>
+
+                    <div className="stop-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="stop-detail-row">
+                            <span className="stop-detail-label">Bölge / Havza:</span>
+                            <span className="stop-detail-value" style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>
+                                {selectedBoundaryInfo.region || 'Belirtilmemiş'}
+                            </span>
+                        </div>
+
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '8px',
+                            marginTop: '4px',
+                            padding: '8px',
+                            borderRadius: '8px',
+                            backgroundColor: isDarkMode ? 'rgba(0,0,0,0.35)' : '#f1f5f9',
+                            border: isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'
+                        }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Yüzölçümü</span>
+                                <strong style={{ fontSize: '12.5px', color: selectedBoundaryInfo.isMaritime ? '#38bdf8' : '#3b82f6' }}>
+                                    {selectedBoundaryInfo.formattedArea}
+                                </strong>
+                                {selectedBoundaryInfo.areaHa > 0 && (
+                                    <span style={{ fontSize: '9.5px', color: '#64748b' }}>({selectedBoundaryInfo.formattedAreaHa})</span>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Çevre / Kıyı</span>
+                                <strong style={{ fontSize: '12.5px', color: '#a78bfa' }}>
+                                    {selectedBoundaryInfo.formattedPerimeter}
+                                </strong>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -10065,19 +11892,77 @@ function App() {
 
                             <div className="stop-card-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
                                 {/* 1. SATIR: CANLI SİMÜLASYON & SIGNALR TAKİP AKSİYONLARI */}
-                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
-                                    {(() => {
-                                        const rId = Number(selectedRouteInfo.id ?? selectedRouteInfo.routeId);
-                                        const currentSim = activeSimulations[rId] || activeSimulations[String(rId)];
-                                        const isRunning = Boolean(currentSim?.isRunning);
-                                        const isPaused = Boolean(currentSim?.isPaused);
-                                        const isCurrentRouteLoading = simLoadingId === rId || simLoadingId === String(rId) || isSimLoading;
-                                        const isFollowingThisRoute = Boolean(followingRouteId && Number(followingRouteId) === rId);
+                                {(() => {
+                                    const rId = Number(selectedRouteInfo.id ?? selectedRouteInfo.routeId);
+                                    const currentSim = activeSimulations[rId] || activeSimulations[String(rId)];
+                                    const isRunning = Boolean(currentSim?.isRunning);
+                                    const isPaused = Boolean(currentSim?.isPaused);
+                                    const isCurrentRouteLoading = simLoadingId === rId || simLoadingId === String(rId) || isSimLoading;
+                                    const isFollowingThisRoute = Boolean(followingRouteId && Number(followingRouteId) === rId);
+                                    const currentSpeed = simSpeedMap[rId] || 1;
 
-                                        if (isRunning) {
-                                            return (
-                                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
-                                                    {/* DURAKLAT VEYA DEVAM ET BUTONU (ADMİN PANELİYLE BİREBİR AYNI) */}
+                                    return (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                                            {/* SİMÜLASYON CANLI HIZ SEÇİCİ BARI (ÇALIŞIRKEN VE DURURKEN ANINDA DEĞİŞTİRİLEBİLİR) */}
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                background: isDarkMode ? 'rgba(15, 23, 42, 0.7)' : '#f8fafc',
+                                                padding: '4px 8px',
+                                                borderRadius: '8px',
+                                                border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0'}`
+                                            }}>
+                                                <span style={{
+                                                    fontSize: '11px',
+                                                    fontWeight: 600,
+                                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '5px'
+                                                }}>
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                        <circle cx="12" cy="12" r="10" />
+                                                        <polyline points="12 6 12 12 16 14" />
+                                                    </svg>
+                                                    <span>{lang === 'tr' ? 'Simülasyon Hızı:' : 'Sim Speed:'}</span>
+                                                </span>
+
+                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                    {[1, 1.5, 2, 2.5, 3].map(spd => {
+                                                        const isSpdActive = currentSpeed === spd;
+                                                        return (
+                                                            <button
+                                                                key={spd}
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setSimSpeedMap(prev => ({ ...prev, [rId]: spd }));
+                                                                }}
+                                                                title={`${spd}x Hız`}
+                                                                style={{
+                                                                    padding: '3px 7px',
+                                                                    borderRadius: '5px',
+                                                                    fontSize: '11px',
+                                                                    fontWeight: isSpdActive ? 700 : 500,
+                                                                    cursor: 'pointer',
+                                                                    border: isSpdActive ? '1px solid #3b82f6' : (isDarkMode ? '1px solid rgba(255,255,255,0.06)' : '1px solid #cbd5e1'),
+                                                                    backgroundColor: isSpdActive ? '#2563eb' : (isDarkMode ? 'rgba(255,255,255,0.04)' : '#ffffff'),
+                                                                    color: isSpdActive ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#475569'),
+                                                                    transition: 'all 0.15s ease'
+                                                                }}
+                                                            >
+                                                                {spd}x
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            {/* SİMÜLASYON ÇALIŞMA BUTONLARI (3 EŞİT SÜTUN) */}
+                                            {isRunning ? (
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', width: '100%' }}>
+                                                    {/* DURAKLAT VEYA DEVAM ET BUTONU */}
                                                     {isPaused ? (
                                                         <button
                                                             type="button"
@@ -10085,24 +11970,23 @@ function App() {
                                                             disabled={isCurrentRouteLoading}
                                                             title="Duraklatılan simülasyona kaldığı yerden devam et"
                                                             style={{
-                                                                flex: 1,
-                                                                minWidth: '95px',
+                                                                height: '36px',
                                                                 background: 'rgba(16, 185, 129, 0.15)',
                                                                 border: '1px solid #10b981',
                                                                 color: '#10b981',
-                                                                padding: '6px 10px',
+                                                                padding: '0 8px',
                                                                 cursor: 'pointer',
-                                                                borderRadius: '6px',
+                                                                borderRadius: '8px',
                                                                 display: 'inline-flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                                 gap: '5px',
-                                                                fontSize: '11px',
+                                                                fontSize: '11.5px',
                                                                 fontWeight: 700,
                                                                 transition: 'all 0.15s ease'
                                                             }}
                                                         >
-                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                                                                 <polygon points="5 3 19 12 5 21 5 3" />
                                                             </svg>
                                                             <span>Devam Et</span>
@@ -10114,24 +11998,23 @@ function App() {
                                                             disabled={isCurrentRouteLoading}
                                                             title="Simülasyon hareketini anlık olarak duraklat"
                                                             style={{
-                                                                flex: 1,
-                                                                minWidth: '95px',
+                                                                height: '36px',
                                                                 background: 'rgba(245, 158, 11, 0.15)',
                                                                 border: '1px solid #f59e0b',
                                                                 color: '#f59e0b',
-                                                                padding: '6px 10px',
+                                                                padding: '0 8px',
                                                                 cursor: 'pointer',
-                                                                borderRadius: '6px',
+                                                                borderRadius: '8px',
                                                                 display: 'inline-flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                                 gap: '5px',
-                                                                fontSize: '11px',
+                                                                fontSize: '11.5px',
                                                                 fontWeight: 700,
                                                                 transition: 'all 0.15s ease'
                                                             }}
                                                         >
-                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                                                                 <rect x="6" y="4" width="4" height="16" rx="1" />
                                                                 <rect x="14" y="4" width="4" height="16" rx="1" />
                                                             </svg>
@@ -10139,61 +12022,59 @@ function App() {
                                                         </button>
                                                     )}
 
-                                                    {/* İPTAL ET / SİMÜLASYONU TAMAMEN KAPAT BUTONU (ADMİN PANELİYLE BİREBİR AYNI) */}
+                                                    {/* İPTAL ET / SİMÜLASYONU TAMAMEN KAPAT BUTONU */}
                                                     <button
                                                         type="button"
                                                         onClick={(e) => handleStopSimulation(rId, e)}
                                                         disabled={isCurrentRouteLoading}
                                                         title="Simülasyonu anında kapat ve aracı haritadan kaldır"
                                                         style={{
-                                                            flex: 1,
-                                                            minWidth: '90px',
+                                                            height: '36px',
                                                             background: 'rgba(239, 68, 68, 0.15)',
                                                             border: '1px solid #ef4444',
                                                             color: '#ef4444',
-                                                            padding: '6px 10px',
+                                                            padding: '0 8px',
                                                             cursor: 'pointer',
-                                                            borderRadius: '6px',
+                                                            borderRadius: '8px',
                                                             display: 'inline-flex',
                                                             alignItems: 'center',
                                                             justifyContent: 'center',
                                                             gap: '5px',
-                                                            fontSize: '11px',
+                                                            fontSize: '11.5px',
                                                             fontWeight: 700,
                                                             transition: 'all 0.15s ease'
                                                         }}
                                                     >
-                                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                                                             <rect x="4" y="4" width="16" height="16" rx="2" />
                                                         </svg>
                                                         <span>İptal Et</span>
                                                     </button>
 
-                                                    {/* TAKİP ET / TAKİBİ BIRAK */}
+                                                    {/* TAKİP ET / TAKİBİ BIRAK BUTONU */}
                                                     {isFollowingThisRoute ? (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleUnfollowVehicle()}
                                                             title="Kamera otomatik takibinden çık"
                                                             style={{
-                                                                flex: 1,
-                                                                minWidth: '100px',
+                                                                height: '36px',
                                                                 background: 'rgba(59, 130, 246, 0.2)',
                                                                 border: '1px solid #3b82f6',
                                                                 color: '#38bdf8',
-                                                                padding: '6px 10px',
+                                                                padding: '0 8px',
                                                                 cursor: 'pointer',
-                                                                borderRadius: '6px',
+                                                                borderRadius: '8px',
                                                                 display: 'inline-flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                                 gap: '5px',
-                                                                fontSize: '11px',
+                                                                fontSize: '11.5px',
                                                                 fontWeight: 700,
                                                                 transition: 'all 0.15s ease'
                                                             }}
                                                         >
-                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                                                                 <circle cx="12" cy="12" r="10" />
                                                                 <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
                                                             </svg>
@@ -10205,24 +12086,23 @@ function App() {
                                                             onClick={() => handleFollowVehicle(rId)}
                                                             title="Aracı harita üzerinde canlı takip et"
                                                             style={{
-                                                                flex: 1,
-                                                                minWidth: '95px',
+                                                                height: '36px',
                                                                 background: '#2563eb',
                                                                 border: '1px solid #1d4ed8',
                                                                 color: '#ffffff',
-                                                                padding: '6px 10px',
+                                                                padding: '0 8px',
                                                                 cursor: 'pointer',
-                                                                borderRadius: '6px',
+                                                                borderRadius: '8px',
                                                                 display: 'inline-flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                                 gap: '5px',
-                                                                fontSize: '11px',
+                                                                fontSize: '11.5px',
                                                                 fontWeight: 700,
                                                                 transition: 'all 0.15s ease'
                                                             }}
                                                         >
-                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                                                                 <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
                                                                 <circle cx="12" cy="13" r="4" />
                                                             </svg>
@@ -10230,163 +12110,68 @@ function App() {
                                                         </button>
                                                     )}
                                                 </div>
-                                            );
-                                        }
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => handleStartSimulation(rId, e)}
+                                                    disabled={isCurrentRouteLoading}
+                                                    title={lang === 'tr' ? "Güzergah üzerinde canlı araç simülasyonu başlat" : "Start live vehicle simulation along route"}
+                                                    style={{
+                                                        width: '100%',
+                                                        height: '36px',
+                                                        background: 'rgba(16, 185, 129, 0.15)',
+                                                        border: '1px solid #10b981',
+                                                        color: '#10b981',
+                                                        padding: '0 12px',
+                                                        cursor: 'pointer',
+                                                        borderRadius: '8px',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '6px',
+                                                        fontSize: '12px',
+                                                        fontWeight: 700,
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                >
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                                        <polygon points="5 3 19 12 5 21 5 3" />
+                                                    </svg>
+                                                    <span>{lang === 'tr' ? 'Simülasyonu Başlat' : 'Start Simulation'}</span>
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
 
-                                        // SİMÜLASYONU BAŞLAT BUTONU (ADMİN PANELİYLE BİREBİR AYNI)
-                                        return (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleStartSimulation(rId, e)}
-                                                disabled={isCurrentRouteLoading}
-                                                title="Güzergah üzerinde canlı araç simülasyonu başlat"
-                                                style={{
-                                                    width: '100%',
-                                                    background: 'rgba(16, 185, 129, 0.15)',
-                                                    border: '1px solid #10b981',
-                                                    color: '#10b981',
-                                                    padding: '6px 10px',
-                                                    cursor: 'pointer',
-                                                    borderRadius: '6px',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '5px',
-                                                    fontSize: '11px',
-                                                    fontWeight: 700,
-                                                    transition: 'all 0.15s ease'
-                                                }}
-                                            >
-                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                                                    <polygon points="5 3 19 12 5 21 5 3" />
-                                                </svg>
-                                                <span>Simülasyonu Başlat</span>
-                                            </button>
-                                        );
-                                    })()}
-                                </div>
-
-                                {/* 2. SATIR: ROTA YÖNETİM BUTONLARI (OSRM, ÖZEL BÜKÜM, GERİ AL, HATTI BÜK) */}
+                                {/* 2. SATIR: ROTA YÖNETİM BUTONLARI (HATTI BÜK, KUŞ UÇUŞU, OSRM, GERİ AL - EŞİTLENMİŞ 3 SÜTUN GRİD) */}
                                 {canManageTransport && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: selectedRouteInfo.customWkt && selectedRouteInfo.wkt !== selectedRouteInfo.customWkt ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr', gap: '8px', width: '100%' }}>
-                                        {/* OSRM ROTA BUTONU */}
-                                        <button
-                                            type="button"
-                                            className="stop-btn-manage"
-                                            onClick={() => handleGenerateOsrmRouteFromMap(selectedRouteInfo.id)}
-                                            disabled={isGeneratingOsrmOnMapId === selectedRouteInfo.id}
-                                            title="OSRM ile duraklar arası gerçek karayolu rotasını hesapla ve haritaya çiz"
-                                            style={{
-                                                backgroundColor: '#059669',
-                                                color: '#ffffff',
-                                                border: 'none',
-                                                borderRadius: '8px',
-                                                boxShadow: 'none',
-                                                fontSize: '12px',
-                                                fontWeight: 700,
-                                                padding: '8px 10px',
-                                                height: '36px',
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                gap: '6px',
-                                                cursor: 'pointer',
-                                                whiteSpace: 'nowrap'
-                                            }}
-                                        >
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                                <polygon points="3 11 22 2 13 21 11 13 3 11" />
-                                            </svg>
-                                            <span>{isGeneratingOsrmOnMapId === selectedRouteInfo.id ? '...' : 'OSRM'}</span>
-                                        </button>
-
-                                        {/* BÜKÜLMÜŞ ÖZEL HALİ GERİ YÜKLE (varsa) */}
-                                        {selectedRouteInfo.customWkt && selectedRouteInfo.wkt !== selectedRouteInfo.customWkt && (
-                                            <button
-                                                type="button"
-                                                className="stop-btn-manage"
-                                                onClick={() => handleSwitchGeometryModeFromMap(selectedRouteInfo.id, 'custom')}
-                                                disabled={isGeneratingOsrmOnMapId === selectedRouteInfo.id}
-                                                title="Daha önce haritada elle bükülmüş özel geometriye geri dön"
-                                                style={{
-                                                    backgroundColor: '#7c3aed',
-                                                    color: '#ffffff',
-                                                    border: 'none',
-                                                    borderRadius: '8px',
-                                                    boxShadow: 'none',
-                                                    fontSize: '12px',
-                                                    fontWeight: 700,
-                                                    padding: '8px 10px',
-                                                    height: '36px',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '6px',
-                                                    cursor: 'pointer',
-                                                    whiteSpace: 'nowrap'
-                                                }}
-                                            >
-                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                                    <path d="M3 12c3-4 6-4 9 0s6 4 9 0" />
-                                                </svg>
-                                                <span>Özel Büküm</span>
-                                            </button>
-                                        )}
-
-                                        {/* GERİ AL (UNDO) BUTONU */}
-                                        {selectedRouteInfo.previousWkt !== undefined && (
-                                            <button
-                                                type="button"
-                                                className="stop-btn-manage"
-                                                onClick={() => handleRevertGeometryFromMap(selectedRouteInfo.id)}
-                                                disabled={isGeneratingOsrmOnMapId === selectedRouteInfo.id}
-                                                title="Bir önceki geometri haline geri dön"
-                                                style={{
-                                                    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9',
-                                                    color: isDarkMode ? '#e2e8f0' : '#334155',
-                                                    border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
-                                                    borderRadius: '8px',
-                                                    boxShadow: 'none',
-                                                    padding: '8px 10px',
-                                                    height: '36px',
-                                                    fontSize: '12px',
-                                                    fontWeight: 700,
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '6px',
-                                                    cursor: 'pointer',
-                                                    whiteSpace: 'nowrap'
-                                                }}
-                                            >
-                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                                    <polyline points="1 4 1 10 7 10"></polyline>
-                                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-                                                </svg>
-                                                <span>Geri Al</span>
-                                            </button>
-                                        )}
-
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(3, 1fr)',
+                                        gap: '6px',
+                                        width: '100%'
+                                    }}>
                                         {/* HATTI BÜK BUTONU */}
                                         <button
                                             type="button"
                                             className="stop-btn-manage"
                                             onClick={() => handleStartModifyingRoute(selectedRouteInfo)}
-                                            title="Bu güzergahın harita üzerindeki çizgisini fare ile bükün ve şekillendirin"
+                                            title={lang === 'tr' ? "Bu güzergahın harita üzerindeki çizgisini fare ile bükün ve şekillendirin" : "Bend and customize the route line geometry on map"}
                                             style={{
-                                                backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
-                                                color: isDarkMode ? '#f8fafc' : '#0f172a',
-                                                border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                                                backgroundColor: '#2563eb',
+                                                color: '#ffffff',
+                                                border: 'none',
                                                 borderRadius: '8px',
-                                                boxShadow: 'none',
-                                                fontSize: '12px',
+                                                boxShadow: '0 2px 4px rgba(37,99,235,0.25)',
+                                                fontSize: '11.5px',
                                                 fontWeight: 700,
-                                                padding: '8px 10px',
+                                                padding: '0 8px',
                                                 height: '36px',
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
-                                                gap: '6px',
+                                                gap: '5px',
                                                 cursor: 'pointer',
                                                 whiteSpace: 'nowrap'
                                             }}
@@ -10395,8 +12180,134 @@ function App() {
                                                 <path d="M12 20h9"></path>
                                                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
                                             </svg>
-                                            <span>Hattı Bük</span>
+                                            <span>{t.btnBendRoute || 'Hattı Bük'}</span>
                                         </button>
+
+                                        {/* KUŞ UÇUŞU SIFIRLAMA BUTONU */}
+                                        <button
+                                            type="button"
+                                            className="stop-btn-manage"
+                                            onClick={() => handleSwitchGeometryModeFromMap(selectedRouteInfo.id, 'direct')}
+                                            disabled={isGeneratingOsrmOnMapId === selectedRouteInfo.id}
+                                            title={lang === 'tr' ? "Tüm bükümleri sıfırlayıp duraklar arası doğrudan düz çizgiye dönüştürür" : "Reset all bends to straight direct lines between stops"}
+                                            style={{
+                                                backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+                                                color: isDarkMode ? '#cbd5e1' : '#475569',
+                                                border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                                                borderRadius: '8px',
+                                                boxShadow: 'none',
+                                                padding: '0 8px',
+                                                height: '36px',
+                                                fontSize: '11.5px',
+                                                fontWeight: 600,
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '5px',
+                                                cursor: isGeneratingOsrmOnMapId === selectedRouteInfo.id ? 'not-allowed' : 'pointer',
+                                                whiteSpace: 'nowrap'
+                                            }}
+                                        >
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                                <line x1="5" y1="12" x2="19" y2="12"/><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="12" r="2.5"/>
+                                            </svg>
+                                            <span>{t.btnDirect || 'Kuş Uçuşu'}</span>
+                                        </button>
+
+                                        {/* SADECE OTOBÜS İÇİN OSRM ROTA BUTONU VEYA GERİ AL BUTONU */}
+                                        {selectedRouteInfo.previousWkt !== undefined ? (
+                                            <button
+                                                type="button"
+                                                className="stop-btn-manage"
+                                                onClick={() => handleRevertGeometryFromMap(selectedRouteInfo.id)}
+                                                disabled={isGeneratingOsrmOnMapId === selectedRouteInfo.id}
+                                                title={lang === 'tr' ? "Bir önceki geometri haline geri dön" : "Revert back to the previous geometry state"}
+                                                style={{
+                                                    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9',
+                                                    color: isDarkMode ? '#e2e8f0' : '#334155',
+                                                    border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                                                    borderRadius: '8px',
+                                                    boxShadow: 'none',
+                                                    padding: '0 8px',
+                                                    height: '36px',
+                                                    fontSize: '11.5px',
+                                                    fontWeight: 700,
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '5px',
+                                                    cursor: 'pointer',
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                            >
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                                    <polyline points="1 4 1 10 7 10"></polyline>
+                                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                </svg>
+                                                <span>{t.undo || 'Geri Al'}</span>
+                                            </button>
+                                        ) : (((selectedRouteInfo.routeClass || '').toLowerCase() === 'otobus') ? (
+                                            <button
+                                                type="button"
+                                                className="stop-btn-manage"
+                                                onClick={() => handleGenerateOsrmRouteFromMap(selectedRouteInfo.id)}
+                                                disabled={isGeneratingOsrmOnMapId === selectedRouteInfo.id}
+                                                title={lang === 'tr' ? "OSRM ile duraklar arası gerçek karayolu rotasını hesapla ve haritaya çiz" : "Calculate real highway road routing with OSRM and draw on map"}
+                                                style={{
+                                                    backgroundColor: '#059669',
+                                                    color: '#ffffff',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    boxShadow: 'none',
+                                                    fontSize: '11.5px',
+                                                    fontWeight: 700,
+                                                    padding: '0 8px',
+                                                    height: '36px',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '5px',
+                                                    cursor: isGeneratingOsrmOnMapId === selectedRouteInfo.id ? 'not-allowed' : 'pointer',
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                            >
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                                    <polygon points="3 11 22 2 13 21 11 13 3 11" />
+                                                </svg>
+                                                <span>{isGeneratingOsrmOnMapId === selectedRouteInfo.id ? '...' : (t.btnOsrmRoute || 'OSRM')}</span>
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                className="stop-btn-manage"
+                                                onClick={() => handleRevertGeometryFromMap(selectedRouteInfo.id)}
+                                                disabled={true}
+                                                style={{
+                                                    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : '#f8fafc',
+                                                    color: isDarkMode ? '#475569' : '#94a3b8',
+                                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : '#e2e8f0'}`,
+                                                    borderRadius: '8px',
+                                                    boxShadow: 'none',
+                                                    padding: '0 8px',
+                                                    height: '36px',
+                                                    fontSize: '11.5px',
+                                                    fontWeight: 600,
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '5px',
+                                                    cursor: 'not-allowed',
+                                                    opacity: 0.6,
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                            >
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                                    <polyline points="1 4 1 10 7 10"></polyline>
+                                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                </svg>
+                                                <span>{t.undo || 'Geri Al'}</span>
+                                            </button>
+                                        ))}
                                     </div>
                                 )}
                             </div>
@@ -10436,7 +12347,7 @@ function App() {
                                 </button>
                             </div>
 
-                            {/* GÜZERGAHIN YÜZDE KAÇININ TAMAMLANDIĞI BİLGİSİ VE İLERLEME ÇUBUĞU */}
+                            {/* GÜZERGAHIN YÜZDE KAÇININ TAMAMLANDIĞI BİLGİSİ VE İLERLEME ÇUBUĞU (DÜZ FLAT BAR) */}
                             <div className="vehicle-progress-section">
                                 <div className="vehicle-progress-header">
                                     <span className="vehicle-progress-label">Güzergah Tamamlanma Oranı</span>
@@ -10447,7 +12358,7 @@ function App() {
                                         className="vehicle-progress-fill"
                                         style={{
                                             width: `${Math.min(100, Math.max(0, selectedVehicleInfo.progressPercentage || 0))}%`,
-                                            background: `linear-gradient(90deg, #10b981 0%, ${selectedVehicleInfo.routeColor || '#3b82f6'} 100%)`
+                                            background: '#10b981'
                                         }}
                                     />
                                 </div>
@@ -10492,11 +12403,29 @@ function App() {
                                 </span>
                             </div>
 
-                            {/* AKSİYON BUTONLARI */}
-                            <div className="vehicle-card-actions">
+                            {/* AKSİYON BUTONLARI (DÜZ VE EŞİT FLAT BUTONLAR) */}
+                            <div className="vehicle-card-actions" style={{
+                                display: 'grid',
+                                gridTemplateColumns: followingRouteId === selectedVehicleInfo.routeId ? '1.2fr 1fr 1fr' : '2fr 1fr',
+                                gap: '8px',
+                                marginTop: '12px'
+                            }}>
                                 <button
                                     type="button"
-                                    className="vehicle-btn-focus"
+                                    style={{
+                                        height: '36px',
+                                        borderRadius: '6px',
+                                        background: '#2563eb',
+                                        border: '1px solid #1d4ed8',
+                                        color: '#ffffff',
+                                        fontSize: '11.5px',
+                                        fontWeight: 700,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px',
+                                        cursor: 'pointer'
+                                    }}
                                     onClick={() => {
                                         if (mapRef.current && selectedVehicleInfo.longitude && selectedVehicleInfo.latitude) {
                                             mapRef.current.getView().animate({
@@ -10512,27 +12441,286 @@ function App() {
                                         <circle cx="12" cy="12" r="10" />
                                         <circle cx="12" cy="12" r="3" />
                                     </svg>
-                                    <span>Kamerayı Odakla & Takip Et</span>
+                                    <span>{followingRouteId === selectedVehicleInfo.routeId ? (isTr ? 'Kamerayı Odakla' : 'Focus Camera') : (isTr ? 'Kamerayı Odakla & Takip Et' : 'Focus & Follow')}</span>
                                 </button>
 
                                 {followingRouteId === selectedVehicleInfo.routeId && (
                                     <button
                                         type="button"
-                                        className="vehicle-btn-unfollow"
+                                        style={{
+                                            height: '36px',
+                                            borderRadius: '6px',
+                                            background: '#ca8a04',
+                                            border: '1px solid #a16207',
+                                            color: '#ffffff',
+                                            fontSize: '11.5px',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}
                                         onClick={() => handleUnfollowVehicle()}
                                     >
-                                        Takibi Bırak
+                                        {isTr ? 'Takibi Bırak' : 'Unfollow'}
                                     </button>
                                 )}
 
                                 <button
                                     type="button"
-                                    className="vehicle-btn-close"
+                                    style={{
+                                        height: '36px',
+                                        borderRadius: '6px',
+                                        background: '#334155',
+                                        border: '1px solid #475569',
+                                        color: '#cbd5e1',
+                                        fontSize: '11.5px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
                                     onClick={() => setSelectedVehicleInfo(null)}
                                 >
-                                    Kapat
+                                    {isTr ? 'Kapat' : 'Close'}
                                 </button>
                             </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* POI TAM EKRAN FOTOĞRAF GALERİSİ & AI GÖRSEL İNCELEME MODALI */}
+            {showPoiLightbox && lightboxImages.length > 0 && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 99999,
+                        backgroundColor: 'rgba(3, 7, 18, 0.95)',
+                        backdropFilter: 'blur(20px)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        padding: '20px',
+                        animation: 'fadeIn 0.2s ease-out'
+                    }}
+                    onClick={() => setShowPoiLightbox(false)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') setShowPoiLightbox(false);
+                        if (e.key === 'ArrowLeft') setLightboxIndex(prev => (prev === 0 ? lightboxImages.length - 1 : prev - 1));
+                        if (e.key === 'ArrowRight') setLightboxIndex(prev => (prev === lightboxImages.length - 1 ? 0 : prev + 1));
+                    }}
+                    tabIndex={0}
+                >
+                    {/* Üst Bar */}
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            width: '100%',
+                            zIndex: 2
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '8px',
+                                backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                                color: '#38bdf8',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#f8fafc' }}>
+                                    {selectedPoiInfo?.name || 'POI Fotoğraf Galerisi'}
+                                </h3>
+                                <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
+                                    {selectedPoiInfo?.categoryName || 'İlgi Noktası'} • Fotoğraf {lightboxIndex + 1} / {lightboxImages.length}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <a
+                                href={lightboxImages[lightboxIndex]}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                    padding: '6px 12px',
+                                    borderRadius: '8px',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                    color: '#ffffff',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                                title="Orijinal Boyutta Aç"
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                <span>Orijinal</span>
+                            </a>
+
+                            <button
+                                type="button"
+                                onClick={() => setShowPoiLightbox(false)}
+                                style={{
+                                    width: '36px',
+                                    height: '36px',
+                                    borderRadius: '50%',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                                    color: '#ffffff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer'
+                                }}
+                                title="Kapat (ESC)"
+                            >
+                                <CloseIcon size={18} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Ana Resim & Navigasyon Alanı */}
+                    <div
+                        style={{
+                            position: 'relative',
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            margin: '16px 0',
+                            overflow: 'hidden'
+                        }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (lightboxImages.length > 1) {
+                                setLightboxIndex(prev => (prev + 1) % lightboxImages.length);
+                            }
+                        }}
+                    >
+                        <img
+                            src={lightboxImages[lightboxIndex]}
+                            alt={`Galeri Fotoğrafı ${lightboxIndex + 1}`}
+                            style={{
+                                maxWidth: '90vw',
+                                maxHeight: '72vh',
+                                objectFit: 'contain',
+                                borderRadius: '12px',
+                                boxShadow: '0 20px 50px rgba(0,0,0,0.8)',
+                                border: '1px solid rgba(255,255,255,0.1)'
+                            }}
+                        />
+
+                        {/* Sol Ok */}
+                        {lightboxImages.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxIndex(prev => (prev === 0 ? lightboxImages.length - 1 : prev - 1));
+                                }}
+                                style={{
+                                    position: 'absolute',
+                                    left: '20px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    width: '44px',
+                                    height: '44px',
+                                    borderRadius: '50%',
+                                    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                                    backdropFilter: 'blur(10px)',
+                                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                                    color: '#ffffff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer'
+                                }}
+                                title="Önceki (Sol Yön Tuşu)"
+                            >
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6" /></svg>
+                            </button>
+                        )}
+
+                        {/* Sağ Ok */}
+                        {lightboxImages.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxIndex(prev => (prev === lightboxImages.length - 1 ? 0 : prev + 1));
+                                }}
+                                style={{
+                                    position: 'absolute',
+                                    right: '20px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    width: '44px',
+                                    height: '44px',
+                                    borderRadius: '50%',
+                                    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                                    backdropFilter: 'blur(10px)',
+                                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                                    color: '#ffffff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer'
+                                }}
+                                title="Sonraki (Sağ Yön Tuşu)"
+                            >
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Alt Küçük Resim Şeridi */}
+                    {lightboxImages.length > 1 && (
+                        <div
+                            style={{
+                                display: 'flex',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                padding: '10px',
+                                overflowX: 'auto',
+                                zIndex: 2
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {lightboxImages.map((img, idx) => (
+                                <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={() => setLightboxIndex(idx)}
+                                    style={{
+                                        width: '60px',
+                                        height: '40px',
+                                        borderRadius: '6px',
+                                        overflow: 'hidden',
+                                        padding: 0,
+                                        border: idx === lightboxIndex ? '2px solid #38bdf8' : '1px solid rgba(255,255,255,0.2)',
+                                        opacity: idx === lightboxIndex ? 1 : 0.5,
+                                        cursor: 'pointer',
+                                        boxShadow: idx === lightboxIndex ? '0 0 12px rgba(56, 189, 248, 0.6)' : 'none',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <img src={img} alt={`Thumb ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                </button>
+                            ))}
                         </div>
                     )}
                 </div>
@@ -10702,13 +12890,14 @@ function App() {
                                 <label className="poi-modal-form-label">Durak Sınıfı / Türü *</label>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                                     {[
-                                        { id: 'otobus', label: 'Otobüs', icon: '🚌' },
-                                        { id: 'metro', label: 'Metro/Raylı', icon: '🚇' },
-                                        { id: 'gemi', label: 'Liman/İskele', icon: '🚢' },
-                                        { id: 'tren', label: 'Tren/Gar', icon: '🚆' },
-                                        { id: 'araba', label: 'Karayolu', icon: '🚗' }
+                                        { id: 'otobus', label: 'Otobüs' },
+                                        { id: 'metro', label: 'Metro/Raylı' },
+                                        { id: 'gemi', label: 'Liman/İskele' },
+                                        { id: 'tren', label: 'Tren/Gar' },
+                                        { id: 'araba', label: 'Karayolu' }
                                     ].map(item => {
                                         const isSelected = (newStopForm.stopClass || 'otobus').toLowerCase() === item.id;
+                                        const clsInfo = getRouteClassInfo(item.id);
                                         return (
                                             <button
                                                 key={item.id}
@@ -10717,8 +12906,8 @@ function App() {
                                                 style={{
                                                     padding: '6px 8px',
                                                     borderRadius: '8px',
-                                                    border: isSelected ? '2px solid #ef4444' : '1px solid rgba(255,255,255,0.15)',
-                                                    backgroundColor: isSelected ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255,255,255,0.05)',
+                                                    border: isSelected ? `1.5px solid ${clsInfo.color}` : '1px solid rgba(255,255,255,0.12)',
+                                                    backgroundColor: isSelected ? `${clsInfo.color}25` : 'rgba(255,255,255,0.04)',
                                                     color: isSelected ? '#ffffff' : '#94a3b8',
                                                     fontWeight: isSelected ? '700' : '500',
                                                     fontSize: '11.5px',
@@ -10726,10 +12915,11 @@ function App() {
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'center',
-                                                    gap: '4px'
+                                                    gap: '5px',
+                                                    transition: 'all 0.15s ease'
                                                 }}
                                             >
-                                                <span>{item.icon}</span>
+                                                <RouteClassIcon classKey={item.id} size={14} color={isSelected ? clsInfo.color : '#94a3b8'} />
                                                 <span>{item.label}</span>
                                             </button>
                                         );
@@ -10748,7 +12938,7 @@ function App() {
                                     onChange={(e) => setNewStopForm({ ...newStopForm, routeId: e.target.value })}
                                     style={{ marginTop: '5px' }}
                                 >
-                                    <option value="">-- Bağımsız Durak (Güzergaha Bağlı Değil) --</option>
+                                    <option value="">-- Hat Seçilmedi (Bağlantısız) --</option>
                                     {routes.map(r => (
                                         <option key={r.id} value={r.id}>
                                             {r.name} ({r.stops?.length || 0} Durak)
@@ -11247,10 +13437,10 @@ function App() {
                                 </div>
                                 <div>
                                     <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, letterSpacing: '0.2px' }}>
-                                        Konum Analizi
+                                        {t.locationAnalysisTitle || (isTr ? 'Konum Analizi' : 'Location Analysis')}
                                     </h3>
                                     <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-                                        Kriterlere göre ağırlıklı Isı Haritası analizi
+                                        {t.locationAnalysisSubtitle || (isTr ? 'Kriterlere göre ağırlıklı Isı Haritası analizi' : 'Weighted heatmap analysis based on criteria')}
                                     </span>
                                 </div>
                             </div>
@@ -11271,7 +13461,7 @@ function App() {
                                 }}
                                 onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
                                 onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}
-                                title="Kapat"
+                                title={t.closeBtn || (isTr ? 'Kapat' : 'Close')}
                             >
                                 <CloseIcon size={16} />
                             </button>
@@ -11283,7 +13473,7 @@ function App() {
                             <div className="analysis-step-card">
                                 <div className="analysis-step-header">
                                     <span className="step-badge">1</span>
-                                    <h4 className="step-title">Hedef Bölge / Alan Seçimi</h4>
+                                    <h4 className="step-title">{t.targetRegionSelection || (isTr ? 'Hedef Bölge / Alan Seçimi' : 'Target Region / Area Selection')}</h4>
                                 </div>
 
                                 <div className="analysis-area-toggle-group">
@@ -11297,7 +13487,7 @@ function App() {
                                             <line x1="9" y1="22" x2="9" y2="22.01" />
                                             <line x1="15" y1="22" x2="15" y2="22.01" />
                                         </svg>
-                                        İller Listesinden Seç
+                                        {t.selectFromProvinces || (isTr ? 'İller Listesinden Seç' : 'Select from Provinces')}
                                     </button>
                                     <button
                                         type="button"
@@ -11307,21 +13497,21 @@ function App() {
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                             <polygon points="12 2 22 7.5 18 19 6 19 2 8.5" />
                                         </svg>
-                                        Haritada Poligon Çiz
+                                        {t.drawPolygonOnMap || (isTr ? 'Haritada Poligon Çiz' : 'Draw Polygon on Map')}
                                     </button>
                                 </div>
 
                                 {locationAnalysisAreaMode === 'city' ? (
                                     <div style={{ marginTop: '10px' }}>
                                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#94a3b8', marginBottom: '6px' }}>
-                                            Analiz Yapılacak İli Seçiniz:
+                                            {t.selectProvinceForAnalysis || (isTr ? 'Analiz Yapılacak İli Seçiniz:' : 'Select Province for Analysis:')}
                                         </label>
                                         <select
                                             className="analysis-select"
                                             value={selectedAnalysisCityPlate}
                                             onChange={(e) => setSelectedAnalysisCityPlate(e.target.value)}
                                         >
-                                            <option value="">-- Bir İl Seçiniz (Örn: Ankara, İstanbul, İzmir...) --</option>
+                                            <option value="">{t.selectProvincePlaceholder || (isTr ? '-- Bir İl Seçiniz (Örn: Ankara, İstanbul, İzmir...) --' : '-- Select a Province (e.g. Ankara, Istanbul, Izmir...) --')}</option>
                                             {citiesList.map(city => (
                                                 <option key={city.plate || city.id} value={city.plate || city.id}>
                                                     {city.plate ? `${String(city.plate).padStart(2, '0')} - ` : ''}{city.name} {city.region ? `(${city.region})` : ''}
@@ -11341,16 +13531,18 @@ function App() {
                                                     <path d="M12 19l7-7 3 3-7 7-3-3z" />
                                                     <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
                                                 </svg>
-                                                {analysisDrawnWkt ? 'Alanı Haritada Yeniden Çiz' : 'Haritada Poligon Alanı Çiz'}
+                                                {analysisDrawnWkt 
+                                                    ? (t.redrawAreaOnMap || (isTr ? 'Alanı Haritada Yeniden Çiz' : 'Redraw Area on Map')) 
+                                                    : (t.drawPolygonArea || (isTr ? 'Haritada Poligon Alanı Çiz' : 'Draw Polygon Area on Map'))}
                                             </button>
                                             {analysisDrawnWkt && (
                                                 <span className="drawn-wkt-status-badge">
-                                                    Poligon Alanı Seçildi
+                                                    {t.polygonAreaSelected || (isTr ? 'Poligon Alanı Seçildi' : 'Polygon Area Selected')}
                                                 </span>
                                             )}
                                         </div>
                                         <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                            Harita üzerine tıklayarak analiz sınırını çizebilir, çift tıklayarak tamamlayabilirsiniz.
+                                            {t.drawBoundaryHint || (isTr ? 'Harita üzerine tıklayarak analiz sınırını çizebilir, çift tıklayarak tamamlayabilirsiniz.' : 'Click on map to draw analysis boundary, double-click to finish.')}
                                         </span>
                                     </div>
                                 )}
@@ -11361,32 +13553,34 @@ function App() {
                                 <div className="analysis-step-header" style={{ justifyContent: 'space-between' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span className="step-badge">2</span>
-                                        <h4 className="step-title">Kategori Kriterleri & Ağırlık Dağılımı</h4>
+                                        <h4 className="step-title">{t.categoryCriteriaWeight || (isTr ? 'Kategori Kriterleri & Ağırlık Dağılımı' : 'Category Criteria & Weight Distribution')}</h4>
                                     </div>
                                     <div style={{ display: 'flex', gap: '6px' }}>
                                         <button
                                             type="button"
                                             className="btn-criteria-header-action"
                                             onClick={handleDistributeWeightsEvenly}
-                                            title="Tüm kriter puanlarını eşit olarak dağıtır"
+                                            title={isTr ? "Tüm kriter puanlarını eşit olarak dağıtır" : "Distributes all criteria weights equally"}
                                         >
-                                            Eşit Dağıt
+                                            {t.distributeEvenly || (isTr ? 'Eşit Dağıt' : 'Distribute Equally')}
                                         </button>
                                         <button
                                             type="button"
                                             className="btn-criteria-header-action"
                                             onClick={handleAddCriterion}
                                             disabled={analysisCriteria.length >= 5}
-                                            title="Yeni kriter ekler (En fazla 5)"
+                                            title={isTr ? "Yeni kriter ekler (En fazla 5)" : "Add new criterion (Max 5)"}
                                         >
-                                            + Kriter Ekle ({analysisCriteria.length}/5)
+                                            {t.addCriterion || '+ Kriter Ekle'} ({analysisCriteria.length}/5)
                                         </button>
                                     </div>
                                 </div>
 
                                 <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-                                        En az <strong>2</strong>, en fazla <strong>5</strong> kriter. Puan toplamı tam <strong>100</strong> olmalıdır.
+                                        {isTr 
+                                            ? <>En az <strong>2</strong>, en fazla <strong>5</strong> kriter. Puan toplamı tam <strong>100</strong> olmalıdır.</>
+                                            : <>Min <strong>2</strong>, max <strong>5</strong> criteria. Total score must equal <strong>100</strong>.</>}
                                     </span>
                                     {/* Toplam Puan Rozeti */}
                                     {(() => {
@@ -11396,7 +13590,9 @@ function App() {
                                             <span
                                                 className={`total-score-badge ${isExact100 ? 'valid' : 'invalid'}`}
                                             >
-                                                {isExact100 ? `Toplam Puan: 100 / 100 (Geçerli)` : `Toplam: ${sum} / 100 (${100 - sum > 0 ? `+${100 - sum} eksik` : `${sum - 100} fazla`})`}
+                                                {isExact100 
+                                                    ? (t.totalScoreValid || (isTr ? `Toplam Puan: 100 / 100 (Geçerli)` : `Total Score: 100 / 100 (Valid)`))
+                                                    : (isTr ? `Toplam: ${sum} / 100 (${100 - sum > 0 ? `+${100 - sum} eksik` : `${sum - 100} fazla`})` : `Total: ${sum} / 100 (${100 - sum > 0 ? `+${100 - sum} remaining` : `${sum - 100} excess`})`)}
                                             </span>
                                         );
                                     })()}
@@ -11438,13 +13634,13 @@ function App() {
                                                         onChange={(e) => handleCriterionCategoryChange(criterion.id, e.target.value)}
                                                         style={{ flex: 1 }}
                                                     >
-                                                        <option value="">-- Kategori Seçiniz --</option>
+                                                        <option value="">{t.selectCategoryPlaceholder || (isTr ? '-- Kategori Seçiniz --' : '-- Select Category --')}</option>
                                                         {poiCategories.filter(p => !p.parentId).map(parent => {
                                                             const subCats = poiCategories.filter(c => c.parentId === parent.id);
                                                             return (
                                                                 <optgroup key={`optgroup-${parent.id}`} label={`● ${parent.name}`}>
                                                                     <option value={parent.id} style={{ fontWeight: 700 }}>
-                                                                        {parent.name} (Tüm Alt Kategoriler)
+                                                                        {parent.name} ({t.allSubCategories || (isTr ? 'Tüm Alt Kategoriler' : 'All Sub-Categories')})
                                                                     </option>
                                                                     {subCats.map(sub => (
                                                                         <option key={sub.id} value={sub.id}>
@@ -11477,7 +13673,7 @@ function App() {
                                                             onChange={(e) => handleCriterionWeightChange(criterion.id, e.target.value)}
                                                             className="criterion-weight-input"
                                                         />
-                                                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700 }}>Puan</span>
+                                                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700 }}>{t.scoreUnit || (isTr ? 'Puan' : 'Score')}</span>
                                                     </div>
                                                 </div>
 
@@ -11487,7 +13683,7 @@ function App() {
                                                     onClick={() => handleRemoveCriterion(criterion.id)}
                                                     disabled={analysisCriteria.length <= 2}
                                                     className="btn-remove-criterion"
-                                                    title={analysisCriteria.length <= 2 ? 'En az 2 kriter bulunmalıdır' : 'Kriteri Sil'}
+                                                    title={analysisCriteria.length <= 2 ? (t.minCriteriaRequired || 'En az 2 kriter bulunmalıdır') : (t.removeCriterionTooltip || 'Kriteri Sil')}
                                                 >
                                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                                         <polyline points="3 6 5 6 21 6"></polyline>
@@ -11533,14 +13729,14 @@ function App() {
                                         {locationAnalysisLoading ? (
                                             <>
                                                 <span className="spinner-mini" />
-                                                Analiz Hesaplanıyor...
+                                                {t.calculatingAnalysis || (isTr ? 'Analiz Hesaplanıyor...' : 'Calculating Analysis...')}
                                             </>
                                         ) : (
                                             <>
                                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                                     <polygon points="5 3 19 12 5 21 5 3" />
                                                 </svg>
-                                                Analizi Başlat (Isı Haritası Üret)
+                                                {t.startAnalysisGenerateHeatmap || (isTr ? 'Analizi Başlat (Isı Haritası Üret)' : 'Start Analysis (Generate Heatmap)')}
                                             </>
                                         )}
                                     </button>
@@ -11558,14 +13754,14 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#8b5cf6' }} />
                             <h4 style={{ margin: 0, fontSize: '13.5px', fontWeight: 700 }}>
-                                Konum Analizi: {locationAnalysisResult.boundaryName}
+                                {t.locationAnalysisResultTitle || (isTr ? 'Konum Analizi:' : 'Location Analysis:')} {locationAnalysisResult.boundaryName}
                             </h4>
                         </div>
                         <button
                             type="button"
                             onClick={handleClearLocationAnalysis}
                             className="analysis-result-close-btn"
-                            title="Analizi Temizle"
+                            title={t.clearAnalysis || (isTr ? 'Analizi Temizle' : 'Clear Analysis')}
                         >
                             &times;
                         </button>
@@ -11578,20 +13774,20 @@ function App() {
                                 <span className="metric-value" style={{ color: '#8b5cf6' }}>
                                     {locationAnalysisResult.totalPoiCount}
                                 </span>
-                                <span className="metric-label">Analiz Edilen POI</span>
+                                <span className="metric-label">{t.analyzedPoiCount || (isTr ? 'Analiz Edilen POI' : 'Analyzed POIs')}</span>
                             </div>
                             <div className="metric-box">
                                 <span className="metric-value" style={{ color: '#10b981' }}>
                                     %{Math.round(locationAnalysisResult.overallScore)}
                                 </span>
-                                <span className="metric-label">Kriter Karşılanma</span>
+                                <span className="metric-label">{t.criteriaFulfillment || (isTr ? 'Kriter Karşılanma' : 'Criteria Fulfillment')}</span>
                             </div>
                         </div>
 
                         {/* Kriter Bazında Dağılım Çubukları */}
                         <div className="result-criteria-list">
                             <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                Kriter Bazında Katkı Dağılımı:
+                                {t.criteriaContributionDistribution || (isTr ? 'Kriter Bazında Katkı Dağılımı:' : 'Contribution by Criteria:')}
                             </span>
                             {locationAnalysisResult.criteriaSummaries?.map(summary => (
                                 <div key={summary.categoryId} className="result-criterion-item">
@@ -11601,7 +13797,7 @@ function App() {
                                             {summary.categoryName} ({summary.poiCount} POI)
                                         </span>
                                         <strong style={{ color: summary.categoryColor || '#8b5cf6' }}>
-                                            %{summary.weight} Puan
+                                            %{summary.weight} {t.scoreUnit || (isTr ? 'Puan' : 'Score')}
                                         </strong>
                                     </div>
                                     <div className="result-progress-track">
@@ -11624,14 +13820,14 @@ function App() {
                             className="btn-analysis-reconfigure"
                             onClick={() => setShowLocationAnalysisModal(true)}
                         >
-                            Kriterleri Düzenle
+                            {t.editCriteria || (isTr ? 'Kriterleri Düzenle' : 'Edit Criteria')}
                         </button>
                         <button
                             type="button"
                             className="btn-analysis-clear"
                             onClick={handleClearLocationAnalysis}
                         >
-                            Analizi Temizle
+                            {t.clearAnalysis || (isTr ? 'Analizi Temizle' : 'Clear Analysis')}
                         </button>
                     </div>
                 </div>

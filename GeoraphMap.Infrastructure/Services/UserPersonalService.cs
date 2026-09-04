@@ -9,6 +9,7 @@ using GeoraphMap.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
+using BCrypt.Net;
 
 namespace GeoraphMap.Infrastructure.Services
 {
@@ -289,6 +290,43 @@ namespace GeoraphMap.Infrastructure.Services
         {
             return await _context.UserFavoritePois
                 .AnyAsync(f => f.UserId == userId && f.PoiId == poiId);
+        }
+
+        public async Task<UserDetailDto> UpdateProfileAsync(int userId, UpdateUserProfileDto dto)
+        {
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null) throw new KeyNotFoundException("Kullanıcı bulunamadı.");
+
+            if (!string.IsNullOrWhiteSpace(dto.Email))
+            {
+                var emailTrimmed = dto.Email.Trim();
+                var exists = await _context.Users.AnyAsync(u => u.Email == emailTrimmed && u.Id != userId);
+                if (exists) throw new InvalidOperationException("Bu e-posta adresi başka bir kullanıcı tarafından kullanılıyor.");
+                user.Email = emailTrimmed;
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.Phone))
+            {
+                user.Phone = dto.Phone.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.Password))
+            {
+                if (dto.Password.Length < 4) throw new ArgumentException("Şifre en az 4 karakter olmalıdır.");
+                user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+            }
+
+            await _context.SaveChangesAsync();
+
+            return new UserDetailDto
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                Phone = user.Phone,
+                IsActive = user.IsActive,
+                SpatialBoundaryWkt = user.SpatialBoundaryWkt
+            };
         }
 
         private static UserSavedRouteDto MapToSavedRouteDto(UserSavedRoute r)

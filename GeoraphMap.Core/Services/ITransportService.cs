@@ -30,8 +30,8 @@ namespace GeoraphMap.Core.Services
         Task<RouteDto?> SwitchRouteGeometryModeAsync(int routeId, string mode);
         Task<RouteDto?> RevertRouteGeometryAsync(int routeId);
 
-        // Stop-Route Attachment
-        Task<bool> AddStopToRouteAsync(int routeId, int stopId);
+        // Stop-Route Attachment (with flexible position: start, end, before, after)
+        Task<bool> AddStopToRouteAsync(int routeId, int stopId, string position = "end", int? targetStopId = null);
         Task<bool> RemoveStopFromRouteAsync(int routeId, int stopId);
     }
 }

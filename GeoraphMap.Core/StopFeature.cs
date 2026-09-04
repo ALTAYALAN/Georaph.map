@@ -19,6 +19,9 @@ namespace GeoraphMap.Core
         // Durak Sınıfı: "otobus", "metro", "gemi", "tren", "araba" vb.
         public string StopClass { get; set; } = "otobus";
 
+        // Fotoğraf / Görsel URL (Özellikle limanlar ve duraklar için)
+        public string? ImageUrl { get; set; }
+
         // Çoklu Güzergah Bağlantıları (Many-to-Many)
         public System.Collections.Generic.ICollection<RouteStopFeature> RouteStops { get; set; } = new System.Collections.Generic.List<RouteStopFeature>();
 

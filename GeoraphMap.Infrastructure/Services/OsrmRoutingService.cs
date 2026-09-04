@@ -69,92 +69,79 @@ namespace GeoraphMap.Infrastructure.Services
             }
 
             // OSRM koordinat formatı: {lon1},{lat1};{lon2},{lat2};{lon3},{lat3}...
-            var coordsParam = string.Join(";", normalizedCoords.Select(c =>
-                $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)},{c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}"));
-
             string osrmProfileSegment = profile switch
             {
-                "walking" => "driving", // routed-foot API root uses /route/v1/driving/ or /walking/
+                "walking" => "driving",
                 "cycling" => "driving",
                 _ => "driving"
             };
 
-            string requestPath = $"/route/v1/{osrmProfileSegment}/{coordsParam}?overview=full&geometries=geojson&steps=true";
-
             // Hedef profil için özel OpenStreetMap endpoint'leri
-            string dedicatedOsmUrl = profile switch
+            var baseUrls = new List<string>
             {
-                "walking" => PublicOsrmFoot,
-                "cycling" => PublicOsrmBike,
-                _ => PublicOsrmCar
+                profile switch
+                {
+                    "walking" => PublicOsrmFoot,
+                    "cycling" => PublicOsrmBike,
+                    _ => PublicOsrmCar
+                },
+                PublicOsrmUrl1
             };
 
-            // 1. Profiline göre özel OpenStreetMap servisinden çek (routed-foot, routed-bike, routed-car)
-            try
-            {
-                using var req = new HttpRequestMessage(HttpMethod.Get, $"{dedicatedOsmUrl}{requestPath}");
-                req.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
-                req.Headers.Add("Accept", "application/json");
+            // 1. Önce tüm rotayı tek seferde OSRM'den çekmeyi dene
+            var coordsParam = string.Join(";", normalizedCoords.Select(c =>
+                $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)},{c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}"));
 
-                var res = await _httpClient.SendAsync(req);
-                if (res.IsSuccessStatusCode)
+            var queryOptions = new[]
+            {
+                $"/route/v1/{osrmProfileSegment}/{coordsParam}?overview=full&geometries=geojson&steps=true",
+                $"/route/v1/{osrmProfileSegment}/{coordsParam}?overview=full&geometries=geojson"
+            };
+
+            foreach (var baseUrl in baseUrls)
+            {
+                foreach (var qPath in queryOptions)
                 {
-                    var content = await res.Content.ReadAsStringAsync();
-                    var parsed = ParseOsrmResponse(content, profile);
-                    if (parsed.Success) return parsed;
+                    try
+                    {
+                        using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}{qPath}");
+                        req.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+                        req.Headers.Add("Accept", "application/json");
+
+                        var res = await _httpClient.SendAsync(req);
+                        if (res.IsSuccessStatusCode)
+                        {
+                            var content = await res.Content.ReadAsStringAsync();
+                            var parsed = ParseOsrmResponse(content, profile);
+                            if (parsed.Success) return parsed;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[OsrmRoutingService] Single request error on {baseUrl}: {ex.Message}");
+                    }
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[OsrmRoutingService] Dedicated profile {profile} error: {ex.Message}");
-            }
 
-            // 2. Eğer araba sürüşü ise Yerel Docker OSRM Container'ını dene (Hızlı kontrol: 1500ms)
-            if (profile == "driving")
+            // 2. Eğer rota uzunsa (>25 durak) ve tek seferde alınamadıysa parçalı (chunked) OSRM hesaplaması yap
+            if (normalizedCoords.Count > 20)
             {
                 try
                 {
-                    using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
-                    using var req = new HttpRequestMessage(HttpMethod.Get, $"{LocalOsrmUrl}{requestPath}");
-                    req.Headers.Add("User-Agent", "GeoMap-App/1.0");
-
-                    var localRes = await _httpClient.SendAsync(req, cts.Token);
-                    if (localRes.IsSuccessStatusCode)
-                    {
-                        var content = await localRes.Content.ReadAsStringAsync();
-                        var parsed = ParseOsrmResponse(content, profile);
-                        if (parsed.Success) return parsed;
-                    }
+                    var chunkedResult = await CalculateChunkedRouteAsync(normalizedCoords, profile, baseUrls, osrmProfileSegment);
+                    if (chunkedResult.Success) return chunkedResult;
                 }
-                catch { }
-            }
-
-            // 3. Genel (Public) OSRM API Fallback: router.project-osrm.org
-            try
-            {
-                using var req = new HttpRequestMessage(HttpMethod.Get, $"{PublicOsrmUrl1}{requestPath}");
-                req.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
-                req.Headers.Add("Accept", "application/json");
-
-                var publicRes = await _httpClient.SendAsync(req);
-                if (publicRes.IsSuccessStatusCode)
+                catch (Exception ex)
                 {
-                    var content = await publicRes.Content.ReadAsStringAsync();
-                    var parsed = ParseOsrmResponse(content, profile);
-                    if (parsed.Success) return parsed;
+                    Console.WriteLine($"[OsrmRoutingService] Chunked calculation error: {ex.Message}");
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[OsrmRoutingService] Public OSRM 1 error: {ex.Message}");
-            }
 
-            // 4. Fallback doğrudan LineString WKT üret
+            // 3. Fallback doğrudan LineString WKT üret
             var fallbackLinePairs = normalizedCoords.Select(c =>
                 $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)} {c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}");
             string directLineWkt = $"LINESTRING({string.Join(", ", fallbackLinePairs)})";
 
-            // Kuş uçuşu mesafeden yaklaşık süre hesapla
             double approxMeters = CalculateEuclideanMeters(normalizedCoords);
             double calculatedDuration = CalculateSpeedDuration(approxMeters, profile);
 
@@ -167,6 +154,101 @@ namespace GeoraphMap.Infrastructure.Services
                 Summary = profile == "walking" ? "Yaya Yolu (Kuş Uçuşu Bağlantı)" : "Doğrudan Hat (Kuş Uçuşu Bağlantı)",
                 Steps = GenerateBasicSteps(approxMeters, profile)
             };
+        }
+
+        private async Task<OsrmRouteResult> CalculateChunkedRouteAsync(
+            List<(double Longitude, double Latitude)> coords,
+            string profile,
+            List<string> baseUrls,
+            string osrmProfileSegment)
+        {
+            const int chunkSize = 30;
+            var allCoordPairs = new List<string>();
+            double totalDistance = 0;
+            double totalDuration = 0;
+            var allSteps = new List<RouteStepDto>();
+
+            for (int i = 0; i < coords.Count - 1; i += (chunkSize - 1))
+            {
+                var chunk = coords.Skip(i).Take(chunkSize).ToList();
+                if (chunk.Count < 2) break;
+
+                var chunkParam = string.Join(";", chunk.Select(c =>
+                    $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)},{c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}"));
+
+                var chunkPath = $"/route/v1/{osrmProfileSegment}/{chunkParam}?overview=full&geometries=geojson";
+                bool chunkDone = false;
+
+                foreach (var baseUrl in baseUrls)
+                {
+                    try
+                    {
+                        using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}{chunkPath}");
+                        req.Headers.Add("User-Agent", "GeoMap-App/1.0");
+                        req.Headers.Add("Accept", "application/json");
+
+                        var res = await _httpClient.SendAsync(req);
+                        if (res.IsSuccessStatusCode)
+                        {
+                            var content = await res.Content.ReadAsStringAsync();
+                            var parsed = ParseOsrmResponse(content, profile);
+                            if (parsed.Success && !string.IsNullOrWhiteSpace(parsed.Wkt))
+                            {
+                                totalDistance += parsed.DistanceMeters;
+                                totalDuration += parsed.DurationSeconds;
+                                if (parsed.Steps != null) allSteps.AddRange(parsed.Steps);
+
+                                // LINESTRING(x y, x y) içerisindeki koordinatları ayıkla
+                                var cleanWkt = parsed.Wkt.Trim();
+                                if (cleanWkt.StartsWith("LINESTRING(", StringComparison.OrdinalIgnoreCase) && cleanWkt.EndsWith(")"))
+                                {
+                                    var inside = cleanWkt.Substring(11, cleanWkt.Length - 12);
+                                    var parts = inside.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                                    foreach (var p in parts)
+                                    {
+                                        var trimmed = p.Trim();
+                                        if (allCoordPairs.Count == 0 || allCoordPairs.Last() != trimmed)
+                                        {
+                                            allCoordPairs.Add(trimmed);
+                                        }
+                                    }
+                                }
+                                chunkDone = true;
+                                break;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                if (!chunkDone)
+                {
+                    // Chunk OSRM başarısız olursa bu dilimdeki ham noktaları ekle
+                    foreach (var c in chunk)
+                    {
+                        var str = $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)} {c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}";
+                        if (allCoordPairs.Count == 0 || allCoordPairs.Last() != str)
+                        {
+                            allCoordPairs.Add(str);
+                        }
+                    }
+                }
+            }
+
+            if (allCoordPairs.Count >= 2)
+            {
+                return new OsrmRouteResult
+                {
+                    Success = true,
+                    Wkt = $"LINESTRING({string.Join(", ", allCoordPairs)})",
+                    DistanceMeters = totalDistance > 0 ? totalDistance : CalculateEuclideanMeters(coords),
+                    DurationSeconds = totalDuration > 0 ? totalDuration : CalculateSpeedDuration(totalDistance, profile),
+                    Summary = "OSRM ile hesaplanan karayolu güzergahı",
+                    Steps = allSteps.Count > 0 ? allSteps : GenerateBasicSteps(totalDistance, profile)
+                };
+            }
+
+            return new OsrmRouteResult { Success = false, ErrorMessage = "Parçalı OSRM rotası oluşturulamadı." };
         }
 
         private static OsrmRouteResult ParseOsrmResponse(string jsonContent, string profile)

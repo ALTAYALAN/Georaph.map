@@ -1,6 +1,43 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { adminApi } from '../../services/adminApi';
-import { POI_ICON_LIST, getGlyphByIconId } from '../../constants/poiIcons';
+import { POI_ICON_LIST, getGlyphByIconId, getLocalizedPoiCategoryLabel, getCategoryBullet } from '../../constants/poiIcons';
+import { TURKISH_AIRPORTS } from '../../constants/airports';
+
+export function getCategoryTag(categoryName = '') {
+    return `[${categoryName || 'Kategori'}]`;
+}
+
+export function parsePoiImages(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(x => typeof x === 'string' && x.trim());
+    if (typeof raw !== 'string') return [];
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) return parsed.filter(x => typeof x === 'string' && x.trim());
+        } catch { }
+    }
+    if (trimmed.startsWith('data:image/')) {
+        return [trimmed];
+    }
+    if (trimmed.includes('||')) {
+        return trimmed.split('||').map(s => s.trim()).filter(Boolean);
+    }
+    if (trimmed.includes(',') && !trimmed.startsWith('data:')) {
+        return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return [trimmed];
+}
+
+export function serializePoiImages(images = []) {
+    if (!Array.isArray(images) || images.length === 0) return null;
+    const clean = images.filter(x => typeof x === 'string' && x.trim());
+    if (clean.length === 0) return null;
+    if (clean.length === 1) return clean[0];
+    return JSON.stringify(clean);
+}
 
 const PoiCategoryGlyph = ({ iconId = '', size = 18, color = 'currentColor', style = {} }) => {
     const glyph = getGlyphByIconId(iconId);
@@ -101,14 +138,18 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
     const [poiTimeStart, setPoiTimeStart] = useState('08:30');
     const [poiTimeEnd, setPoiTimeEnd] = useState('18:00');
     const [poiIs24Hours, setPoiIs24Hours] = useState(false);
+    // POI Form State
     const [poiFormData, setPoiFormData] = useState({
         name: '',
         description: '',
         categoryId: '',
         workingHours: 'Hafta İçi 08:30 - 18:00',
-        wkt: '',
+        images: [],
+        customImageUrl: '',
+        wkt: 'POINT(32.8597 39.9334)',
         isActive: true
     });
+    const [uploadingPoiImage, setUploadingPoiImage] = useState(false);
 
     // Kategori Ağaç / Cascading Seçim Yardımcıları
     const parentCategories = useMemo(() => {
@@ -144,15 +185,66 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
             setLoading(true);
             setError('');
             const [poisData, catsData, treeData] = await Promise.all([
-                adminApi.getPois(null, true, token),
-                adminApi.getPoiCategories(true, token),
-                adminApi.getPoiCategoryTree(token)
+                adminApi.getPois(null, true, token).catch(err => {
+                    console.warn('POI listesi yüklenemedi:', err);
+                    return [];
+                }),
+                adminApi.getPoiCategories(true, token).catch(err => {
+                    console.warn('Kategoriler yüklenemedi:', err);
+                    return [];
+                }),
+                adminApi.getPoiCategoryTree(token).catch(err => {
+                    console.warn('Kategori ağacı yüklenemedi:', err);
+                    return [];
+                })
             ]);
-            setPois(poisData || []);
-            setCategories(catsData || []);
-            setCategoryTree(treeData || []);
+            
+            // Türkiye Havalimanlarını POI listesiyle birleştir (Havalimanı & Uçuş kategorisi)
+            const airportPois = (TURKISH_AIRPORTS || []).map((apt, idx) => ({
+                id: `airport_${apt.id || idx}`,
+                name: apt.name,
+                description: `${apt.type} • ${apt.runways} • ${apt.region} Bölgesi • ${apt.description || ''}`,
+                categoryId: 999901,
+                categoryName: 'Havalimanı & Uçuş',
+                parentCategoryName: 'Ulaşım',
+                categoryColor: '#0284c7',
+                categoryIcon: 'plane',
+                workingHours: '7/24 Açık (24 Saat Kesintisiz Uçuş)',
+                imageUrl: apt.imageUrl,
+                wkt: `POINT(${apt.coordinates[0]} ${apt.coordinates[1]})`,
+                longitude: apt.coordinates[0],
+                latitude: apt.coordinates[1],
+                username: 'Devlet Hava Meydanları (DHMİ)',
+                userId: 1,
+                isActive: true,
+                isDeleted: false,
+                isSystemAirport: true
+            }));
+
+            // Sistem havalimanları kategorisini kategori listesine ekle
+            const airportCategory = {
+                id: 999901,
+                name: 'Havalimanı & Uçuş',
+                description: 'Türkiye sivil ve uluslararası havalimanları, terminaller ve pistler',
+                color: '#0284c7',
+                icon: 'plane',
+                displayOrder: 0,
+                poiCount: airportPois.length,
+                isActive: true
+            };
+
+            const finalCats = Array.isArray(catsData) ? [...catsData] : [];
+            if (!finalCats.some(c => c.name === 'Havalimanı & Uçuş' || c.id === 999901)) {
+                finalCats.unshift(airportCategory);
+            }
+
+            const combinedPois = [...airportPois, ...(Array.isArray(poisData) ? poisData : [])];
+            setPois(combinedPois);
+            setCategories(finalCats);
+            setCategoryTree(Array.isArray(treeData) ? treeData : []);
         } catch (err) {
-            setError(err.message || 'Veriler yüklenirken bir hata oluştu.');
+            console.error('Veriler yüklenirken hata oluştu:', err);
+            setError(err.message || 'Veriler yüklenirken hata oluştu.');
         } finally {
             setLoading(false);
         }
@@ -167,19 +259,14 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
         setTimeout(() => setSuccessMessage(''), 4000);
     };
 
-    // POI CRUD
-    const handleOpenPoiModal = async (poi = null) => {
+    // ==========================================
+    // POI MODAL & CRUD İŞLEMLERİ
+    // ==========================================
+    const handleOpenPoiModal = (poi = null) => {
+        setError('');
         let currentCats = categories;
-        if (!currentCats || currentCats.length === 0) {
-            try {
-                const catsData = await adminApi.getPoiCategories(true, token);
-                if (catsData && catsData.length > 0) {
-                    setCategories(catsData);
-                    currentCats = catsData;
-                }
-            } catch (err) {
-                console.error('Kategoriler yüklenemedi:', err);
-            }
+        if ((!currentCats || currentCats.length === 0) && poi) {
+            currentCats = [{ id: poi.categoryId, name: poi.categoryName || 'Kategori' }];
         }
 
         if (poi) {
@@ -212,6 +299,8 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                 description: poi.description || '',
                 categoryId: poi.categoryId || (currentCats.length > 0 ? currentCats[0].id : ''),
                 workingHours: poi.workingHours || 'Hafta İçi 08:30 - 18:00',
+                images: parsePoiImages(poi.imageUrl),
+                customImageUrl: '',
                 wkt: poi.wkt || '',
                 isActive: poi.isActive !== false
             });
@@ -237,6 +326,8 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                 description: '',
                 categoryId: chosenCat ? chosenCat.id : '',
                 workingHours: 'Hafta İçi 08:30 - 18:00',
+                images: [],
+                customImageUrl: '',
                 wkt: 'POINT(32.8597 39.9334)',
                 isActive: true
             });
@@ -270,6 +361,8 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
             return;
         }
 
+        const serializedImage = serializePoiImages(poiFormData.images);
+
         try {
             if (editingPoi) {
                 await adminApi.updatePoi(editingPoi.id, {
@@ -277,6 +370,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                     description: poiFormData.description?.trim(),
                     categoryId: parseInt(poiFormData.categoryId, 10),
                     workingHours: poiFormData.workingHours?.trim(),
+                    imageUrl: serializedImage,
                     wkt: poiFormData.wkt,
                     isActive: poiFormData.isActive
                 }, token);
@@ -287,6 +381,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                     description: poiFormData.description?.trim(),
                     categoryId: parseInt(poiFormData.categoryId, 10),
                     workingHours: poiFormData.workingHours?.trim(),
+                    imageUrl: serializedImage,
                     wkt: poiFormData.wkt
                 }, token);
                 showNotification('Yeni POI başarıyla eklendi.');
@@ -365,6 +460,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                 showNotification('Yeni kategori başarıyla oluşturuldu.');
             }
             setShowCategoryModal(false);
+            window.dispatchEvent(new CustomEvent('poiCategoriesUpdated'));
             loadData();
         } catch (err) {
             setError(err.message || 'Kategori kaydedilemedi.');
@@ -376,24 +472,62 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
         try {
             await adminApi.deletePoiCategory(id, token);
             showNotification('Kategori başarıyla silindi.');
+            window.dispatchEvent(new CustomEvent('poiCategoriesUpdated'));
             loadData();
         } catch (err) {
             setError(err.message || 'Kategori silinemedi.');
         }
     };
 
-    // Filtrelenmiş POI'ler
-    const filteredPois = pois.filter(p => {
-        const matchesSearch = !searchTerm ||
-            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.categoryName?.toLowerCase().includes(searchTerm.toLowerCase());
-        
-        const matchesCategory = !selectedCategoryFilter ||
-            p.categoryId.toString() === selectedCategoryFilter;
+    // Hiyerarşik Sıralı Kategoriler (Ana Kategori ve Altında Kendi Çocukları)
+    const hierarchicalCategoryGroups = useMemo(() => {
+        const roots = (categories || []).filter(c => !c.parentId).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0) || a.name.localeCompare(b.name, 'tr'));
+        return roots.map(root => {
+            const children = (categories || []).filter(c => c.parentId === root.id).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0) || a.name.localeCompare(b.name, 'tr'));
+            return {
+                root,
+                children
+            };
+        });
+    }, [categories]);
 
-        return matchesSearch && matchesCategory;
-    });
+    // Ana Kategori Filtre Butonları (Sayaçlar & Renkler)
+    const rootCategoryPills = useMemo(() => {
+        const roots = (categories || []).filter(c => !c.parentId).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0) || a.name.localeCompare(b.name, 'tr'));
+        return roots.map(root => {
+            const childIds = (categories || []).filter(c => c.parentId === root.id).map(c => c.id);
+            const allIds = new Set([root.id, ...childIds]);
+            const count = (pois || []).filter(p => allIds.has(p.categoryId)).length;
+            return {
+                id: root.id,
+                name: root.name,
+                color: root.color || '#3b82f6',
+                icon: root.icon,
+                count
+            };
+        });
+    }, [categories, pois]);
+
+    // Filtrelenmiş POI'ler (Ana kategori seçildiğinde tüm alt kategorilerini de kapsar)
+    const filteredPois = useMemo(() => {
+        return (pois || []).filter(p => {
+            const matchesSearch = !searchTerm ||
+                p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                p.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                p.categoryName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                p.parentCategoryName?.toLowerCase().includes(searchTerm.toLowerCase());
+            
+            let matchesCategory = true;
+            if (selectedCategoryFilter) {
+                const targetId = parseInt(selectedCategoryFilter, 10);
+                const childIds = (categories || []).filter(c => c.parentId === targetId).map(c => c.id);
+                const allTargetIds = new Set([targetId, ...childIds]);
+                matchesCategory = allTargetIds.has(p.categoryId);
+            }
+
+            return matchesSearch && matchesCategory;
+        });
+    }, [pois, searchTerm, selectedCategoryFilter, categories]);
 
     return (
         <div className="admin-content-card">
@@ -469,6 +603,68 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
             {/* SEKME 1: POI LİSTESİ */}
             {subTab === 'pois' && (
                 <div>
+                    {/* Kategori Hızlı Filtre Butonları (Vektör İkonlar & Renkler) */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px' }}>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedCategoryFilter('')}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 12px',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                                fontWeight: !selectedCategoryFilter ? 700 : 600,
+                                border: `1.5px solid ${!selectedCategoryFilter ? '#3b82f6' : (isDarkMode ? '#334155' : '#cbd5e1')}`,
+                                backgroundColor: !selectedCategoryFilter ? (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff') : 'transparent',
+                                color: !selectedCategoryFilter ? (isDarkMode ? '#60a5fa' : '#2563eb') : (isDarkMode ? '#94a3b8' : '#64748b'),
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                            }}
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
+                                <circle cx="7" cy="7" r="1.5" fill="currentColor" />
+                            </svg>
+                            <span>{isTr ? 'Tüm Kategoriler' : 'All Categories'}</span>
+                            <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '10px', backgroundColor: !selectedCategoryFilter ? '#3b82f6' : (isDarkMode ? '#334155' : '#e2e8f0'), color: !selectedCategoryFilter ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#64748b'), fontWeight: 700 }}>
+                                {pois.length}
+                            </span>
+                        </button>
+                        {rootCategoryPills.map(rp => {
+                            const isSelected = selectedCategoryFilter === rp.id.toString();
+                            return (
+                                <button
+                                    key={rp.id}
+                                    type="button"
+                                    onClick={() => setSelectedCategoryFilter(isSelected ? '' : rp.id.toString())}
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '6px 12px',
+                                        borderRadius: '8px',
+                                        fontSize: '12px',
+                                        fontWeight: isSelected ? 700 : 600,
+                                        border: `1.5px solid ${isSelected ? rp.color : (isDarkMode ? '#334155' : '#cbd5e1')}`,
+                                        backgroundColor: isSelected ? (isDarkMode ? `${rp.color}25` : '#eff6ff') : 'transparent',
+                                        color: isSelected ? (isDarkMode ? '#ffffff' : rp.color) : (isDarkMode ? '#94a3b8' : '#64748b'),
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: rp.color, display: 'inline-block' }} />
+                                    <PoiCategoryGlyph iconId={rp.icon} size={14} color={isSelected ? (isDarkMode ? '#ffffff' : rp.color) : rp.color} />
+                                    <span>{getLocalizedPoiCategoryLabel(rp.name, lang)}</span>
+                                    <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '10px', backgroundColor: isSelected ? rp.color : (isDarkMode ? '#334155' : '#e2e8f0'), color: isSelected ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#64748b'), fontWeight: 700 }}>
+                                        {rp.count}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
                     {/* Arama ve Filtre Çubuğu */}
                     <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center' }}>
                         <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
@@ -487,16 +683,28 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
 
                         <select
                             className="form-control"
-                            style={{ width: '220px', height: '38px' }}
+                            style={{ width: '280px', height: '38px', fontWeight: 600, fontSize: '12.5px' }}
                             value={selectedCategoryFilter}
                             onChange={(e) => setSelectedCategoryFilter(e.target.value)}
                         >
-                            <option value="">{isTr ? 'Tüm Kategoriler' : 'All Categories'} ({categories.length})</option>
-                            {categories.map(c => (
-                                <option key={c.id} value={c.id}>
-                                    {c.parentName ? `${c.parentName} → ${c.name}` : `[${isTr ? 'Ana Kategori' : 'Root'}] ${c.name}`}
-                                </option>
-                            ))}
+                            <option value="">⚪ {isTr ? 'Tüm Kategoriler' : 'All Categories'} ({categories.length})</option>
+                            {hierarchicalCategoryGroups.map(({ root, children }) => {
+                                const bullet = getCategoryBullet(root.name, root.color);
+                                return (
+                                    <optgroup key={root.id} label={`${bullet} [${getLocalizedPoiCategoryLabel(root.name, lang)}]`}>
+                                        <option value={root.id} style={{ fontWeight: 700 }}>
+                                            {bullet} [{isTr ? 'Tümü' : 'All'}] {getLocalizedPoiCategoryLabel(root.name, lang)}
+                                        </option>
+                                        {children.map(child => {
+                                            return (
+                                                <option key={child.id} value={child.id}>
+                                                    &nbsp;&nbsp;{bullet} {getLocalizedPoiCategoryLabel(child.name, lang)}
+                                                </option>
+                                            );
+                                        })}
+                                    </optgroup>
+                                );
+                            })}
                         </select>
                     </div>
 
@@ -548,7 +756,33 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                             <PoiCategoryGlyph iconId={poi.categoryIcon || poi.categoryName} size={15} color="#ffffff" />
                                                         </div>
                                                         <div>
-                                                            <strong className="user-name">{poi.name}</strong>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                <strong className="user-name">{poi.name}</strong>
+                                                                {(() => {
+                                                                    const imgs = parsePoiImages(poi.imageUrl);
+                                                                    if (imgs.length === 0) return null;
+                                                                    return (
+                                                                        <span
+                                                                            title={`${imgs.length} Fotoğraf`}
+                                                                            style={{
+                                                                                fontSize: '10px',
+                                                                                fontWeight: 700,
+                                                                                padding: '1px 5px',
+                                                                                borderRadius: '4px',
+                                                                                backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#e0f2fe',
+                                                                                color: '#0284c7',
+                                                                                border: '1px solid rgba(2, 132, 199, 0.3)',
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                gap: '3px'
+                                                                            }}
+                                                                        >
+                                                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                                                            {imgs.length}
+                                                                        </span>
+                                                                    );
+                                                                })()}
+                                                            </div>
                                                             {poi.description && (
                                                                 <div style={{ fontSize: '11px', color: '#94a3b8' }}>{poi.description}</div>
                                                             )}
@@ -567,23 +801,33 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    <span
-                                                        className="badge role-badge"
-                                                        style={{
-                                                            backgroundColor: 'transparent',
-                                                            color: poi.categoryColor || '#3b82f6',
-                                                            border: `1.5px solid ${poi.categoryColor || '#3b82f6'}`,
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            padding: '2px 8px',
-                                                            borderRadius: '6px',
-                                                            fontWeight: 700,
-                                                            fontSize: '11.5px',
-                                                            letterSpacing: '0.2px'
-                                                        }}
-                                                    >
-                                                        {poi.parentCategoryName ? `${poi.parentCategoryName} → ` : ''}{poi.categoryName}
-                                                    </span>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                                        <span
+                                                            style={{
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '5px',
+                                                                padding: '3px 8px',
+                                                                borderRadius: '6px',
+                                                                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#eff6ff',
+                                                                border: `1px solid ${poi.categoryColor || '#3b82f6'}50`,
+                                                                color: poi.categoryColor || '#3b82f6',
+                                                                fontSize: '11.5px',
+                                                                fontWeight: 700,
+                                                                width: 'fit-content'
+                                                            }}
+                                                        >
+                                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: poi.categoryColor || '#3b82f6', display: 'inline-block' }} />
+                                                            <PoiCategoryGlyph iconId={poi.categoryIcon || 'map-pin'} size={13} color={poi.categoryColor || '#3b82f6'} />
+                                                            <span>{getLocalizedPoiCategoryLabel(poi.categoryName, lang)}</span>
+                                                        </span>
+                                                        {poi.parentCategoryName && (
+                                                            <span style={{ fontSize: '10.5px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                                                <span>Üst:</span>
+                                                                <strong style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{getLocalizedPoiCategoryLabel(poi.parentCategoryName, lang)}</strong>
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td>
                                                     {poi.workingHours ? (
@@ -643,65 +887,74 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
             {/* SEKME 2: HİYERARŞİK KATEGORİ YÖNETİMİ */}
             {subTab === 'categories' && (
                 <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
                         <div>
-                            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>Hiyerarşik Kategori Ağacı</h3>
-                            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
-                                Ana ve alt kategorileri (Parent-Child) yönetebilir, yeni alt kategoriler ekleyebilirsiniz.
+                            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: isDarkMode ? '#f8fafc' : '#0f172a' }}>
+                                {isTr ? 'Hiyerarşik Kategori Ağacı' : 'Hierarchical Category Tree'}
+                            </h3>
+                            <p style={{ margin: '4px 0 0', fontSize: '12px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                {isTr ? 'Ana ve alt kategorileri (Parent-Child) yönetebilir, yeni alt kategoriler ekleyebilirsiniz.' : 'Manage root and subcategories (Parent-Child), add new subcategories and customize visibility.'}
                             </p>
                         </div>
-                        <button className="admin-secondary-btn" onClick={() => handleOpenCategoryModal()}>
-                            <PlusIcon size={14} /> Yeni Ana Kategori
+                        <button className="admin-secondary-btn" onClick={() => handleOpenCategoryModal()} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <PlusIcon size={14} /> {isTr ? 'Yeni Ana Kategori' : 'Add Main Category'}
                         </button>
                     </div>
 
                     {loading ? (
-                        <div className="admin-loading">Kategoriler yükleniyor...</div>
+                        <div className="admin-loading">{isTr ? 'Kategoriler yükleniyor...' : 'Loading categories...'}</div>
                     ) : categoryTree.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Tanımlı kategori bulunamadı.</div>
+                        <div style={{ textAlign: 'center', padding: '40px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                            {isTr ? 'Tanımlı kategori bulunamadı.' : 'No categories defined yet.'}
+                        </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             {categoryTree.map(parentCat => (
                                 <div
                                     key={parentCat.id}
                                     style={{
-                                        border: '1px solid rgba(255,255,255,0.1)',
-                                        borderRadius: '8px',
+                                        border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e2e8f0',
+                                        borderRadius: '10px',
                                         overflow: 'hidden',
-                                        backgroundColor: 'rgba(30, 41, 59, 0.4)'
+                                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+                                        boxShadow: isDarkMode ? 'none' : '0 1px 4px rgba(0,0,0,0.04)'
                                     }}
                                 >
                                     {/* Ana Kategori Başlığı */}
                                     <div
                                         style={{
                                             padding: '12px 16px',
-                                            backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                                            backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.08)' : '#f8fafc',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'space-between',
-                                            borderBottom: parentCat.children?.length > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none'
+                                            borderBottom: parentCat.children?.length > 0 ? (isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0') : 'none',
+                                            flexWrap: 'wrap',
+                                            gap: '10px'
                                         }}
                                     >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                             <div
                                                 style={{
-                                                    width: '26px',
-                                                    height: '26px',
+                                                    width: '28px',
+                                                    height: '28px',
                                                     borderRadius: '50%',
                                                     backgroundColor: parentCat.color || '#3b82f6',
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'center',
                                                     color: '#ffffff',
-                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
                                                     flexShrink: 0
                                                 }}
                                             >
                                                 <PoiCategoryGlyph iconId={parentCat.icon || parentCat.name} size={14} color="#ffffff" />
                                             </div>
-                                            <strong style={{ fontSize: '14px' }}>{parentCat.name}</strong>
+                                            <strong style={{ fontSize: '14px', color: isDarkMode ? '#f8fafc' : '#0f172a' }}>
+                                                {getLocalizedPoiCategoryLabel(parentCat.name, lang)}
+                                            </strong>
                                             {parentCat.description && (
-                                                <span style={{ fontSize: '12px', color: '#94a3b8' }}>— {parentCat.description}</span>
+                                                <span style={{ fontSize: '12px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>— {parentCat.description}</span>
                                             )}
                                             <span style={{
                                                 padding: '2px 8px',
@@ -711,9 +964,9 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                 fontSize: '11px',
                                                 fontWeight: 700
                                             }}>
-                                                Öncelik: {parentCat.displayOrder || 1}
+                                                {isTr ? 'Öncelik:' : 'Priority:'} {parentCat.displayOrder || 1}
                                             </span>
-                                            <span style={{ padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', fontSize: '11px', fontWeight: 700 }}>
+                                            <span style={{ padding: '2px 8px', borderRadius: '4px', backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff', color: '#2563eb', fontSize: '11px', fontWeight: 700 }}>
                                                 {parentCat.poiCount} POI
                                             </span>
                                         </div>
@@ -721,22 +974,22 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <button
                                                 className="admin-secondary-btn"
-                                                style={{ fontSize: '11.5px', padding: '4px 10px', height: '28px' }}
+                                                style={{ fontSize: '11.5px', padding: '4px 10px', height: '28px', display: 'flex', alignItems: 'center', gap: '4px' }}
                                                 onClick={() => handleOpenCategoryModal(null, parentCat.id)}
                                             >
-                                                <PlusIcon size={12} /> Alt Kategori Ekle
+                                                <PlusIcon size={12} /> {isTr ? 'Alt Kategori Ekle' : 'Add Subcategory'}
                                             </button>
                                             <div className="action-buttons" style={{ marginLeft: '4px' }}>
                                                 <button
                                                     className="admin-action-btn edit-icon-btn"
-                                                    title="Kategoriyi Düzenle"
+                                                    title={isTr ? "Kategoriyi Düzenle" : "Edit Category"}
                                                     onClick={() => handleOpenCategoryModal(parentCat)}
                                                 >
                                                     <EditIcon size={14} />
                                                 </button>
                                                 <button
                                                     className="admin-action-btn delete-icon-btn"
-                                                    title="Kategoriyi Sil"
+                                                    title={isTr ? "Kategoriyi Sil" : "Delete Category"}
                                                     onClick={() => handleDeleteCategory(parentCat.id, parentCat.name)}
                                                 >
                                                     <TrashIcon size={16} />
@@ -757,16 +1010,17 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                         justifyContent: 'space-between',
                                                         padding: '8px 12px',
                                                         borderRadius: '6px',
-                                                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                                                        backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                                        border: isDarkMode ? '1px solid rgba(255,255,255,0.05)' : '1px solid #e2e8f0',
                                                         borderLeft: `3px solid ${childCat.color || parentCat.color || '#3b82f6'}`
                                                     }}
                                                 >
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                                         <ChevronRightIcon size={12} />
                                                         <div
                                                             style={{
-                                                                width: '20px',
-                                                                height: '20px',
+                                                                width: '22px',
+                                                                height: '22px',
                                                                 borderRadius: '50%',
                                                                 backgroundColor: childCat.color || parentCat.color || '#3b82f6',
                                                                 display: 'flex',
@@ -778,9 +1032,11 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                         >
                                                             <PoiCategoryGlyph iconId={childCat.icon || childCat.name} size={11} color="#ffffff" />
                                                         </div>
-                                                        <span style={{ fontWeight: '600', fontSize: '13px' }}>{childCat.name}</span>
+                                                        <span style={{ fontWeight: '600', fontSize: '13px', color: isDarkMode ? '#f8fafc' : '#0f172a' }}>
+                                                            {getLocalizedPoiCategoryLabel(childCat.name, lang)}
+                                                        </span>
                                                         {childCat.description && (
-                                                            <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>({childCat.description})</span>
+                                                            <span style={{ fontSize: '11.5px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>({childCat.description})</span>
                                                         )}
                                                         <span style={{
                                                             padding: '1px 6px',
@@ -790,9 +1046,9 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                             fontSize: '10px',
                                                             fontWeight: 700
                                                         }}>
-                                                            Öncelik: {childCat.displayOrder || 1}
+                                                            {isTr ? 'Öncelik:' : 'Priority:'} {childCat.displayOrder || 1}
                                                         </span>
-                                                        <span style={{ padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontSize: '10.5px', fontWeight: 700 }}>
+                                                        <span style={{ padding: '1px 6px', borderRadius: '4px', backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5', color: '#059669', fontSize: '10.5px', fontWeight: 700 }}>
                                                             {childCat.poiCount} POI
                                                         </span>
                                                     </div>
@@ -800,14 +1056,14 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                     <div className="action-buttons">
                                                         <button
                                                             className="admin-action-btn edit-icon-btn"
-                                                            title="Alt Kategoriyi Düzenle"
+                                                            title={isTr ? "Alt Kategoriyi Düzenle" : "Edit Subcategory"}
                                                             onClick={() => handleOpenCategoryModal(childCat)}
                                                         >
                                                             <EditIcon size={13} />
                                                         </button>
                                                         <button
                                                             className="admin-action-btn delete-icon-btn"
-                                                            title="Alt Kategoriyi Sil"
+                                                            title={isTr ? "Alt Kategoriyi Sil" : "Delete Subcategory"}
                                                             onClick={() => handleDeleteCategory(childCat.id, childCat.name)}
                                                         >
                                                             <TrashIcon size={15} />
@@ -817,8 +1073,8 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                             ))}
                                         </div>
                                     ) : (
-                                        <div style={{ padding: '10px 16px 10px 32px', color: '#94a3b8', fontSize: '12px' }}>
-                                            Henüz bu ana kategoriye bağlı bir alt kategori bulunmuyor.
+                                        <div style={{ padding: '10px 16px 10px 32px', color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: '12px' }}>
+                                            {isTr ? 'Henüz bu ana kategoriye bağlı bir alt kategori bulunmuyor.' : 'No subcategories attached to this main category yet.'}
                                         </div>
                                     )}
                                 </div>
@@ -832,15 +1088,15 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
             {showPoiModal && (
                 <div className="modal-overlay" onClick={() => setShowPoiModal(false)}>
                     <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', borderBottom: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e2e8f0', paddingBottom: '12px' }}>
                             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
-                                {editingPoi ? 'POI Noktasını Düzenle' : 'Yeni POI Ekle'}
+                                {editingPoi ? (isTr ? 'POI Noktasını Düzenle' : 'Edit POI Location') : (isTr ? 'Yeni POI Ekle' : 'Add New POI')}
                             </h3>
                             <button
                                 type="button"
                                 onClick={() => setShowPoiModal(false)}
                                 style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                title="Kapat"
+                                title={isTr ? "Kapat" : "Close"}
                             >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18" />
@@ -852,11 +1108,11 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                         <form onSubmit={handleSavePoi}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                                 <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>POI / Mekan İsmi *</label>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'POI / Mekan İsmi *' : 'POI / Place Name *'}</label>
                                     <input
                                         type="text"
                                         className="form-control"
-                                        placeholder="Örn: Merkez İlçe Kütüphanesi, Şehir Hastanesi, Atatürk Parkı, Semt Polikliniği..."
+                                        placeholder={isTr ? "Örn: Merkez İlçe Kütüphanesi, Şehir Hastanesi, Atatürk Parkı..." : "e.g. Central City Library, State Hospital, City Park..."}
                                         value={poiFormData.name}
                                         onChange={(e) => setPoiFormData({ ...poiFormData, name: e.target.value })}
                                         required
@@ -867,7 +1123,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                 <div style={{ display: 'grid', gridTemplateColumns: currentSubCategories.length > 0 ? '1fr 1fr' : '1fr', gap: '12px' }}>
                                     <div className="form-group" style={{ marginBottom: 0 }}>
                                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>
-                                            <span>1. Ana Kategori *</span>
+                                            <span>{isTr ? '1. Ana Kategori *' : '1. Main Category *'}</span>
                                         </label>
                                         <select
                                             className="form-control"
@@ -875,19 +1131,22 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                             onChange={(e) => handlePoiParentCatChange(e.target.value)}
                                             required
                                         >
-                                            <option value="" disabled>-- Ana Kategori Seçiniz --</option>
-                                            {parentCategories.map(p => (
-                                                <option key={p.id} value={p.id}>
-                                                    {p.name}
-                                                </option>
-                                            ))}
+                                            <option value="" disabled>{isTr ? '-- Ana Kategori Seçiniz --' : '-- Select Main Category --'}</option>
+                                            {parentCategories.map(p => {
+                                                const bullet = getCategoryBullet(p.name, p.color);
+                                                return (
+                                                    <option key={p.id} value={p.id}>
+                                                        {bullet} {getLocalizedPoiCategoryLabel(p.name, lang)}
+                                                    </option>
+                                                );
+                                            })}
                                         </select>
                                     </div>
 
                                     {currentSubCategories.length > 0 && (
                                         <div className="form-group" style={{ marginBottom: 0 }}>
                                             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>
-                                                <span>2. Alt Kategori (Dallanma) *</span>
+                                                <span>{isTr ? '2. Alt Kategori (Dallanma) *' : '2. Subcategory *'}</span>
                                             </label>
                                             <select
                                                 className="form-control"
@@ -895,11 +1154,15 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                 onChange={(e) => handlePoiSubCatChange(e.target.value)}
                                                 required
                                             >
-                                                {currentSubCategories.map(sub => (
-                                                    <option key={sub.id} value={sub.id}>
-                                                        {sub.name}
-                                                    </option>
-                                                ))}
+                                                {currentSubCategories.map(sub => {
+                                                    const parentCat = parentCategories.find(p => p.id === poiParentCategoryId);
+                                                    const bullet = getCategoryBullet(sub.name || (parentCat && parentCat.name), sub.color || (parentCat && parentCat.color));
+                                                    return (
+                                                        <option key={sub.id} value={sub.id}>
+                                                            {bullet} {getLocalizedPoiCategoryLabel(sub.name, lang)}
+                                                        </option>
+                                                    );
+                                                })}
                                             </select>
                                         </div>
                                     )}
@@ -911,7 +1174,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                         alignItems: 'center',
                                         gap: '8px',
                                         padding: '7px 12px',
-                                        background: 'rgba(59, 130, 246, 0.08)',
+                                        background: isDarkMode ? 'rgba(59, 130, 246, 0.08)' : '#eff6ff',
                                         borderRadius: '8px',
                                         border: `1px solid ${activeCategoryObject.color || '#3b82f6'}40`,
                                         fontSize: '12px'
@@ -924,16 +1187,18 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                             display: 'inline-block',
                                             boxShadow: 'none'
                                         }} />
-                                        <span style={{ color: '#64748b' }}>Seçili Harita Rozeti:</span>
+                                        <span style={{ color: isDarkMode ? '#94a3b8' : '#64748b' }}>{isTr ? 'Seçili Harita Rozeti:' : 'Selected Map Badge:'}</span>
                                         <strong style={{ color: activeCategoryObject.color || '#3b82f6', fontWeight: 600 }}>
-                                            {activeCategoryObject.parentName ? `${activeCategoryObject.parentName} → ${activeCategoryObject.name}` : activeCategoryObject.name}
+                                            {activeCategoryObject.parentName 
+                                                ? `${getLocalizedPoiCategoryLabel(activeCategoryObject.parentName, lang)} → ${getLocalizedPoiCategoryLabel(activeCategoryObject.name, lang)}` 
+                                                : getLocalizedPoiCategoryLabel(activeCategoryObject.name, lang)}
                                         </strong>
                                     </div>
                                 )}
 
                                 {/* MESAI / ÇALIŞMA SAATLERİ SEÇİCİ */}
                                 <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>Mesai / Çalışma Saatleri</label>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'Mesai / Çalışma Saatleri' : 'Working / Operating Hours'}</label>
 
                                     <div style={{ display: 'grid', gridTemplateColumns: poiIs24Hours ? '1fr' : '1.2fr 1fr 1fr', gap: '8px', alignItems: 'center' }}>
                                         <div>
@@ -944,16 +1209,16 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                     const val = e.target.value;
                                                     setPoiTimeDays(val);
                                                     if (poiIs24Hours) {
-                                                        setPoiFormData(prev => ({ ...prev, workingHours: `${val} 24 Saat Açık` }));
+                                                        setPoiFormData(prev => ({ ...prev, workingHours: isTr ? `${val} 24 Saat Açık` : `${val} Open 24 Hours` }));
                                                     } else {
                                                         setPoiFormData(prev => ({ ...prev, workingHours: `${val} ${poiTimeStart} - ${poiTimeEnd}` }));
                                                     }
                                                 }}
                                             >
-                                                <option value="Hafta İçi">Hafta İçi (Pzt - Cuma)</option>
-                                                <option value="Her Gün">Her Gün (7 Gün Açık)</option>
-                                                <option value="Pzt - Cmt">Pazartesi - Cumartesi</option>
-                                                <option value="Hafta Sonu">Hafta Sonu (Cmt - Paz)</option>
+                                                <option value="Hafta İçi">{isTr ? 'Hafta İçi (Pzt - Cuma)' : 'Weekdays (Mon - Fri)'}</option>
+                                                <option value="Her Gün">{isTr ? 'Her Gün (7 Gün Açık)' : 'Every Day (24/7)'}</option>
+                                                <option value="Pzt - Cmt">{isTr ? 'Pazartesi - Cumartesi' : 'Monday - Saturday'}</option>
+                                                <option value="Hafta Sonu">{isTr ? 'Hafta Sonu (Cmt - Paz)' : 'Weekends (Sat - Sun)'}</option>
                                             </select>
                                         </div>
 
@@ -969,7 +1234,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                             setPoiTimeStart(val);
                                                             setPoiFormData(prev => ({ ...prev, workingHours: `${poiTimeDays} ${val} - ${poiTimeEnd}` }));
                                                         }}
-                                                        title="Açılış Saati"
+                                                        title={isTr ? "Açılış Saati" : "Opening Time"}
                                                         required
                                                     />
                                                 </div>
@@ -983,7 +1248,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                             setPoiTimeEnd(val);
                                                             setPoiFormData(prev => ({ ...prev, workingHours: `${poiTimeDays} ${poiTimeStart} - ${val}` }));
                                                         }}
-                                                        title="Kapanış Saati"
+                                                        title={isTr ? "Kapanış Saati" : "Closing Time"}
                                                         required
                                                     />
                                                 </div>
@@ -992,10 +1257,10 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                     </div>
 
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-                                        <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-                                            Seçilen Mesai: <strong style={{ color: '#38bdf8' }}>{poiFormData.workingHours || 'Belirtilmedi'}</strong>
+                                        <span style={{ fontSize: '11.5px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                            {isTr ? 'Seçilen Mesai:' : 'Selected Hours:'} <strong style={{ color: '#2563eb' }}>{poiFormData.workingHours || (isTr ? 'Belirtilmedi' : 'Not specified')}</strong>
                                         </span>
-                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: '#cbd5e1', cursor: 'pointer' }}>
+                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: isDarkMode ? '#cbd5e1' : '#475569', cursor: 'pointer' }}>
                                             <input
                                                 type="checkbox"
                                                 checked={poiIs24Hours}
@@ -1003,31 +1268,261 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                     const checked = e.target.checked;
                                                     setPoiIs24Hours(checked);
                                                     if (checked) {
-                                                        setPoiFormData(prev => ({ ...prev, workingHours: '24 Saat Açık' }));
+                                                        setPoiFormData(prev => ({ ...prev, workingHours: isTr ? '24 Saat Açık' : 'Open 24 Hours' }));
                                                     } else {
                                                         setPoiFormData(prev => ({ ...prev, workingHours: `${poiTimeDays} ${poiTimeStart} - ${poiTimeEnd}` }));
                                                     }
                                                 }}
                                             />
-                                            <span>24 Saat Kesintisiz Açık</span>
+                                            <span>{isTr ? '24 Saat Kesintisiz Açık' : 'Open 24/7'}</span>
                                         </label>
                                     </div>
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>Açıklama</label>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'Açıklama' : 'Description'}</label>
                                     <textarea
                                         className="form-control"
                                         rows="2"
-                                        placeholder="Konum veya mekan hakkında kısa açıklama..."
+                                        placeholder={isTr ? "Konum veya mekan hakkında kısa açıklama..." : "Brief description about the place or landmark..."}
                                         value={poiFormData.description}
                                         onChange={(e) => setPoiFormData({ ...poiFormData, description: e.target.value })}
                                     />
                                 </div>
 
+                                {/* POI ÇOKLU FOTOĞRAF / GÖRSEL YÖNETİMİ */}
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                        <label style={{ margin: 0, fontSize: '12.5px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                            {isTr ? 'POI Fotoğrafları (Birden Fazla Eklenebilir)' : 'POI Photos (Multiple Photos Supported)'}
+                                            {poiFormData.images.length > 0 && (
+                                                <span style={{ fontSize: '11px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}>
+                                                    {poiFormData.images.length} {isTr ? 'Fotoğraf' : 'Photos'}
+                                                </span>
+                                            )}
+                                        </label>
+                                        {poiFormData.images.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setPoiFormData(prev => ({ ...prev, images: [] }))}
+                                                style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                            >
+                                                {isTr ? 'Tüm Fotoğrafları Temizle' : 'Clear All'}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* URL Ekle & Dosya Seç Butonları */}
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <input
+                                            type="text"
+                                            className="form-control"
+                                            placeholder={isTr ? "Fotoğraf URL girip 'Ekle'ye basın (https://...)" : "Enter image URL and click Add"}
+                                            value={poiFormData.customImageUrl}
+                                            onChange={(e) => setPoiFormData({ ...poiFormData, customImageUrl: e.target.value })}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    if (poiFormData.customImageUrl?.trim()) {
+                                                        const url = poiFormData.customImageUrl.trim();
+                                                        setPoiFormData(prev => ({
+                                                            ...prev,
+                                                            images: [...prev.images, url],
+                                                            customImageUrl: ''
+                                                        }));
+                                                    }
+                                                }
+                                            }}
+                                            style={{ flex: 1 }}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (poiFormData.customImageUrl?.trim()) {
+                                                    const url = poiFormData.customImageUrl.trim();
+                                                    setPoiFormData(prev => ({
+                                                        ...prev,
+                                                        images: [...prev.images, url],
+                                                        customImageUrl: ''
+                                                    }));
+                                                }
+                                            }}
+                                            disabled={!poiFormData.customImageUrl?.trim()}
+                                            style={{
+                                                padding: '8px 12px',
+                                                borderRadius: '8px',
+                                                backgroundColor: isDarkMode ? '#1e293b' : '#e2e8f0',
+                                                border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`,
+                                                color: isDarkMode ? '#ffffff' : '#0f172a',
+                                                fontSize: '12px',
+                                                fontWeight: 600,
+                                                cursor: poiFormData.customImageUrl?.trim() ? 'pointer' : 'not-allowed',
+                                                opacity: poiFormData.customImageUrl?.trim() ? 1 : 0.6
+                                            }}
+                                        >
+                                            {isTr ? 'URL Ekle' : 'Add URL'}
+                                        </button>
+                                        <label style={{
+                                            padding: '8px 12px',
+                                            borderRadius: '8px',
+                                            backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff',
+                                            border: '1px solid #3b82f6',
+                                            color: '#3b82f6',
+                                            fontSize: '12px',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            whiteSpace: 'nowrap'
+                                        }}>
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                            {uploadingPoiImage ? (isTr ? 'Yükleniyor...' : 'Uploading...') : (isTr ? 'Çoklu Dosya Seç' : 'Browse Files')}
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                multiple
+                                                style={{ display: 'none' }}
+                                                disabled={uploadingPoiImage}
+                                                onChange={async (e) => {
+                                                    const files = Array.from(e.target.files || []);
+                                                    if (files.length === 0) return;
+                                                    try {
+                                                        setUploadingPoiImage(true);
+                                                        
+                                                        // 1. Önce anında yerel önizleme (FileReader)
+                                                        for (const file of files) {
+                                                            const reader = new FileReader();
+                                                            reader.onload = () => {
+                                                                if (reader.result) {
+                                                                    setPoiFormData(prev => ({
+                                                                        ...prev,
+                                                                        images: [...prev.images, reader.result]
+                                                                    }));
+                                                                }
+                                                            };
+                                                            reader.readAsDataURL(file);
+                                                        }
+
+                                                        // 2. Sunucuya yükleme
+                                                        const uploadPromises = files.map(file => adminApi.uploadImage(file, token).catch(() => null));
+                                                        const results = await Promise.all(uploadPromises);
+                                                        const successfulUrls = results.filter(r => r && (r.url || r.absoluteUrl)).map(r => r.url || r.absoluteUrl);
+                                                        
+                                                        if (successfulUrls.length > 0) {
+                                                            setPoiFormData(prev => {
+                                                                // Base64 versiyonları sunucu URL'leriyle zenginleştir
+                                                                const nonData = prev.images.filter(x => !x.startsWith('data:'));
+                                                                return {
+                                                                    ...prev,
+                                                                    images: [...nonData, ...successfulUrls]
+                                                                };
+                                                            });
+                                                        }
+                                                        showNotification(isTr ? `${files.length} fotoğraf eklendi.` : `${files.length} images added.`);
+                                                    } catch (err) {
+                                                        console.warn('Görsel yükleme uyarısı:', err);
+                                                        showNotification(isTr ? 'Görseller yerel olarak eklendi.' : 'Images added locally.');
+                                                    } finally {
+                                                        setUploadingPoiImage(false);
+                                                    }
+                                                }}
+                                            />
+                                        </label>
+                                    </div>
+
+                                    {/* Çoklu Görsel Galerisi / Thumbnail Listesi */}
+                                    {poiFormData.images.length > 0 && (
+                                        <div style={{
+                                            marginTop: '10px',
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(85px, 1fr))',
+                                            gap: '8px',
+                                            maxHeight: '180px',
+                                            overflowY: 'auto',
+                                            padding: '8px',
+                                            borderRadius: '8px',
+                                            backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`
+                                        }}>
+                                            {poiFormData.images.map((imgUrl, imgIdx) => {
+                                                const resolved = (imgUrl.startsWith('data:') || imgUrl.startsWith('http') || imgUrl.startsWith('blob:'))
+                                                    ? imgUrl
+                                                    : `http://localhost:5041${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`;
+                                                return (
+                                                    <div
+                                                        key={imgIdx}
+                                                        style={{
+                                                            position: 'relative',
+                                                            height: '75px',
+                                                            borderRadius: '6px',
+                                                            overflow: 'hidden',
+                                                            border: imgIdx === 0 ? '2px solid #3b82f6' : `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                                            background: '#000000'
+                                                        }}
+                                                    >
+                                                        <img
+                                                            src={resolved}
+                                                            alt={`POI Photo ${imgIdx + 1}`}
+                                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                        />
+                                                        {imgIdx === 0 && (
+                                                            <span style={{
+                                                                position: 'absolute',
+                                                                bottom: '2px',
+                                                                left: '2px',
+                                                                fontSize: '9px',
+                                                                fontWeight: 700,
+                                                                padding: '1px 4px',
+                                                                borderRadius: '3px',
+                                                                backgroundColor: '#3b82f6',
+                                                                color: '#ffffff'
+                                                            }}>
+                                                                Kapak
+                                                            </span>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setPoiFormData(prev => ({
+                                                                    ...prev,
+                                                                    images: prev.images.filter((_, idx) => idx !== imgIdx)
+                                                                }));
+                                                            }}
+                                                            style={{
+                                                                position: 'absolute',
+                                                                top: '2px',
+                                                                right: '2px',
+                                                                width: '18px',
+                                                                height: '18px',
+                                                                borderRadius: '50%',
+                                                                backgroundColor: 'rgba(239, 68, 68, 0.9)',
+                                                                color: '#ffffff',
+                                                                border: 'none',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontSize: '10px',
+                                                                fontWeight: 'bold',
+                                                                padding: 0
+                                                            }}
+                                                            title="Fotoğrafı Kaldır"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="form-group" style={{ marginBottom: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                        <label style={{ margin: 0, fontSize: '12.5px', fontWeight: 600 }}>Konum & Geometri (WKT) *</label>
+                                        <label style={{ margin: 0, fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'Konum & Geometri (WKT) *' : 'Location & Geometry (WKT) *'}</label>
                                         <div style={{ display: 'flex', gap: '5px' }}>
                                             <button
                                                 type="button"
@@ -1035,7 +1530,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                 onClick={() => setPoiFormData(prev => ({ ...prev, wkt: 'POINT(32.8597 39.9334)' }))}
                                                 style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '4px', border: '1px solid rgba(59, 130, 246, 0.4)', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', cursor: 'pointer' }}
                                             >
-                                                Nokta Şablonu
+                                                {isTr ? 'Nokta Şablonu' : 'Point Template'}
                                             </button>
                                             <button
                                                 type="button"
@@ -1043,7 +1538,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                 onClick={() => setPoiFormData(prev => ({ ...prev, wkt: 'POLYGON((32.854 39.920, 32.860 39.920, 32.860 39.925, 32.854 39.925, 32.854 39.920))' }))}
                                                 style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.4)', backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', cursor: 'pointer' }}
                                             >
-                                                Poligon Şablonu
+                                                {isTr ? 'Poligon Şablonu' : 'Polygon Template'}
                                             </button>
                                         </div>
                                     </div>
@@ -1051,7 +1546,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                     <textarea
                                         className="form-control"
                                         rows="2"
-                                        placeholder="POINT(32.8597 39.9334) veya POLYGON((32.85 39.92, 32.86 39.92, 32.86 39.93, 32.85 39.93, 32.85 39.92))"
+                                        placeholder="POINT(32.8597 39.9334) or POLYGON((32.85 39.92, 32.86 39.92, 32.86 39.93, 32.85 39.93, 32.85 39.92))"
                                         value={poiFormData.wkt}
                                         onChange={(e) => setPoiFormData({ ...poiFormData, wkt: e.target.value })}
                                         style={{ fontFamily: 'monospace', fontSize: '12px' }}
@@ -1059,17 +1554,17 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                     />
 
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
-                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                            Nokta (POINT) ve Alan (POLYGON) geometrileri tam desteklenir.
+                                        <span style={{ fontSize: '11px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                            {isTr ? 'Nokta (POINT) ve Alan (POLYGON) geometrileri tam desteklenir.' : 'Point (POINT) and Area (POLYGON) geometries are fully supported.'}
                                         </span>
                                         {poiFormData.wkt && poiFormData.wkt.toUpperCase().startsWith('POLYGON') && (
                                             <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 600 }}>
-                                                Poligon Geometrisi
+                                                {isTr ? 'Poligon Geometrisi' : 'Polygon Geometry'}
                                             </span>
                                         )}
                                         {poiFormData.wkt && poiFormData.wkt.toUpperCase().startsWith('POINT') && (
                                             <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: 600 }}>
-                                                Nokta Geometrisi
+                                                {isTr ? 'Nokta Geometrisi' : 'Point Geometry'}
                                             </span>
                                         )}
                                     </div>
@@ -1083,17 +1578,17 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                             checked={poiFormData.isActive}
                                             onChange={(e) => setPoiFormData({ ...poiFormData, isActive: e.target.checked })}
                                         />
-                                        <label htmlFor="poiIsActive" style={{ cursor: 'pointer', fontSize: '13px' }}>POI Aktif Olsun</label>
+                                        <label htmlFor="poiIsActive" style={{ cursor: 'pointer', fontSize: '13px' }}>{isTr ? 'POI Aktif Olsun' : 'POI Active Status'}</label>
                                     </div>
                                 )}
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
                                 <button type="button" className="admin-secondary-btn" onClick={() => setShowPoiModal(false)}>
-                                    İptal
+                                    {isTr ? 'İptal' : 'Cancel'}
                                 </button>
                                 <button type="submit" className="admin-primary-btn">
-                                    {editingPoi ? 'Güncelle' : 'Kaydet'}
+                                    {editingPoi ? (isTr ? 'Güncelle' : 'Update') : (isTr ? 'Kaydet' : 'Save')}
                                 </button>
                             </div>
                         </form>
@@ -1105,15 +1600,15 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
             {showCategoryModal && (
                 <div className="modal-overlay" onClick={() => setShowCategoryModal(false)}>
                     <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', borderBottom: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e2e8f0', paddingBottom: '12px' }}>
                             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
-                                {editingCategory ? 'Kategoriyi Düzenle' : 'Yeni Kategori Ekle'}
+                                {editingCategory ? (isTr ? 'Kategoriyi Düzenle' : 'Edit Category') : (isTr ? 'Yeni Kategori Ekle' : 'Add New Category')}
                             </h3>
                             <button
                                 type="button"
                                 onClick={() => setShowCategoryModal(false)}
                                 style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                title="Kapat"
+                                title={isTr ? "Kapat" : "Close"}
                             >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18" />
@@ -1125,11 +1620,11 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                         <form onSubmit={handleSaveCategory}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                                 <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>Kategori Adı *</label>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'Kategori Adı *' : 'Category Name *'}</label>
                                     <input
                                         type="text"
                                         className="form-control"
-                                        placeholder="Örn: Yeme-İçme, Restoran, Kafe, Sağlık, Eczane, Kütüphane..."
+                                        placeholder={isTr ? "Örn: Restoran, Kafe, Sağlık, Eczane, Kütüphane..." : "e.g. Restaurant, Cafe, Health, Pharmacy, Library..."}
                                         value={categoryFormData.name}
                                         onChange={(e) => setCategoryFormData({ ...categoryFormData, name: e.target.value })}
                                         required
@@ -1138,7 +1633,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>Üst Kategori (Parent)</label>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'Üst Kategori (Parent)' : 'Parent Category'}</label>
                                     <select
                                         className="form-control"
                                         value={categoryFormData.parentId}
@@ -1152,22 +1647,22 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                             }));
                                         }}
                                     >
-                                        <option value="">Yok (Ana Kategori Olarak Tanımla)</option>
+                                        <option value="">{isTr ? 'Yok (Ana Kategori Olarak Tanımla)' : 'None (Define as Root Category)'}</option>
                                         {parentCategories
                                             .filter(p => !editingCategory || p.id !== editingCategory.id)
                                             .map(p => (
-                                                <option key={p.id} value={p.id}>{p.name}</option>
+                                                <option key={p.id} value={p.id}>{getLocalizedPoiCategoryLabel(p.name, lang)}</option>
                                             ))
                                         }
                                     </select>
-                                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                        Eğer bir ana kategori seçerseniz, bu kategori onun bir alt kategorisi olur.
+                                    <span style={{ fontSize: '11px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                        {isTr ? 'Eğer bir ana kategori seçerseniz, bu kategori onun bir alt kategorisi olur.' : 'If you select a parent category, this will become its subcategory.'}
                                     </span>
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: 0 }}>
                                     <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>
-                                        Görünürlük & Öncelik Sıralaması (Harita Katmanı) *
+                                        {isTr ? 'Görünürlük & Öncelik Sıralaması (Harita Katmanı) *' : 'Visibility & Priority Level (Map Layer) *'}
                                     </label>
                                     <select
                                         className="form-control"
@@ -1175,25 +1670,25 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                         onChange={(e) => setCategoryFormData({ ...categoryFormData, displayOrder: parseInt(e.target.value, 10) })}
                                         style={{ fontWeight: 600 }}
                                     >
-                                        <option value={1}>1 - Çok Yüksek (Her Zoomda En Üstte Görünür - Havalimanı, Hastane, Terminal)</option>
-                                        <option value={2}>2 - Yüksek (Şehir Genelinde Görünür - Valilik, Üniversite, Metro)</option>
-                                        <option value={3}>3 - Orta (İlçe ve Ana Noktalarda Görünür - Okul, Cami, Banka, Benzinlik)</option>
-                                        <option value={4}>4 - Standart (Cadde / Mahalle Seviyesinde Görünür - Restoran, Market, Eczane)</option>
-                                        <option value={5}>5 - Detay (Sadece İyice Yaklaşınca Görünür - Kafe, ATM, Park)</option>
+                                        <option value={1}>{isTr ? '1 - Çok Yüksek (Her Zoomda En Üstte - Havalimanı, Hastane)' : '1 - Very High (Always Top Zoom - Airport, Hospital)'}</option>
+                                        <option value={2}>{isTr ? '2 - Yüksek (Şehir Genelinde - Valilik, Üniversite, Metro)' : '2 - High (City Level - Governorate, University, Metro)'}</option>
+                                        <option value={3}>{isTr ? '3 - Orta (İlçe ve Ana Noktalarda - Okul, Cami, Banka)' : '3 - Medium (District Level - School, Mosque, Bank)'}</option>
+                                        <option value={4}>{isTr ? '4 - Standart (Cadde / Mahalle - Restoran, Market, Eczane)' : '4 - Standard (Street Level - Restaurant, Market, Pharmacy)'}</option>
+                                        <option value={5}>{isTr ? '5 - Detay (Yakın Zoomda - Kafe, ATM, Park)' : '5 - Detail (Close Zoom - Cafe, ATM, Park)'}</option>
                                     </select>
-                                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                        Harita uzaklaştırıldığında (zoom out) üst üste binen simgelerde yüksek öncelikli (1 ve 2) kategoriler çakışmayı kazanıp en üstte görünür.
+                                    <span style={{ fontSize: '11px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                        {isTr ? 'Harita uzaklaştırıldığında üst üste binen simgelerde yüksek öncelikli (1 ve 2) kategoriler çakışmayı kazanıp en üstte görünür.' : 'When zoomed out, high priority (1 and 2) categories stay visible during map clustering.'}
                                     </span>
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>Kategori Rengi</label>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'Kategori Rengi' : 'Category Color'}</label>
                                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                                         <input
                                             type="color"
                                             value={categoryFormData.color}
                                             onChange={(e) => setCategoryFormData({ ...categoryFormData, color: e.target.value })}
-                                            style={{ width: '40px', height: '38px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0, background: 'none' }}
+                                            style={{ width: '40px', height: '38px', borderRadius: '6px', border: isDarkMode ? '1px solid rgba(255,255,255,0.2)' : '1px solid #cbd5e1', cursor: 'pointer', padding: 0, background: 'none' }}
                                         />
                                         <input
                                             type="text"
@@ -1207,23 +1702,23 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
 
                                 <div className="form-group" style={{ marginBottom: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                        <label style={{ margin: 0, fontSize: '12.5px', fontWeight: 600 }}>Kategori İkonu (Haritada Görünür) *</label>
-                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                            Seçili: <strong style={{ color: categoryFormData.color || '#3b82f6' }}>{categoryFormData.icon}</strong>
+                                        <label style={{ margin: 0, fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'Kategori İkonu (Haritada Görünür) *' : 'Category Icon (Visible on Map) *'}</label>
+                                        <span style={{ fontSize: '11px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                            {isTr ? 'Seçili:' : 'Selected:'} <strong style={{ color: categoryFormData.color || '#3b82f6' }}>{categoryFormData.icon}</strong>
                                         </span>
                                     </div>
 
                                     {/* Seçili İkon Canlı Önizleme */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '8px' }}>
-                                        <div style={{ width: '34px', height: '34px', borderRadius: '50%', backgroundColor: categoryFormData.color || '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', flexShrink: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc', borderRadius: '8px', border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e2e8f0', marginBottom: '8px' }}>
+                                        <div style={{ width: '34px', height: '34px', borderRadius: '50%', backgroundColor: categoryFormData.color || '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', boxShadow: '0 2px 6px rgba(0,0,0,0.2)', flexShrink: 0 }}>
                                             <PoiCategoryGlyph iconId={categoryFormData.icon} size={18} color="#ffffff" />
                                         </div>
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: '12.5px', fontWeight: 700, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {categoryFormData.name || 'Örnek Kategori'}
+                                            <div style={{ fontSize: '12.5px', fontWeight: 700, color: isDarkMode ? '#f8fafc' : '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {categoryFormData.name || (isTr ? 'Örnek Kategori' : 'Sample Category')}
                                             </div>
-                                            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                                Harita ve arama listesinde bu rozet simgesi ile render edilecektir.
+                                            <div style={{ fontSize: '11px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                {isTr ? 'Harita ve arama listesinde bu rozet simgesi ile render edilecektir.' : 'Will render with this badge icon on map and search lists.'}
                                             </div>
                                         </div>
                                     </div>
@@ -1232,14 +1727,14 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                     <input
                                         type="text"
                                         className="form-control"
-                                        placeholder="İkon ara (Örn: restoran, hastane, okul, park, otobüs, cami, market...)"
+                                        placeholder={isTr ? "İkon ara (Örn: restoran, hastane, okul, park, otobüs...)" : "Search icon (e.g. restaurant, hospital, school, park, bus...)"}
                                         value={iconSearchQuery}
                                         onChange={(e) => setIconSearchQuery(e.target.value)}
                                         style={{ fontSize: '11.5px', padding: '6px 10px', marginBottom: '8px' }}
                                     />
 
                                     {/* Zengin İkon Seçim Izgarası */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: '6px', maxHeight: '160px', overflowY: 'auto', padding: '6px', backgroundColor: 'rgba(15, 23, 42, 0.6)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: '6px', maxHeight: '160px', overflowY: 'auto', padding: '6px', backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#f1f5f9', borderRadius: '8px', border: isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid #cbd5e1' }}>
                                         {POI_ICON_LIST
                                             .filter(item => !iconSearchQuery || item.label.toLowerCase().includes(iconSearchQuery.toLowerCase()) || item.id.toLowerCase().includes(iconSearchQuery.toLowerCase()) || item.group.toLowerCase().includes(iconSearchQuery.toLowerCase()))
                                             .map(item => {
@@ -1257,15 +1752,15 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                             gap: '4px',
                                                             padding: '8px 4px',
                                                             borderRadius: '6px',
-                                                            border: isSelected ? `2px solid ${categoryFormData.color || '#3b82f6'}` : '1px solid rgba(255,255,255,0.08)',
-                                                            backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.03)',
-                                                            color: isSelected ? '#ffffff' : '#cbd5e1',
+                                                            border: isSelected ? `2px solid ${categoryFormData.color || '#3b82f6'}` : (isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'),
+                                                            backgroundColor: isSelected ? (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)') : (isDarkMode ? 'rgba(255,255,255,0.03)' : '#ffffff'),
+                                                            color: isSelected ? (isDarkMode ? '#ffffff' : '#0f172a') : (isDarkMode ? '#cbd5e1' : '#475569'),
                                                             cursor: 'pointer',
                                                             transition: 'all 0.15s ease'
                                                         }}
                                                         title={`${item.label} (${item.group})`}
                                                     >
-                                                        <div style={{ color: isSelected ? (categoryFormData.color || '#3b82f6') : '#94a3b8' }}>
+                                                        <div style={{ color: isSelected ? (categoryFormData.color || '#3b82f6') : (isDarkMode ? '#94a3b8' : '#64748b') }}>
                                                             <PoiCategoryGlyph iconId={item.id} size={18} color="currentColor" />
                                                         </div>
                                                         <span style={{ fontSize: '9.5px', fontWeight: isSelected ? 700 : 500, textAlign: 'center', lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', width: '100%', whiteSpace: 'nowrap' }}>
@@ -1279,11 +1774,11 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>Açıklama</label>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12.5px', fontWeight: 600 }}>{isTr ? 'Açıklama' : 'Description'}</label>
                                     <textarea
                                         className="form-control"
                                         rows="2"
-                                        placeholder="Kategori hakkında kısa açıklama..."
+                                        placeholder={isTr ? "Kategori hakkında kısa açıklama..." : "Brief description for category..."}
                                         value={categoryFormData.description}
                                         onChange={(e) => setCategoryFormData({ ...categoryFormData, description: e.target.value })}
                                     />
@@ -1297,17 +1792,17 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                             checked={categoryFormData.isActive}
                                             onChange={(e) => setCategoryFormData({ ...categoryFormData, isActive: e.target.checked })}
                                         />
-                                        <label htmlFor="catIsActive" style={{ cursor: 'pointer', fontSize: '13px' }}>Kategori Aktif Olsun</label>
+                                        <label htmlFor="catIsActive" style={{ cursor: 'pointer', fontSize: '13px' }}>{isTr ? 'Kategori Aktif Olsun' : 'Category Active Status'}</label>
                                     </div>
                                 )}
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
                                 <button type="button" className="admin-secondary-btn" onClick={() => setShowCategoryModal(false)}>
-                                    İptal
+                                    {isTr ? 'İptal' : 'Cancel'}
                                 </button>
                                 <button type="submit" className="admin-primary-btn">
-                                    {editingCategory ? 'Güncelle' : 'Oluştur'}
+                                    {editingCategory ? (isTr ? 'Güncelle' : 'Update') : (isTr ? 'Oluştur' : 'Create')}
                                 </button>
                             </div>
                         </form>

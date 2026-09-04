@@ -25,6 +25,7 @@ namespace GeoraphMap.Core.DTOs
         public List<int> RouteIds { get; set; } = new List<int>();
         public List<RouteSummaryDto> Routes { get; set; } = new List<RouteSummaryDto>();
         public string StopClass { get; set; } = "otobus";
+        public string? ImageUrl { get; set; }
         public string Wkt { get; set; } = string.Empty;
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
@@ -39,6 +40,7 @@ namespace GeoraphMap.Core.DTOs
         public int? RouteId { get; set; }
         public List<int>? RouteIds { get; set; }
         public string StopClass { get; set; } = "otobus";
+        public string? ImageUrl { get; set; }
         public string Wkt { get; set; } = string.Empty;
         public string? Description { get; set; }
         public int? OrderIndex { get; set; } // Belirtilmezse güzergahın sonuna eklenir
@@ -51,6 +53,7 @@ namespace GeoraphMap.Core.DTOs
         public int? RouteId { get; set; }
         public List<int>? RouteIds { get; set; }
         public string? StopClass { get; set; }
+        public string? ImageUrl { get; set; }
         public string? Description { get; set; }
         public string? Wkt { get; set; }
         public int? OrderIndex { get; set; }

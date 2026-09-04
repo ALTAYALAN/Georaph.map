@@ -115,7 +115,7 @@ export const AdminDashboard = ({
                     )}
                     {activeTab === 'pois' && <PoiManagement token={token} isDarkMode={isDarkMode} lang={lang} />}
                     {activeTab === 'geo' && <GeoManagement token={token} isDarkMode={isDarkMode} toggleTheme={toggleTheme} lang={lang} />}
-                    {activeTab === 'zoom' && <ZoomSettingsManagement lang={lang} isDarkMode={isDarkMode} />}
+                    {activeTab === 'zoom' && <ZoomSettingsManagement lang={lang} isDarkMode={isDarkMode} token={token} />}
                 </main>
             </div>
         </div>

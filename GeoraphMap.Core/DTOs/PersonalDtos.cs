@@ -44,7 +44,7 @@ namespace GeoraphMap.Core.DTOs
     {
         public string Mode { get; set; } = "driving"; // "driving", "walking", "cycling"
         public string Label { get; set; } = "Arabayla";
-        public string Icon { get; set; } = "🚗";
+        public string Icon { get; set; } = "car";
         public double DistanceMeters { get; set; }
         public double DistanceKm => Math.Round(DistanceMeters / 1000.0, 2);
         public double DurationSeconds { get; set; }
@@ -142,5 +142,12 @@ namespace GeoraphMap.Core.DTOs
         public string? Description { get; set; }
         public string? WorkingHours { get; set; }
         public DateTime CreatedDate { get; set; }
+    }
+
+    public class UpdateUserProfileDto
+    {
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        public string? Password { get; set; }
     }
 }

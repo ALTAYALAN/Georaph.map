@@ -26,6 +26,10 @@ namespace GeoraphMap.Infrastructure.Services
 
         private async Task EnsureDefaultCategoriesSeededAsync()
         {
+            await _context.Database.ExecuteSqlRawAsync(@"
+                ALTER TABLE tbl_poi ADD COLUMN IF NOT EXISTS image_url TEXT;
+            ");
+
             if (await _context.PoiCategories.AnyAsync(c => !c.IsDeleted)) return;
 
             try
@@ -83,6 +87,17 @@ namespace GeoraphMap.Infrastructure.Services
                     new PoiCategory { Name = "Otogar / Terminal", Description = "Şehirlerarası ve ilçe otogarları", ParentId = transCat.Id, Icon = "fa-bus", Color = "#10b981" },
                     new PoiCategory { Name = "Metro / Tren İstasyonu", Description = "Raylı sistem istasyonları", ParentId = transCat.Id, Icon = "fa-train", Color = "#059669" },
                     new PoiCategory { Name = "Otopark", Description = "Açık ve kapalı otopark alanları", ParentId = transCat.Id, Icon = "fa-parking", Color = "#047857" }
+                );
+
+                // 6. Kültür & Turizm
+                var cultureCat = new PoiCategory { Name = "Kültür & Turizm", Description = "Müzeler, ören yerleri, tarihi yapılar ve sanat merkezleri", Icon = "fa-landmark", Color = "#8b5cf6" };
+                _context.PoiCategories.Add(cultureCat);
+                await _context.SaveChangesAsync();
+
+                _context.PoiCategories.AddRange(
+                    new PoiCategory { Name = "Müze", Description = "Tarih, arkeoloji, etnografya ve sanat müzeleri", ParentId = cultureCat.Id, Icon = "fa-landmark", Color = "#8b5cf6" },
+                    new PoiCategory { Name = "Ören Yeri & Antik Kent", Description = "Tarihi açık hava yerleşimleri ve arkeolojik alanlar", ParentId = cultureCat.Id, Icon = "fa-monument", Color = "#a855f7" },
+                    new PoiCategory { Name = "Sanat Galerisi", Description = "Resim, heykel ve çağdaş sanat sergi merkezleri", ParentId = cultureCat.Id, Icon = "fa-palette", Color = "#7c3aed" }
                 );
 
                 await _context.SaveChangesAsync();
@@ -359,6 +374,7 @@ namespace GeoraphMap.Infrastructure.Services
                 Description = dto.Description?.Trim(),
                 CategoryId = dto.CategoryId,
                 WorkingHours = dto.WorkingHours?.Trim(),
+                ImageUrl = dto.ImageUrl?.Trim(),
                 Wkt = dto.Wkt.Trim(),
                 Geometry = geometry,
                 UserId = userId,
@@ -389,6 +405,7 @@ namespace GeoraphMap.Infrastructure.Services
             poi.Description = dto.Description?.Trim();
             poi.CategoryId = dto.CategoryId;
             poi.WorkingHours = dto.WorkingHours?.Trim();
+            poi.ImageUrl = dto.ImageUrl?.Trim();
             poi.IsActive = dto.IsActive;
             poi.ModifiedDate = DateTime.UtcNow;
 
@@ -457,6 +474,7 @@ namespace GeoraphMap.Infrastructure.Services
                 CategoryIcon = p.Category?.Icon ?? "fa-map-pin",
                 CategoryDisplayOrder = p.Category?.DisplayOrder ?? 1,
                 WorkingHours = p.WorkingHours,
+                ImageUrl = p.ImageUrl,
                 Wkt = p.Wkt,
                 Longitude = lon,
                 Latitude = lat,

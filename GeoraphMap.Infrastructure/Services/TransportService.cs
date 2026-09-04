@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using GeoraphMap.Core;
@@ -36,6 +37,7 @@ namespace GeoraphMap.Infrastructure.Services
                         ALTER TABLE tbl_stop ALTER COLUMN route_id DROP NOT NULL;
                         ALTER TABLE tbl_stop ADD COLUMN IF NOT EXISTS stop_class VARCHAR(50) DEFAULT 'otobus';
                         ALTER TABLE tbl_stop ADD COLUMN IF NOT EXISTS stop_code VARCHAR(100);
+                        ALTER TABLE tbl_stop ADD COLUMN IF NOT EXISTS image_url TEXT;
                         UPDATE tbl_stop SET stop_class = 'otobus' WHERE stop_class IS NULL;
 
                         CREATE TABLE IF NOT EXISTS tbl_route_stop (
@@ -57,15 +59,34 @@ namespace GeoraphMap.Infrastructure.Services
             }
         }
 
+        public static string NormalizeClass(string? classKey)
+        {
+            if (string.IsNullOrWhiteSpace(classKey)) return "otobus";
+            var key = classKey.ToLowerInvariant().Trim();
+            if (key == "gemi" || key == "deniz" || key == "vapur" || key == "feribot" || key == "ship" || key == "port") return "deniz";
+            if (key == "metro" || key == "subway") return "metro";
+            if (key == "tramvay" || key == "tram" || key == "nostaljik") return "tramvay";
+            if (key == "metrobus" || key == "metrobüs" || key == "brt") return "metrobus";
+            if (key == "tren" || key == "train" || key == "tcdd" || key == "marmaray" || key == "izban" || key == "baskentray" || key == "demiryolu") return "tren";
+            if (key == "otobus" || key == "bus" || key == "iett" || key == "ego" || key == "eshot" || key == "araba" || key == "car") return "otobus";
+            return key;
+        }
+
+        public static bool AreClassesCompatible(string? class1, string? class2)
+        {
+            return NormalizeClass(class1) == NormalizeClass(class2);
+        }
+
         private static string GenerateStopCode(string stopClass, int? id = null)
         {
-            string prefix = (stopClass?.ToLowerInvariant()) switch
+            string prefix = NormalizeClass(stopClass) switch
             {
                 "metro" => "METRO",
-                "gemi" => "PORT",
-                "tren" => "TRAIN",
-                "araba" => "ROAD",
-                _ => "BUS"
+                "deniz" => "ISKELE",
+                "tren" => "GARY",
+                "tramvay" => "TRAM",
+                "metrobus" => "MBUS",
+                _ => "DURAK"
             };
 
             int randomSuffix = id.HasValue && id.Value > 0 ? id.Value : new Random().Next(1000, 9999);
@@ -88,9 +109,9 @@ namespace GeoraphMap.Infrastructure.Services
             }
 
             var routes = await query.OrderBy(r => r.Name).ToListAsync();
-            // Tekil liman sahte kayıtlarını filtrele (Limanlar duraktır, tek başına güzergah değildir)
+            // Tekil liman sahte kayıtlarını filtrele
             var validRoutes = routes
-                .Where(r => !(r.RouteClass == "gemi" && string.IsNullOrEmpty(r.Wkt) && (r.Stops == null || r.Stops.Count <= 1)))
+                .Where(r => !(NormalizeClass(r.RouteClass) == "deniz" && string.IsNullOrEmpty(r.Wkt) && (r.Stops == null || r.Stops.Count <= 1)))
                 .Select(MapToRouteDto)
                 .ToList();
 
@@ -111,11 +132,12 @@ namespace GeoraphMap.Infrastructure.Services
 
         public async Task<RouteDto> CreateRouteAsync(CreateRouteDto dto)
         {
+            var normClass = NormalizeClass(dto.RouteClass);
             var route = new RouteFeature
             {
                 Name = dto.Name.Trim(),
                 Color = string.IsNullOrWhiteSpace(dto.Color) ? "#3B82F6" : dto.Color.Trim(),
-                RouteClass = string.IsNullOrWhiteSpace(dto.RouteClass) ? "araba" : dto.RouteClass.ToLower().Trim(),
+                RouteClass = normClass,
                 Description = dto.Description?.Trim(),
                 Wkt = dto.Wkt?.Trim(),
                 IsActive = true,
@@ -168,7 +190,7 @@ namespace GeoraphMap.Infrastructure.Services
                 route.Color = dto.Color.Trim();
 
             if (!string.IsNullOrWhiteSpace(dto.RouteClass))
-                route.RouteClass = dto.RouteClass.ToLower().Trim();
+                route.RouteClass = NormalizeClass(dto.RouteClass);
 
             if (dto.Description != null)
                 route.Description = dto.Description.Trim();
@@ -257,7 +279,6 @@ namespace GeoraphMap.Infrastructure.Services
         {
             await EnsureStopSchemaAsync();
 
-            // Hem doğrudan route_id'si olanlar hem de tbl_route_stop junction'da olanlar
             var stops = await _context.Stops
                 .Include(s => s.Route)
                 .Include(s => s.RouteStops)
@@ -287,18 +308,30 @@ namespace GeoraphMap.Infrastructure.Services
         {
             await EnsureStopSchemaAsync();
 
-            var routeIds = (dto.RouteIds != null && dto.RouteIds.Any())
+            string finalClass = NormalizeClass(dto.StopClass);
+
+            // Gelen güzergah id'lerini filtrele: Sadece AYNI sınıftaki güzergahlara bağlanabilir!
+            var rawRouteIds = (dto.RouteIds != null && dto.RouteIds.Any())
                 ? dto.RouteIds.Where(r => r > 0).Distinct().ToList()
                 : (dto.RouteId.HasValue && dto.RouteId.Value > 0 ? new List<int> { dto.RouteId.Value } : new List<int>());
 
-            int? primaryRouteId = routeIds.FirstOrDefault() > 0 ? routeIds.First() : (int?)null;
+            var validRoutes = await _context.Routes
+                .Where(r => rawRouteIds.Contains(r.Id) && !r.IsDeleted)
+                .ToListAsync();
+
+            var compatibleRouteIds = validRoutes
+                .Where(r => AreClassesCompatible(r.RouteClass, finalClass))
+                .Select(r => r.Id)
+                .ToList();
+
+            int? primaryRouteId = compatibleRouteIds.FirstOrDefault() > 0 ? compatibleRouteIds.First() : (int?)null;
             int nextOrder = 1;
 
             if (primaryRouteId.HasValue)
             {
-                var maxOrder = await _context.Stops
-                    .Where(s => s.RouteId == primaryRouteId.Value && !s.IsDeleted)
-                    .MaxAsync(s => (int?)s.OrderIndex);
+                var maxOrder = await _context.RouteStops
+                    .Where(rs => rs.RouteId == primaryRouteId.Value)
+                    .MaxAsync(rs => (int?)rs.OrderIndex);
 
                 if (maxOrder.HasValue)
                 {
@@ -319,7 +352,6 @@ namespace GeoraphMap.Infrastructure.Services
                 catch { }
             }
 
-            string finalClass = !string.IsNullOrWhiteSpace(dto.StopClass) ? dto.StopClass.ToLower().Trim() : "otobus";
             string finalCode = !string.IsNullOrWhiteSpace(dto.StopCode) ? dto.StopCode.Trim() : GenerateStopCode(finalClass);
 
             var stop = new StopFeature
@@ -330,6 +362,7 @@ namespace GeoraphMap.Infrastructure.Services
                 StopClass = finalClass,
                 OrderIndex = finalOrder,
                 Description = dto.Description?.Trim(),
+                ImageUrl = dto.ImageUrl?.Trim(),
                 Wkt = dto.Wkt,
                 Geometry = geom,
                 IsActive = true,
@@ -341,8 +374,8 @@ namespace GeoraphMap.Infrastructure.Services
             _context.Stops.Add(stop);
             await _context.SaveChangesAsync();
 
-            // Sync RouteStop Junction Entries
-            foreach (var rId in routeIds)
+            // Sync RouteStop Junction Entries (1-to-N relationships within same class)
+            foreach (var rId in compatibleRouteIds)
             {
                 _context.RouteStops.Add(new RouteStopFeature
                 {
@@ -352,9 +385,13 @@ namespace GeoraphMap.Infrastructure.Services
                     CreatedDate = DateTime.UtcNow
                 });
             }
-            if (routeIds.Any())
+            if (compatibleRouteIds.Any())
             {
                 await _context.SaveChangesAsync();
+                foreach (var rId in compatibleRouteIds)
+                {
+                    try { await GenerateOsrmRouteAsync(rId); } catch { }
+                }
             }
 
             return MapToStopDto(stop);
@@ -379,10 +416,13 @@ namespace GeoraphMap.Infrastructure.Services
                 stop.StopCode = dto.StopCode.Trim();
 
             if (!string.IsNullOrWhiteSpace(dto.StopClass))
-                stop.StopClass = dto.StopClass.ToLower().Trim();
+                stop.StopClass = NormalizeClass(dto.StopClass);
 
             if (dto.Description != null)
                 stop.Description = dto.Description.Trim();
+
+            if (dto.ImageUrl != null)
+                stop.ImageUrl = string.IsNullOrWhiteSpace(dto.ImageUrl) ? null : dto.ImageUrl.Trim();
 
             if (dto.OrderIndex.HasValue)
                 stop.OrderIndex = dto.OrderIndex.Value;
@@ -401,29 +441,75 @@ namespace GeoraphMap.Infrastructure.Services
                 catch {}
             }
 
-            // Sync Multi-Route Associations
+            // Sync Multi-Route Associations (Sadece aynı sınıftaki güzergahlar)
+            var currentClass = stop.StopClass;
+            List<int>? targetRouteIds = null;
+
             if (dto.RouteIds != null)
             {
-                var targetRouteIds = dto.RouteIds.Where(r => r > 0).Distinct().ToList();
-                stop.RouteId = targetRouteIds.FirstOrDefault() > 0 ? targetRouteIds.First() : (int?)null;
+                targetRouteIds = dto.RouteIds.Where(r => r > 0).Distinct().ToList();
+            }
+
+            if (targetRouteIds != null)
+            {
+                var validRoutes = await _context.Routes
+                    .Where(r => targetRouteIds.Contains(r.Id) && !r.IsDeleted)
+                    .ToListAsync();
+
+                var compatibleRouteIds = validRoutes
+                    .Where(r => AreClassesCompatible(r.RouteClass, currentClass))
+                    .Select(r => r.Id)
+                    .ToList();
+
+                stop.RouteId = compatibleRouteIds.FirstOrDefault() > 0 ? compatibleRouteIds.First() : (int?)null;
 
                 var currentJunctions = await _context.RouteStops.Where(rs => rs.StopId == id).ToListAsync();
-                _context.RouteStops.RemoveRange(currentJunctions);
-
-                foreach (var rId in targetRouteIds)
+                
+                // Kaldırılan hat bağlantılarını sil
+                var junctionsToRemove = currentJunctions.Where(j => !compatibleRouteIds.Contains(j.RouteId)).ToList();
+                if (junctionsToRemove.Any())
                 {
-                    _context.RouteStops.Add(new RouteStopFeature
+                    _context.RouteStops.RemoveRange(junctionsToRemove);
+                }
+
+                // Yeni eklenen hat bağlantılarını ekle (Mevcut olanların OrderIndex'ini koru!)
+                foreach (var rId in compatibleRouteIds)
+                {
+                    var existing = currentJunctions.FirstOrDefault(j => j.RouteId == rId);
+                    if (existing == null)
                     {
-                        RouteId = rId,
-                        StopId = id,
-                        OrderIndex = stop.OrderIndex,
-                        CreatedDate = DateTime.UtcNow
-                    });
+                        var maxOrder = await _context.RouteStops.Where(rs => rs.RouteId == rId).Select(rs => (int?)rs.OrderIndex).MaxAsync() ?? 0;
+                        _context.RouteStops.Add(new RouteStopFeature
+                        {
+                            RouteId = rId,
+                            StopId = id,
+                            OrderIndex = maxOrder + 1,
+                            CreatedDate = DateTime.UtcNow
+                        });
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+
+                // İlgili güzergahların geometrilerini güncelle
+                var allAffectedRouteIds = currentJunctions.Select(j => j.RouteId).Concat(compatibleRouteIds).Distinct();
+                foreach (var rId in allAffectedRouteIds)
+                {
+                    try { await GenerateOsrmRouteAsync(rId); } catch { }
                 }
             }
-            else if (dto.RouteId.HasValue)
+            else
             {
-                stop.RouteId = dto.RouteId.Value > 0 ? dto.RouteId.Value : null;
+                // dto.RouteIds gönderilmediyse (yalnızca koordinat veya isim güncellendiğinde) mevcut bağlantıları koru ve geometrilerini güncelle
+                var existingRouteIds = await _context.RouteStops.Where(rs => rs.StopId == id).Select(rs => rs.RouteId).ToListAsync();
+                if (stop.RouteId.HasValue && !existingRouteIds.Contains(stop.RouteId.Value))
+                {
+                    existingRouteIds.Add(stop.RouteId.Value);
+                }
+                foreach (var rId in existingRouteIds)
+                {
+                    try { await GenerateOsrmRouteAsync(rId); } catch { }
+                }
             }
 
             stop.ModifiedDate = DateTime.UtcNow;
@@ -441,7 +527,15 @@ namespace GeoraphMap.Infrastructure.Services
             stop.IsActive = false;
             stop.ModifiedDate = DateTime.UtcNow;
 
+            var affectedRoutes = await _context.RouteStops.Where(rs => rs.StopId == id).Select(rs => rs.RouteId).ToListAsync();
+
             await _context.SaveChangesAsync();
+
+            foreach (var rId in affectedRoutes)
+            {
+                try { await GenerateOsrmRouteAsync(rId); } catch { }
+            }
+
             return true;
         }
 
@@ -453,26 +547,40 @@ namespace GeoraphMap.Infrastructure.Services
         {
             if (orderedStopIds == null || !orderedStopIds.Any()) return false;
 
+            var routeStops = await _context.RouteStops
+                .Where(rs => rs.RouteId == routeId)
+                .ToListAsync();
+
             var stops = await _context.Stops
                 .Where(s => (s.RouteId == routeId || s.RouteStops.Any(rs => rs.RouteId == routeId)) && !s.IsDeleted)
                 .ToListAsync();
 
-            if (!stops.Any()) return false;
+            if (!stops.Any() && !routeStops.Any()) return false;
 
             for (int i = 0; i < orderedStopIds.Count; i++)
             {
                 var stopId = orderedStopIds[i];
                 var stop = stops.FirstOrDefault(s => s.Id == stopId);
-                if (stop != null)
+                if (stop != null && stop.RouteId == routeId)
                 {
                     stop.OrderIndex = i + 1;
                     stop.ModifiedDate = DateTime.UtcNow;
                 }
 
-                var junction = await _context.RouteStops.FirstOrDefaultAsync(rs => rs.RouteId == routeId && rs.StopId == stopId);
+                var junction = routeStops.FirstOrDefault(rs => rs.StopId == stopId);
                 if (junction != null)
                 {
                     junction.OrderIndex = i + 1;
+                }
+                else
+                {
+                    _context.RouteStops.Add(new RouteStopFeature
+                    {
+                        RouteId = routeId,
+                        StopId = stopId,
+                        OrderIndex = i + 1,
+                        CreatedDate = DateTime.UtcNow
+                    });
                 }
             }
 
@@ -484,7 +592,7 @@ namespace GeoraphMap.Infrastructure.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[TransportService] Auto OSRM route generation after reorder notice: {ex.Message}");
+                Console.WriteLine($"[TransportService] Auto route geometry generation after reorder error: {ex.Message}");
             }
 
             return true;
@@ -492,20 +600,33 @@ namespace GeoraphMap.Infrastructure.Services
 
         #endregion
 
-        #region OSRM Automatic Routing
+        #region OSRM & Direct Transit Line Routing
 
         public async Task<RouteDto?> GenerateOsrmRouteAsync(int routeId)
         {
             var route = await _context.Routes
                 .Include(r => r.Stops.Where(s => !s.IsDeleted).OrderBy(s => s.OrderIndex))
+                .Include(r => r.RouteStops)
+                    .ThenInclude(rs => rs.Stop)
                 .FirstOrDefaultAsync(r => r.Id == routeId && !r.IsDeleted);
 
             if (route == null) return null;
 
-            var orderedStops = route.Stops
+            // Junction ve doğrudan bağlı durakları birleştirip sırala
+            var junctionStops = route.RouteStops
+                .Where(rs => rs.Stop != null && !rs.Stop.IsDeleted)
+                .OrderBy(rs => rs.OrderIndex)
+                .Select(rs => rs.Stop!)
+                .ToList();
+
+            var directStops = route.Stops
                 .Where(s => !s.IsDeleted)
                 .OrderBy(s => s.OrderIndex)
                 .ToList();
+
+            var orderedStops = junctionStops.Any() 
+                ? junctionStops 
+                : directStops;
 
             // Durakların geçerli coğrafi koordinatlarını topla
             var coordsList = new List<(double Longitude, double Latitude)>();
@@ -520,25 +641,53 @@ namespace GeoraphMap.Infrastructure.Services
 
             if (coordsList.Count < 2)
             {
-                return new RouteDto
-                {
-                    Id = route.Id,
-                    Name = route.Name,
-                    Color = route.Color ?? "#3B82F6",
-                    Description = route.Description,
-                    Wkt = route.Wkt,
-                    IsActive = route.IsActive,
-                    CreatedDate = route.CreatedDate,
-                    StopCount = route.Stops.Count(s => !s.IsDeleted),
-                    Stops = route.Stops.Where(s => !s.IsDeleted).OrderBy(s => s.OrderIndex).Select(MapToStopDto).ToList()
-                };
+                return MapToRouteDto(route);
             }
 
-            // OSRM üzerinden karayolu rotasını hesapla
+            var rClass = NormalizeClass(route.RouteClass);
+
+            // 1. Metro, Tramvay, Metrobüs, Tren, Deniz ve Havayolu hatları için organik kıvrımlı hat geometrisi (Spline) oluştur
+            if (rClass == "metro" || rClass == "deniz" || rClass == "tren" || rClass == "tramvay" || rClass == "metrobus" || rClass == "havayolu")
+            {
+                // Varsa öncelikle özel bükümü kullan
+                if (route.GeometryType == "Custom" && !string.IsNullOrWhiteSpace(route.CustomWkt))
+                {
+                    route.Wkt = route.CustomWkt;
+                }
+                else
+                {
+                    // Kuş uçuşu sert kırılmalar yerine raylı sistemler için organik kıvrımlı (Catmull-Rom Spline) geometri üret
+                    var curvedPoints = GenerateSmoothSpline(coordsList, segmentsPerSpan: 6);
+                    var splineCoords = curvedPoints.Select(c => $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)} {c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}");
+                    var splineWkt = $"LINESTRING({string.Join(", ", splineCoords)})";
+
+                    route.PreviousWkt = route.Wkt;
+                    route.Wkt = splineWkt;
+                    route.GeometryType = (route.GeometryType == "Direct") ? "Direct" : "Custom";
+                    if (string.IsNullOrWhiteSpace(route.CustomWkt))
+                    {
+                        route.CustomWkt = splineWkt;
+                    }
+                }
+
+                try
+                {
+                    route.Geometry = _wktReader.Read(route.Wkt);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TransportService] Transit Line WKT parsing error: {ex.Message}");
+                }
+
+                route.ModifiedDate = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                return MapToRouteDto(route);
+            }
+
+            // 2. Karayolu hatları (Otobüs, Dolmuş, Minibüs, Araba vb.) için OSRM üzerinden rotayı hesapla
             var osrmResult = await _osrmRoutingService.CalculateRouteAsync(coordsList);
             if (osrmResult.Success && !string.IsNullOrWhiteSpace(osrmResult.Wkt))
             {
-                // Önceki geometri durumunu yedekle
                 route.PreviousWkt = route.Wkt;
                 route.Wkt = osrmResult.Wkt;
                 route.GeometryType = "Osrm";
@@ -555,6 +704,18 @@ namespace GeoraphMap.Infrastructure.Services
                 route.ModifiedDate = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
             }
+            else
+            {
+                // Fallback olarak doğrudan çizgi
+                var directPoints = coordsList.Select(c => $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)} {c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}");
+                var directWkt = $"LINESTRING({string.Join(", ", directPoints)})";
+                route.PreviousWkt = route.Wkt;
+                route.Wkt = directWkt;
+                route.GeometryType = "Direct";
+                try { route.Geometry = _wktReader.Read(directWkt); } catch { }
+                route.ModifiedDate = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
 
             return MapToRouteDto(route);
         }
@@ -563,6 +724,8 @@ namespace GeoraphMap.Infrastructure.Services
         {
             var route = await _context.Routes
                 .Include(r => r.Stops.Where(s => !s.IsDeleted).OrderBy(s => s.OrderIndex))
+                .Include(r => r.RouteStops)
+                    .ThenInclude(rs => rs.Stop)
                 .FirstOrDefaultAsync(r => r.Id == routeId && !r.IsDeleted);
 
             if (route == null) return null;
@@ -571,15 +734,41 @@ namespace GeoraphMap.Infrastructure.Services
 
             if (targetMode == "direct" || targetMode == "kusbakisi" || targetMode == "reset")
             {
-                // Kuş bakışı / Standart Düz Çizgi Modu
                 route.PreviousWkt = route.Wkt;
-                route.Wkt = null;
-                route.Geometry = null;
                 route.GeometryType = "Direct";
+
+                var junctionStops = route.RouteStops
+                    .Where(rs => rs.Stop != null && !rs.Stop.IsDeleted)
+                    .OrderBy(rs => rs.OrderIndex)
+                    .Select(rs => rs.Stop!)
+                    .ToList();
+
+                var directStops = route.Stops
+                    .Where(s => !s.IsDeleted)
+                    .OrderBy(s => s.OrderIndex)
+                    .ToList();
+
+                var orderedStops = junctionStops.Any() ? junctionStops : directStops;
+                var coordsList = new List<(double Longitude, double Latitude)>();
+                foreach (var stop in orderedStops)
+                {
+                    var (lon, lat) = ExtractStopCoordinates(stop);
+                    if (lon.HasValue && lat.HasValue) coordsList.Add((lon.Value, lat.Value));
+                }
+
+                if (coordsList.Count >= 2)
+                {
+                    var directPoints = coordsList.Select(c => $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)} {c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}");
+                    route.Wkt = $"LINESTRING({string.Join(", ", directPoints)})";
+                    try { route.Geometry = _wktReader.Read(route.Wkt); } catch { }
+                }
+
+                route.ModifiedDate = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                return MapToRouteDto(route);
             }
             else if (targetMode == "custom" || targetMode == "bukulmus")
             {
-                // Kullanıcının daha önce elle büktüğü özel geometriyi geri yükle
                 if (!string.IsNullOrWhiteSpace(route.CustomWkt))
                 {
                     route.PreviousWkt = route.Wkt;
@@ -590,12 +779,11 @@ namespace GeoraphMap.Infrastructure.Services
             }
             else if (targetMode == "osrm" || targetMode == "karayolu")
             {
-                // OSRM Moduna geçiş
+                route.GeometryType = "Osrm";
                 return await GenerateOsrmRouteAsync(routeId);
             }
             else if (targetMode == "revert" || targetMode == "restore" || targetMode == "undo")
             {
-                // Bir önceki geometri durumuna geri dön
                 return await RevertRouteGeometryAsync(routeId);
             }
 
@@ -613,7 +801,6 @@ namespace GeoraphMap.Infrastructure.Services
 
             if (route == null) return null;
 
-            // Wkt ile PreviousWkt'yi takas et (Undo / Redo desteği)
             var tempCurrent = route.Wkt;
             route.Wkt = route.PreviousWkt;
             route.PreviousWkt = tempCurrent;
@@ -635,7 +822,7 @@ namespace GeoraphMap.Infrastructure.Services
             return MapToRouteDto(route);
         }
 
-        public async Task<bool> AddStopToRouteAsync(int routeId, int stopId)
+        public async Task<bool> AddStopToRouteAsync(int routeId, int stopId, string position = "end", int? targetStopId = null)
         {
             await EnsureStopSchemaAsync();
 
@@ -643,22 +830,71 @@ namespace GeoraphMap.Infrastructure.Services
             var stop = await _context.Stops.FirstOrDefaultAsync(s => s.Id == stopId && !s.IsDeleted);
             if (route == null || stop == null) return false;
 
-            var existingJunction = await _context.RouteStops
-                .FirstOrDefaultAsync(rs => rs.RouteId == routeId && rs.StopId == stopId);
-
-            if (existingJunction == null)
+            // KAT-I SINIF İZOLASYONU KONTROLÜ: Sadece aynı sınıftaki durak ve güzergahlar bağlanabilir!
+            if (!AreClassesCompatible(stop.StopClass, route.RouteClass))
             {
-                var maxOrder = await _context.RouteStops
-                    .Where(rs => rs.RouteId == routeId)
-                    .MaxAsync(rs => (int?)rs.OrderIndex) ?? 0;
+                Console.WriteLine($"[TransportService] Reddedildi: Durak sınıfı ({stop.StopClass}) ile Güzergah sınıfı ({route.RouteClass}) uyumsuz!");
+                return false;
+            }
 
+            var existingJunctions = await _context.RouteStops
+                .Where(rs => rs.RouteId == routeId)
+                .OrderBy(rs => rs.OrderIndex)
+                .ToListAsync();
+
+            var currentJunction = existingJunctions.FirstOrDefault(rs => rs.StopId == stopId);
+
+            int targetIndex = 1;
+            string pos = (position ?? "end").ToLowerInvariant().Trim();
+
+            if (pos == "start" || pos == "basa" || pos == "once")
+            {
+                targetIndex = 1;
+                // Mevcut tüm durakların indeksini 1 kaydır
+                foreach (var j in existingJunctions.Where(j => j.StopId != stopId))
+                {
+                    j.OrderIndex += 1;
+                }
+            }
+            else if (pos == "before" && targetStopId.HasValue)
+            {
+                var refJ = existingJunctions.FirstOrDefault(j => j.StopId == targetStopId.Value);
+                int refOrder = refJ != null ? refJ.OrderIndex : 1;
+                targetIndex = refOrder;
+                foreach (var j in existingJunctions.Where(j => j.StopId != stopId && j.OrderIndex >= refOrder))
+                {
+                    j.OrderIndex += 1;
+                }
+            }
+            else if (pos == "after" && targetStopId.HasValue)
+            {
+                var refJ = existingJunctions.FirstOrDefault(j => j.StopId == targetStopId.Value);
+                int refOrder = refJ != null ? refJ.OrderIndex : existingJunctions.Count;
+                targetIndex = refOrder + 1;
+                foreach (var j in existingJunctions.Where(j => j.StopId != stopId && j.OrderIndex > refOrder))
+                {
+                    j.OrderIndex += 1;
+                }
+            }
+            else // "end" veya "sona"
+            {
+                var maxOrder = existingJunctions.Any() ? existingJunctions.Max(rs => rs.OrderIndex) : 0;
+                targetIndex = maxOrder + 1;
+            }
+
+            if (currentJunction == null)
+            {
                 _context.RouteStops.Add(new RouteStopFeature
                 {
                     RouteId = routeId,
                     StopId = stopId,
-                    OrderIndex = maxOrder + 1,
+                    OrderIndex = targetIndex,
                     CreatedDate = DateTime.UtcNow
                 });
+            }
+            else
+            {
+                currentJunction.OrderIndex = targetIndex;
             }
 
             if (!stop.RouteId.HasValue || stop.RouteId <= 0)
@@ -669,6 +905,26 @@ namespace GeoraphMap.Infrastructure.Services
             route.ModifiedDate = DateTime.UtcNow;
             stop.ModifiedDate = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            // Sıralamayı normalize et (1..N ardışık yap)
+            var allJunctions = await _context.RouteStops
+                .Where(rs => rs.RouteId == routeId)
+                .OrderBy(rs => rs.OrderIndex)
+                .ToListAsync();
+
+            for (int i = 0; i < allJunctions.Count; i++)
+            {
+                allJunctions[i].OrderIndex = i + 1;
+            }
+            await _context.SaveChangesAsync();
+
+            // Hat çizgisini otomatik yeniden oluştur
+            try
+            {
+                await GenerateOsrmRouteAsync(routeId);
+            }
+            catch { }
+
             return true;
         }
 
@@ -701,6 +957,26 @@ namespace GeoraphMap.Infrastructure.Services
             }
 
             await _context.SaveChangesAsync();
+
+            // Kalan durakların sıralamasını normalize et
+            var remainingJunctions = await _context.RouteStops
+                .Where(rs => rs.RouteId == routeId)
+                .OrderBy(rs => rs.OrderIndex)
+                .ToListAsync();
+
+            for (int i = 0; i < remainingJunctions.Count; i++)
+            {
+                remainingJunctions[i].OrderIndex = i + 1;
+            }
+            await _context.SaveChangesAsync();
+
+            // Hat çizgisini güncelle
+            try
+            {
+                await GenerateOsrmRouteAsync(routeId);
+            }
+            catch { }
+
             return true;
         }
 
@@ -715,23 +991,35 @@ namespace GeoraphMap.Infrastructure.Services
                 : new List<StopFeature>();
 
             var junctionStops = route.RouteStops != null 
-                ? route.RouteStops.Where(rs => rs.Stop != null && !rs.Stop.IsDeleted).Select(rs => rs.Stop!).ToList() 
+                ? route.RouteStops.Where(rs => rs.Stop != null && !rs.Stop.IsDeleted).OrderBy(rs => rs.OrderIndex).Select(rs => rs.Stop!).ToList() 
                 : new List<StopFeature>();
 
-            var combinedStops = directStops
-                .Concat(junctionStops)
+            // Junction listesi varsa order_index junction üzerinden alınır
+            var combinedStops = (junctionStops.Any() ? junctionStops : directStops)
                 .GroupBy(s => s.Id)
                 .Select(g => g.First())
-                .OrderBy(s => s.OrderIndex)
                 .Select(MapToStopDto)
                 .ToList();
+
+            if (route.RouteStops != null && route.RouteStops.Any())
+            {
+                foreach (var s in combinedStops)
+                {
+                    var j = route.RouteStops.FirstOrDefault(rs => rs.StopId == s.Id);
+                    if (j != null)
+                    {
+                        s.OrderIndex = j.OrderIndex;
+                    }
+                }
+                combinedStops = combinedStops.OrderBy(s => s.OrderIndex).ToList();
+            }
 
             return new RouteDto
             {
                 Id = route.Id,
                 Name = route.Name,
                 Color = route.Color ?? "#3B82F6",
-                RouteClass = string.IsNullOrWhiteSpace(route.RouteClass) ? "araba" : route.RouteClass,
+                RouteClass = NormalizeClass(route.RouteClass),
                 Description = route.Description,
                 Wkt = route.Wkt,
                 PreviousWkt = route.PreviousWkt,
@@ -765,8 +1053,8 @@ namespace GeoraphMap.Infrastructure.Services
                         .Trim();
                     var parts = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     if (parts.Length >= 2 &&
-                        double.TryParse(parts[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double parsedLon) &&
-                        double.TryParse(parts[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double parsedLat))
+                        double.TryParse(parts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedLon) &&
+                        double.TryParse(parts[1], NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedLat))
                     {
                         lon = parsedLon;
                         lat = parsedLat;
@@ -777,7 +1065,7 @@ namespace GeoraphMap.Infrastructure.Services
 
             if (lat.HasValue && lon.HasValue)
             {
-                // EPSG:3857 -> EPSG:4326 dönüşümü (gerekirse)
+                // EPSG:3857 -> EPSG:4326 dönüşümü
                 if (Math.Abs(lon.Value) > 180 || Math.Abs(lat.Value) > 90)
                 {
                     double x = lon.Value;
@@ -814,7 +1102,7 @@ namespace GeoraphMap.Infrastructure.Services
                     Id = s.Route.Id,
                     Name = s.Route.Name,
                     Color = s.Route.Color ?? "#3B82F6",
-                    RouteClass = s.Route.RouteClass ?? "araba",
+                    RouteClass = NormalizeClass(s.Route.RouteClass),
                     OrderIndex = s.OrderIndex
                 });
             }
@@ -831,18 +1119,20 @@ namespace GeoraphMap.Infrastructure.Services
                             Id = rs.RouteId,
                             Name = rs.Route.Name,
                             Color = rs.Route.Color ?? "#3B82F6",
-                            RouteClass = rs.Route.RouteClass ?? "araba",
+                            RouteClass = NormalizeClass(rs.Route.RouteClass),
                             OrderIndex = rs.OrderIndex
                         });
                     }
                 }
             }
 
+            var stopClass = NormalizeClass(!string.IsNullOrWhiteSpace(s.StopClass) ? s.StopClass : s.Route?.RouteClass);
+
             return new StopDto
             {
                 Id = s.Id,
                 Name = s.Name,
-                StopCode = !string.IsNullOrWhiteSpace(s.StopCode) ? s.StopCode : GenerateStopCode(s.StopClass, s.Id),
+                StopCode = !string.IsNullOrWhiteSpace(s.StopCode) ? s.StopCode : GenerateStopCode(stopClass, s.Id),
                 OrderIndex = s.OrderIndex,
                 Description = s.Description,
                 RouteId = s.RouteId,
@@ -850,13 +1140,58 @@ namespace GeoraphMap.Infrastructure.Services
                 RouteColor = s.Route?.Color ?? "#3B82F6",
                 RouteIds = routeIdList,
                 Routes = routeList,
-                StopClass = !string.IsNullOrWhiteSpace(s.StopClass) ? s.StopClass : (!string.IsNullOrWhiteSpace(s.Route?.RouteClass) ? s.Route.RouteClass : "otobus"),
+                StopClass = stopClass,
+                ImageUrl = s.ImageUrl,
                 Wkt = s.Wkt,
                 Latitude = lat,
                 Longitude = lon,
                 IsActive = s.IsActive,
                 CreatedDate = s.CreatedDate
             };
+        }
+
+        private static List<(double Longitude, double Latitude)> GenerateSmoothSpline(List<(double Longitude, double Latitude)> points, int segmentsPerSpan = 6)
+        {
+            if (points == null || points.Count < 2) return points ?? new List<(double Longitude, double Latitude)>();
+            if (points.Count == 2) return points;
+
+            var result = new List<(double Longitude, double Latitude)>();
+            int n = points.Count;
+
+            for (int i = 0; i < n - 1; i++)
+            {
+                var p0 = i > 0 ? points[i - 1] : points[i];
+                var p1 = points[i];
+                var p2 = points[i + 1];
+                var p3 = (i + 2 < n) ? points[i + 2] : points[i + 1];
+
+                for (int step = 0; step < segmentsPerSpan; step++)
+                {
+                    double t = (double)step / segmentsPerSpan;
+                    double t2 = t * t;
+                    double t3 = t2 * t;
+
+                    // Catmull-Rom Spline Formula
+                    double lon = 0.5 * (
+                        (2 * p1.Longitude) +
+                        (-p0.Longitude + p2.Longitude) * t +
+                        (2 * p0.Longitude - 5 * p1.Longitude + 4 * p2.Longitude - p3.Longitude) * t2 +
+                        (-p0.Longitude + 3 * p1.Longitude - 3 * p2.Longitude + p3.Longitude) * t3
+                    );
+
+                    double lat = 0.5 * (
+                        (2 * p1.Latitude) +
+                        (-p0.Latitude + p2.Latitude) * t +
+                        (2 * p0.Latitude - 5 * p1.Latitude + 4 * p2.Latitude - p3.Latitude) * t2 +
+                        (-p0.Latitude + 3 * p1.Latitude - 3 * p2.Latitude + p3.Latitude) * t3
+                    );
+
+                    result.Add((lon, lat));
+                }
+            }
+
+            result.Add(points.Last());
+            return result;
         }
 
         #endregion

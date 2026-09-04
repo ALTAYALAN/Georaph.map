@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using GeoraphMap.Core;
 using Microsoft.EntityFrameworkCore;
@@ -135,6 +138,23 @@ namespace GeoraphMap.Infrastructure
                         created_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         modified_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
                     );
+                    ALTER TABLE tbl_poi ADD COLUMN IF NOT EXISTS image_url TEXT;
+
+                    -- Önemli Ankara POI noktalarına varsayılan yüksek çözünürlüklü fotoğraflar ata (boş ise)
+                    UPDATE tbl_poi SET image_url = 'https://images.unsplash.com/photo-1596422846543-75c6fc197f07?auto=format&fit=crop&w=1000&q=80||https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=1000&q=80' 
+                    WHERE name ILIKE '%Atakule%' AND (image_url IS NULL OR image_url = '');
+
+                    UPDATE tbl_poi SET image_url = 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=1000&q=80' 
+                    WHERE name ILIKE '%Kuğulu%' AND (image_url IS NULL OR image_url = '');
+
+                    UPDATE tbl_poi SET image_url = 'https://images.unsplash.com/photo-1588880331179-bc9b93a8cb5e?auto=format&fit=crop&w=1000&q=80' 
+                    WHERE name ILIKE '%Botanik%' AND (image_url IS NULL OR image_url = '');
+
+                    UPDATE tbl_poi SET image_url = 'https://images.unsplash.com/photo-1572276596237-5db2c3e16c5d?auto=format&fit=crop&w=1000&q=80' 
+                    WHERE name ILIKE '%Gençlik Parkı%' AND (image_url IS NULL OR image_url = '');
+
+                    UPDATE tbl_poi SET image_url = 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?auto=format&fit=crop&w=1000&q=80' 
+                    WHERE (name ILIKE '%Millet Meclisi%' OR name ILIKE '%TBMM%') AND (image_url IS NULL OR image_url = '');
 
                     CREATE TABLE IF NOT EXISTS tbl_route (
                         id SERIAL PRIMARY KEY,
@@ -173,6 +193,8 @@ namespace GeoraphMap.Infrastructure
                     );
                     ALTER TABLE tbl_stop ALTER COLUMN route_id DROP NOT NULL;
                     ALTER TABLE tbl_stop ADD COLUMN IF NOT EXISTS stop_class VARCHAR(50) DEFAULT 'otobus';
+                    ALTER TABLE tbl_stop ADD COLUMN IF NOT EXISTS stop_code VARCHAR(100);
+                    ALTER TABLE tbl_stop ADD COLUMN IF NOT EXISTS image_url TEXT;
                     
                     -- Liman, İskele, Feribot duraklarının sınıflarını 'gemi' yap
                     UPDATE tbl_stop SET stop_class = 'gemi' 
@@ -506,6 +528,9 @@ namespace GeoraphMap.Infrastructure
 
                 // 6. Ankara Metro, Ankaray, Başkentray ve EGO Ulaşım Ağını Ekle
                 await SeedAnkaraTransitAndMultiRouteStopsAsync(context);
+
+                // 7. Türkiye'deki 81 İlin En Bilindik 5'er Müzesi (405 Müze POI)
+                await TurkishMuseumsSeeder.SeedAllTurkeyProvincialMuseumsAsync(context);
             }
             catch (Exception ex)
             {
@@ -974,6 +999,351 @@ namespace GeoraphMap.Infrastructure
             catch (Exception ex)
             {
                 Console.WriteLine($"[DbSeeder] Ankara transit seed error: {ex.Message}");
+            }
+        }
+
+        public static async Task<string> FetchOsrmRouteGeometryAsync(List<(double Lon, double Lat)> coords)
+        {
+            if (coords == null || coords.Count < 2) return string.Empty;
+
+            try
+            {
+                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "GeoMapTransitEngine/1.0");
+
+                // OSRM Public API tek seferde ~60-80 koordinata kadar destekler. İhtiyaç halinde parçala veya tek çağrıda al
+                var allPoints = new List<string>();
+                const int chunkSize = 50;
+
+                for (int i = 0; i < coords.Count; i += (chunkSize - 1))
+                {
+                    var chunk = coords.Skip(i).Take(chunkSize).ToList();
+                    if (chunk.Count < 2) break;
+
+                    var param = string.Join(";", chunk.Select(c =>
+                        $"{c.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)},{c.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+
+                    var endpoints = new[]
+                    {
+                        $"https://router.project-osrm.org/route/v1/driving/{param}?overview=full&geometries=geojson",
+                        $"https://routing.openstreetmap.de/routed-car/route/v1/driving/{param}?overview=full&geometries=geojson"
+                    };
+
+                    bool chunkSuccess = false;
+                    foreach (var url in endpoints)
+                    {
+                        try
+                        {
+                            var res = await httpClient.GetAsync(url);
+                            if (res.IsSuccessStatusCode)
+                            {
+                                var json = await res.Content.ReadAsStringAsync();
+                                using var doc = JsonDocument.Parse(json);
+                                var root = doc.RootElement;
+                                if (root.TryGetProperty("routes", out var routes) && routes.GetArrayLength() > 0)
+                                {
+                                    var geom = routes[0].GetProperty("geometry");
+                                    var geomCoords = geom.GetProperty("coordinates");
+                                    foreach (var pt in geomCoords.EnumerateArray())
+                                    {
+                                        var lon = pt[0].GetDouble();
+                                        var lat = pt[1].GetDouble();
+                                        allPoints.Add($"{lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                                    }
+                                    chunkSuccess = true;
+                                    break;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (!chunkSuccess)
+                    {
+                        // Fallback chunk noktaları
+                        foreach (var c in chunk)
+                        {
+                            allPoints.Add($"{c.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {c.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                        }
+                    }
+                }
+
+                // Tekrarlanan bitişik koordinatları temizle
+                var dedupPoints = new List<string>();
+                foreach (var p in allPoints)
+                {
+                    if (dedupPoints.Count == 0 || dedupPoints.Last() != p)
+                    {
+                        dedupPoints.Add(p);
+                    }
+                }
+
+                if (dedupPoints.Count >= 2)
+                {
+                    return $"LINESTRING({string.Join(", ", dedupPoints)})";
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DbSeeder] OSRM rota hesaplama uyarısı: {ex.Message}");
+            }
+
+            // Doğrudan durak bazlı fallback
+            var directPoints = coords.Select(c => $"{c.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {c.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            return $"LINESTRING({string.Join(", ", directPoints)})";
+        }
+
+        public static async Task SeedKeciorenEgoLinesAsync(AppDbContext context)
+        {
+            try
+            {
+                var wktReader = new NetTopologySuite.IO.WKTReader { DefaultSRID = 4326 };
+
+                // 1. Tüm EGO Durakları (Altındağ, Çankaya, Keçiören - Hat 427, 427-6, 427-7)
+                var allStops = new List<(string Code, string Name, string Desc, double Lat, double Lon)>
+                {
+                    // ALTINDAĞ DURAKLARI
+                    ("11647", "OPERA", "Doğanbey Mh. Atatürk Blv. Altındağ", 39.935481, 32.853953),
+                    ("11652", "SIHHIYE", "Anafartalar Mh. Sıhhiye Otobüs Durağı Altındağ", 39.929718, 32.854244),
+                    ("11661", "SIHHİYE", "Doğanbey Mh. Sıhhiye Otobüs Durağı Altındağ", 39.929362, 32.854489),
+                    ("30009", "SIHHİYE", "Hacettepe Mh. Atatürk Blv. Altındağ", 39.929492, 32.855024),
+                    ("30030", "YILDIRIM BEYAZIT VERGİ DAİRESİ", "Hacı Bayram Mh. Çankırı Cd. Altındağ", 39.946152, 32.855045),
+                    ("30040", "YIBA ÇARŞISI", "Hacı Bayram Mh. Çankırı Cd. Altındağ", 39.948881, 32.856833),
+                    ("30384", "OPERA", "Anafartalar Mh. Atatürk Blv. Altındağ", 39.936322, 32.854448),
+                    ("30391", "ULUS", "Anafartalar Mh. Atatürk Blv. Altındağ", 39.940856, 32.854483),
+                    ("30431", "VETERİNER FAKÜLTESİ", "Ziraat Mh. İrfan Baştuğ Cd. Altındağ", 39.956559, 32.863034),
+                    ("31682", "DIŞKAPI HASTANESİ", "Ziraat Mh. Mh. Baba Harman Kültür Park İçi Yolu Altındağ", 39.954441, 32.860766),
+                    ("40133", "DIŞKAPI HASTANE DURAĞI", "Ziraat Mh. Altındağ", 39.954653, 32.860616),
+                    ("40157", "ATATÜRK ANADOLU LİSESİ", "Doğanbey Mh. Çankırı Cd. Altındağ", 39.945799, 32.854702),
+                    ("40167", "DIŞKAPI HASTANE DURAĞI", "Ziraat Mh. İrfan Baştuğ Cd. Altındağ", 39.954955, 32.860928),
+                    ("40168", "VETERİNER FAKÜLTESİ", "Ziraat Mh. İrfan Baştuğ Cd. Altındağ", 39.956676, 32.862827),
+                    ("40462", "ULUS 100.YIL ÇARŞISI", "Doğanbey Mh. Atatürk Blv. Altındağ", 39.940912, 32.854176),
+                    ("40473", "YIBA ÇARŞISI", "Doğanbey Mh. Çankırı Cd. Altındağ", 39.94899, 32.8566),
+                    ("40487", "ATATÜRK ANADOLU İMAM HATİP LİSESİ", "Aydınlıkevler Mh. İrfan Baştuğ Cd. Altındağ", 39.963507, 32.87041),
+                    ("41481", "ÇAĞDAŞ SOKAK", "Altındağ", 39.962101, 32.868553),
+
+                    // ÇANKAYA DURAKLARI
+                    ("11602", "KIZILAY", "Kızılay Mh. Atatürk Blv. Çankaya", 39.922303, 32.853971),
+                    ("11617", "KIZILAY", "Cumhuriyet Mh. Tuna Cd. Çankaya", 39.922945, 32.854499),
+                    ("11621", "KIZILAY", "Cumhuriyet Mh. Atatürk Blv. Çankaya", 39.923301, 32.85459),
+                    ("12124", "NECİP HABLEMİTOĞLU PARKI", "Aziziye Mh. Kuzgun Sk. Çankaya", 39.892824, 32.849866),
+                    ("12125", "MESNEVİ SOKAK", "Aziziye Mh. Kuzgun Sk. Çankaya", 39.895096, 32.849884),
+                    ("12126", "KAVAKLIDERE POLIS MERKEZİ", "Güvenevler Mh. Kuzgun Sk. Çankaya", 39.897565, 32.850498),
+                    ("12127", "ANT BAŞKANLIĞI", "Güvenevler Mh. Kuzgun Sk. Çankaya", 39.899637, 32.850581),
+                    ("12128", "NECİP HABLEMİTOĞLU PARKI", "Aziziye Mh. Portakal Çiçeği Sk. Çankaya", 39.892508, 32.850715),
+                    ("12129", "RUSYA BÜYÜKELÇİLİĞİ", "Aziziye Mh. Karyağdı Sk. Çankaya", 39.894135, 32.851682),
+                    ("12130", "ALİ DEDE CADDESİ", "Ayrancı Mh. Güvenlik Cd. Çankaya", 39.901937, 32.853009),
+                    ("12131", "YEŞİLYURT SOKAĞI", "Güvenevler Mh. Güvenlik Cd. Çankaya", 39.897407, 32.853524),
+                    ("12133", "AHMET VEFİK PAŞA ORTAOKULU", "Güvenevler Mh. Kuveyt Cd. Çankaya", 39.900117, 32.853885),
+                    ("12134", "KUVEYT CADDESİ", "Ayrancı Mh. Güvenlik Cd. Çankaya", 39.900267, 32.853387),
+                    ("12171", "PORTAKAL ÇİÇEĞİ RESİDENCE", "Aziziye Mh. Portakal Çiçeği Sk. Çankaya", 39.887854, 32.849346),
+                    ("12172", "ANSERA", "Aziziye Mh. Portakal Çiçeği Sk. Çankaya", 39.890005, 32.849395),
+                    ("12210", "GÜVENPARK", "Devlet Mh. Atatürk Blv. Çankaya", 39.919589, 32.853905),
+                    ("12217", "MECLİS", "Devlet Mh. Akay Kvş. Çankaya", 39.913087, 32.854198),
+                    ("12220", "GÜVENPARK", "Meşrutiyet Mh. Atatürk Blv. Çankaya", 39.918387, 32.854384),
+                    ("12223", "MECLİS", "Kavaklıdere Mh. Atatürk Blv. Çankaya", 39.913186, 32.854561),
+                    ("12246", "YAYLAGİL SOKAĞI", "Ayrancı Mh. Güvenlik Cd. Çankaya", 39.904431, 32.8527),
+                    ("12247", "ABD BÜYÜKELÇİLİĞİ", "Kavaklıdere Mh. Nevzat Tandoğan Cd. Çankaya", 39.907219, 32.853435),
+                    ("12250", "TÜBİTAK", "Remzi Oğuz Arık Mh. Atatürk Blv. Çankaya", 39.904529, 32.85867),
+                    ("12252", "KUĞULU PARK", "Çankaya Mh. Atatürk Blv. Çankaya", 39.901698, 32.859545),
+                    ("12260", "AFET İNAN PARKI", "Güvenevler Mh. Kuveyt Cd. Çankaya", 39.900448, 32.856972),
+                    ("13809", "ANSERA", "Aziziye Mh. Portakal Çiçeği Sk. Çankaya", 39.890027, 32.849253),
+                    ("13810", "PORTAKAL ÇİÇEĞİ RESİDENCE", "Aziziye Mh. Portakal Çiçeği Sk. Çankaya", 39.887768, 32.849211),
+
+                    // KEÇİÖREN DURAKLARI
+                    ("40037", "ŞEHİT MAKBULE SOKAK", "Kavacık Subayevleri Mh. Şehit Makbule Sk. Keçiören", 39.96705, 32.868487),
+                    ("40038", "KALENDER SOKAK", "Kavacık Subayevleri Mh. Kalender Sk. Keçiören", 39.971655, 32.866903),
+                    ("40041", "ÜÇYILDIZ CADDESİ", "Kavacık Subayevleri Mh. Üçyıldız Cd. Keçiören", 39.970033, 32.86773),
+                    ("40042", "ÜÇYILDIZ PAZAR YERİ", "Kavacık Subayevleri Mh. Üçyıldız Cd. Keçiören", 39.969156, 32.868365),
+                    ("40047", "TOYGAR BÖREKÇİ İLKÖĞRETİM OKULU", "Kavacık Subayevleri Mh. Ahmet Önder Park İçi Yolu Keçiören", 39.970406, 32.872198),
+                    ("40050", "FETHİ BEY SOKAK", "Kavacık Subayevleri Mh. Fethibey Sk. Keçiören", 39.971346, 32.87296),
+                    ("40052", "SANDALCI SOKAK", "Kavacık Subayevleri Mh. Sandalcı Sk. Keçiören", 39.96869, 32.874415),
+                    ("40055", "GÜLBAŞI SOKAK", "Kavacık Subayevleri Mh. Gülbaşı Sk. Keçiören", 39.9729, 32.869834),
+                    ("40074", "SUBAYEVLERİ HAREKET NOKTASI", "Kavacık Subayevleri Mh. Sandalcı Sk. Keçiören", 39.971205, 32.876341),
+                    ("40078", "AKŞEMSETTİN DURAĞI", "Hasköy Mh. İrfan Baştuğ Cd. Keçiören", 39.972759, 32.880233),
+                    ("40086", "CENTİLMEN SOKAK", "Kavacık Subayevleri Mh. Centilmen Sk. Keçiören", 39.971864, 32.875375),
+                    ("40169", "FAHRETTİN ALTAY CADDESİ", "Kavacık Subayevleri Mh. Fahrettin Altay Cd. Keçiören", 39.965648, 32.867341),
+                    ("40173", "BANDO SOKAK", "Kavacık Subayevleri Mh. Bando Sk. Keçiören", 39.967502, 32.867918),
+                    ("40174", "ATATÜRK ANADOLU İMAM HATİP LİSESİ", "Kavacık Subayevleri Mh. İrfan Baştuğ Cd. Keçiören", 39.962549, 32.868716),
+                    ("40175", "MARKET DURAĞI", "Kavacık Subayevleri Mh. Fahrettin Altay Cd. Keçiören", 39.965099, 32.869574),
+                    ("40478", "FAHRETTİN ALTAY CADDESİ", "Kavacık Subayevleri Mh. Fahrettin Altay Cd. Keçiören", 39.9658, 32.867424),
+                    ("41305", "ÜÇ YILDIZ PAZAR YERİ", "Kavacık Subayevleri Mh. Üçyıldız Cd. Keçiören", 39.969194, 32.868463),
+                    ("41306", "CİHANGİR CADDESİ", "Kavacık Subayevleri Mh. Cihangir Cd. Keçiören", 39.970376, 32.870085),
+                    ("41308", "AKSA CAMİİ", "Kavacık Subayevleri Mh. Fethibey Sk. Keçiören", 39.971022, 32.871646),
+                    ("41501", "KALENDER SOKAK", "Kavacık Subayevleri Mh. Kalender Sk. Keçiören", 39.971598, 32.866978),
+                    ("41689", "KAVACIK POLİS MERKEZİ AMİRLİĞİ", "Kavacık Subayevleri Mh. Şehit Makbule Sk. Keçiören", 39.96902, 32.870432),
+                    ("41722", "HASKÖY MERKEZ CAMİİ", "Hasköy Mh. Üçpınar Cd. Keçiören", 39.975521, 32.879806)
+                };
+
+                // Durakları veritabanında oluştur veya güncelle
+                var stopEntities = new Dictionary<string, StopFeature>();
+                foreach (var s in allStops)
+                {
+                    var existing = await context.Stops.FirstOrDefaultAsync(x => x.StopCode == s.Code);
+                    var wkt = $"POINT({s.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {s.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)})";
+
+                    if (existing == null)
+                    {
+                        NetTopologySuite.Geometries.Point? geom = null;
+                        try { geom = (NetTopologySuite.Geometries.Point)wktReader.Read(wkt); } catch { }
+
+                        existing = new StopFeature
+                        {
+                            Name = s.Name,
+                            StopCode = s.Code,
+                            StopClass = "otobus",
+                            Description = s.Desc,
+                            Wkt = wkt,
+                            Geometry = geom,
+                            IsActive = true,
+                            IsDeleted = false,
+                            CreatedDate = DateTime.UtcNow,
+                            ModifiedDate = DateTime.UtcNow
+                        };
+                        context.Stops.Add(existing);
+                        await context.SaveChangesAsync();
+                    }
+                    else
+                    {
+                        existing.Name = s.Name;
+                        existing.Description = s.Desc;
+                        existing.StopClass = "otobus";
+                        existing.IsDeleted = false;
+                        existing.IsActive = true;
+                        existing.Wkt = wkt;
+                        try { existing.Geometry = (NetTopologySuite.Geometries.Point)wktReader.Read(wkt); } catch { }
+                        await context.SaveChangesAsync();
+                    }
+                    stopEntities[s.Code] = existing;
+                }
+
+                // 2. Hat 427, Hat 427-6 ve Hat 427-7 Tanımları ve OSRM Rota Hesaplaması
+                var linesToSeed = new[]
+                {
+                    new
+                    {
+                        Name = "427 SUBAYEVLERİ-ULUS-15 TEMMUZ KIZILAY MİLLİ İRADE MEYDANI-A.AYRANCI",
+                        Color = "#0284c7",
+                        Desc = "Keçiören Subayevleri - Ulus - 15 Temmuz Kızılay Milli İrade Meydanı - A.Ayrancı EGO Otobüs Hattı",
+                        StopCodes = new[]
+                        {
+                            // Keçiören (Başlangıç)
+                            "40074", "40086", "40052", "40050", "41308", "40047", "41306", "40055", "40038", "40041", "40042", "41305", "40037", "40173", "40169", "40478", "40175", "40174",
+                            // Altındağ
+                            "41481", "30431", "40168", "40167", "31682", "40473", "30030", "40157", "40462", "30391", "30384", "11647", "30009", "11652",
+                            // Çankaya (Güvenpark - Kızılay - Meclis - Ayrancı Ring)
+                            "11621", "11602", "12210", "12220", "12217", "12223", "12247", "12246", "12130", "12134", "12133", "12260", "12250", "12252", "12131", "12127", "12126", "12125", "12124", "12128", "12129", "12172", "12171"
+                        }
+                    },
+                    new
+                    {
+                        Name = "427-6 SUBAYEVLERİ-ULUS-15 TEMMUZ KIZILAY MİLLİ İRADE MEYDANI-A.AYRANCI",
+                        Color = "#8b5cf6",
+                        Desc = "Keçiören Subayevleri - Ulus - 15 Temmuz Kızılay Milli İrade Meydanı - A.Ayrancı Ring Alternatif EGO Otobüs Hattı",
+                        StopCodes = new[]
+                        {
+                            // Keçiören
+                            "40074", "40086", "40052", "40050", "41308", "40047", "41306", "40055", "40038", "41501", "40041", "40042", "41305", "40173", "40169", "40478", "40175", "40174",
+                            // Altındağ
+                            "41481", "30431", "40168", "40133", "31682", "40473", "30030", "40157", "40462", "30391", "30384", "11647", "30009", "11652", "11661",
+                            // Çankaya
+                            "11621", "11602", "12210", "12220", "12217", "12223", "12247", "12246", "12130", "12133", "12260", "12250", "12252", "12131", "12127", "12126", "12125", "12124", "12128", "12129", "13809", "13810"
+                        }
+                    },
+                    new
+                    {
+                        Name = "427-7 SUBAYEVLERİ-A. AYRANCI",
+                        Color = "#10b981",
+                        Desc = "Keçiören Subayevleri (Hasköy Merkez) - Ulus - Sıhhiye - Kızılay - A.Ayrancı (Portakal Çiçeği) EGO Otobüs Hattı",
+                        StopCodes = new[]
+                        {
+                            "41722", "40078", "40074", "40052", "40047", "40055", "40038", "40042",
+                            "40173", "40169", "41867", "40174", "40168", "40167", "40473", "40157",
+                            "40462", "11647", "11652", "11602", "12210", "12217", "12247", "12246",
+                            "12130", "12134", "12131", "12129", "12128", "12171", "12172", "12124",
+                            "12125", "12126", "12127", "12133", "12260", "12252", "12250", "12223",
+                            "12220", "11617", "30009", "30384", "30391", "30030", "30040", "31682",
+                            "30431", "41481", "40487", "40175", "40478", "40037", "41689", "41306",
+                            "41308", "40050", "40086"
+                        }
+                    }
+                };
+
+                foreach (var line in linesToSeed)
+                {
+                    var route = await context.Routes.Include(r => r.Stops).FirstOrDefaultAsync(r => r.Name == line.Name);
+                    
+                    // Eğer rota zaten veritabanında varsa kullanıcının düzenlemelerini ve duraklarını kesinlikle koru!
+                    if (route != null)
+                    {
+                        continue;
+                    }
+
+                    var lineStops = line.StopCodes.Where(code => stopEntities.ContainsKey(code)).Select(code => stopEntities[code]).ToList();
+                    
+                    var stopCoordinates = lineStops
+                        .Where(st => st.Geometry != null)
+                        .Select(st => (Lon: st.Geometry!.Coordinate.X, Lat: st.Geometry!.Coordinate.Y))
+                        .ToList();
+
+                    // OSRM üzerinden sokak ve cadde ağını birebir takip eden yüksek çözünürlüklü güzergah geometrisi çek
+                    string linestringWkt = await FetchOsrmRouteGeometryAsync(stopCoordinates);
+
+                    if (string.IsNullOrWhiteSpace(linestringWkt))
+                    {
+                        var directPairs = stopCoordinates.Select(c => $"{c.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {c.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                        linestringWkt = $"LINESTRING({string.Join(", ", directPairs)})";
+                    }
+
+                    route = new RouteFeature
+                    {
+                        Name = line.Name,
+                        RouteClass = "otobus",
+                        Color = line.Color,
+                        Description = line.Desc,
+                        Wkt = linestringWkt,
+                        GeometryType = "Osrm",
+                        IsActive = true,
+                        IsDeleted = false,
+                        CreatedDate = DateTime.UtcNow,
+                        ModifiedDate = DateTime.UtcNow
+                    };
+                    try { route.Geometry = wktReader.Read(linestringWkt); } catch { }
+                    context.Routes.Add(route);
+                    await context.SaveChangesAsync();
+
+                    // Durak junction bağlantılarını ekle / güncelle
+                    int order = 1;
+                    foreach (var code in line.StopCodes)
+                    {
+                        if (stopEntities.TryGetValue(code, out var st))
+                        {
+                            var junction = await context.RouteStops.FirstOrDefaultAsync(rs => rs.RouteId == route.Id && rs.StopId == st.Id);
+                            if (junction == null)
+                            {
+                                context.RouteStops.Add(new RouteStopFeature
+                                {
+                                    RouteId = route.Id,
+                                    StopId = st.Id,
+                                    OrderIndex = order,
+                                    CreatedDate = DateTime.UtcNow
+                                });
+                            }
+                            else
+                            {
+                                junction.OrderIndex = order;
+                            }
+                            order++;
+                        }
+                    }
+                    await context.SaveChangesAsync();
+                }
+
+                Console.WriteLine("[DbSeeder] 427, 427-6 ve 427-7 EGO otobüs hatları, tüm durakları ve OSRM sokak güzergahları başarıyla veritabanına işlendi.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DbSeeder] EGO Hatları ve OSRM Rota Seed hatası: {ex.Message}");
             }
         }
     }
