@@ -407,12 +407,8 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
         minRouteZoom = zs.routeMinZoom ?? 11.5;
     }
 
-    // 1. Otobüs güzergahları YALNIZCA otobüs numarasına / hattına tıklandığında görünsün
-    if (isBus && !isSelected) {
-        return null;
-    }
-
-    // 2. Dinamik zoom eşiği kontrolü (Admin panelinden ayarlanabilir)
+    // Dinamik zoom eşiği kontrolü (Admin panelinden ayarlanabilir)
+    // Seçili rota her zoom seviyesinde her zaman görünür, seçili olmayanlar eşik zoom değerinde görünür
     if (!isSelected && zoom < minRouteZoom) {
         return null;
     }
@@ -1340,17 +1336,35 @@ function App() {
 
     // DİNAMİK HARİTA ZOOM & GÖRÜNÜRLÜK AYARLARI DİNLENMESİ
     useEffect(() => {
+        const refreshLayers = (settings) => {
+            setZoomSettings(settings);
+            if (routeLayerRef.current) routeLayerRef.current.changed();
+            if (stopLayerRef.current) stopLayerRef.current.changed();
+            if (poiLayerRef.current) poiLayerRef.current.changed();
+            if (drawingsLayerRef.current) drawingsLayerRef.current.changed();
+            if (cityBoundaryLayerRef.current) cityBoundaryLayerRef.current.changed();
+            if (maritimeBoundaryLayerRef.current) maritimeBoundaryLayerRef.current.changed();
+            if (mapRef.current) mapRef.current.render();
+        };
+
         const handleZoomSettingsChanged = (e) => {
             if (e.detail) {
-                setZoomSettings(e.detail);
-                if (routeLayerRef.current) routeLayerRef.current.changed();
-                if (stopLayerRef.current) stopLayerRef.current.changed();
-                if (poiLayerRef.current) poiLayerRef.current.changed();
-                if (drawingsLayerRef.current) drawingsLayerRef.current.changed();
+                refreshLayers(e.detail);
             }
         };
+
+        const handleStorageChanged = (e) => {
+            if (e.key === 'geomap_admin_zoom_settings_v2' || e.key === 'geomap_admin_zoom_settings_v1') {
+                refreshLayers(getZoomSettings());
+            }
+        };
+
         window.addEventListener('geomapZoomSettingsChanged', handleZoomSettingsChanged);
-        return () => window.removeEventListener('geomapZoomSettingsChanged', handleZoomSettingsChanged);
+        window.addEventListener('storage', handleStorageChanged);
+        return () => {
+            window.removeEventListener('geomapZoomSettingsChanged', handleZoomSettingsChanged);
+            window.removeEventListener('storage', handleStorageChanged);
+        };
     }, []);
 
     // CANLI ARAÇ SİMÜLASYONU & SIGNALR TAKİP REFLERİ VE STATELERİ
@@ -5362,7 +5376,74 @@ function App() {
 
             const drawingsLayer = new VectorLayer({
                 source: drawingsSource,
-                visible: layerVisibility.drawings
+                zIndex: 16,
+                visible: layerVisibility.drawings,
+                style: (feature, resolution) => {
+                    const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : (mapRef.current?.getView()?.getZoom() || 10);
+                    const geomType = feature.getGeometry()?.getType();
+                    const itemType = feature.get('type') || (geomType === 'Point' ? 'Point' : (geomType === 'Polygon' || geomType === 'MultiPolygon' ? 'Polygon' : 'Line'));
+                    const itemColor = feature.get('color') || '#8b5cf6';
+                    const name = feature.get('name') || '';
+
+                    const zs = getZoomSettings();
+                    const pointMinZoom = zs.drawingPointMinZoom ?? 7.0;
+                    const polyMinZoom = zs.drawingPolygonMinZoom ?? 6.0;
+                    const labelMinZoom = zs.drawingLabelMinZoom ?? 11.0;
+
+                    if (itemType === 'Point' && zoom < pointMinZoom) {
+                        return null;
+                    }
+                    if ((itemType === 'Polygon' || itemType === 'Line') && zoom < polyMinZoom) {
+                        return null;
+                    }
+
+                    const showLabel = name && zoom >= labelMinZoom;
+                    const textStyle = showLabel ? new Text({
+                        text: name,
+                        font: '600 11.5px Inter, system-ui, sans-serif',
+                        fill: new Fill({ color: '#ffffff' }),
+                        stroke: new Stroke({ color: '#0f172a', width: 3 }),
+                        offsetY: itemType === 'Point' ? -28 : 0,
+                        overflow: false
+                    }) : undefined;
+
+                    if (itemType === 'Point') {
+                        const pinSvg = `<svg width="34" height="46" viewBox="0 0 34 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="${itemColor}" stroke="#ffffff" stroke-width="2.5"/>
+                          <circle cx="17" cy="17" r="6.5" fill="#ffffff"/>
+                        </svg>`;
+                        return new Style({
+                            image: new Icon({
+                                src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
+                                scale: 0.75,
+                                anchor: [0.5, 1]
+                            }),
+                            text: textStyle,
+                            zIndex: 22
+                        });
+                    } else if (itemType === 'Line') {
+                        return new Style({
+                            stroke: new Stroke({
+                                color: itemColor,
+                                width: 4
+                            }),
+                            text: textStyle,
+                            zIndex: 20
+                        });
+                    } else {
+                        return new Style({
+                            stroke: new Stroke({
+                                color: itemColor,
+                                width: 3
+                            }),
+                            fill: new Fill({
+                                color: hexToRgba(itemColor, 0.35)
+                            }),
+                            text: textStyle,
+                            zIndex: 19
+                        });
+                    }
+                }
             });
             drawingsLayerRef.current = drawingsLayer;
 
@@ -5516,12 +5597,12 @@ function App() {
                         : (isGemi 
                             ? (zs.shipStopMinZoom ?? 8.0) 
                             : (isMetro 
-                                ? (zs.metroStopMinZoom ?? 11.5) 
+                                ? (zs.metroStopMinZoom ?? 12.0) 
                                 : (isTren 
-                                    ? (zs.trainStopMinZoom ?? 10.5) 
+                                    ? (zs.trainStopMinZoom ?? 11.0) 
                                     : (isBus 
-                                        ? (isIndependent ? 13.0 : (zs.busStopMinZoom ?? 13.5)) 
-                                        : (zs.stopMinZoom ?? 13.0)))));
+                                        ? (zs.busStopMinZoom ?? 14.5) 
+                                        : (zs.stopMinZoom ?? 14.0)))));
 
                     if (!isSelectedRoute && zoom < minStopZoom) {
                         return null;
@@ -5532,7 +5613,15 @@ function App() {
 
                     const iconStyle = getCachedStopIconStyle(featureRouteClass, routeColor, isSelectedRoute);
 
-                    const stopNameMinZoom = isAirport ? 6.0 : (isGemi ? 7.5 : (isMetro ? 11.0 : (isTren ? 9.5 : (zs.stopNameMinZoom ?? 14.5))));
+                    const stopNameMinZoom = isAirport 
+                        ? (zs.airportStopMinZoom ? zs.airportStopMinZoom + 1.5 : 6.0) 
+                        : (isGemi 
+                            ? (zs.shipStopMinZoom ? zs.shipStopMinZoom + 1.0 : 7.5) 
+                            : (isMetro 
+                                ? (zs.metroStopMinZoom ? zs.metroStopMinZoom + 1.0 : 12.5) 
+                                : (isTren 
+                                    ? (zs.trainStopMinZoom ? zs.trainStopMinZoom + 1.0 : 11.5) 
+                                    : (zs.stopNameMinZoom ?? 16.0))));
                     const showStopLabel = stopName && (zoom >= stopNameMinZoom || isSelectedRoute);
 
                     if (showStopLabel) {
@@ -6517,39 +6606,6 @@ function App() {
                 feature.set('type', item.type);
                 feature.set('color', itemColor);
                 feature.set('wkt', item.wkt);
-
-                if (item.type === 'Point') {
-                    const pinColor = itemColor;
-                    const pinSvg = `<svg width="34" height="46" viewBox="0 0 34 46" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M17 0C7.61116 0 0 7.61116 0 17C0 29.75 17 46 17 46C17 46 34 29.75 34 17C34 7.61116 26.3888 0 17 0Z" fill="${pinColor}" stroke="#ffffff" stroke-width="2.5"/>
-                      <circle cx="17" cy="17" r="6.5" fill="#ffffff"/>
-                    </svg>`;
-
-                    feature.setStyle(new Style({
-                        image: new Icon({
-                            src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
-                            scale: 0.75,
-                            anchor: [0.5, 1]
-                        })
-                    }));
-                } else if (item.type === 'Line') {
-                    feature.setStyle(new Style({
-                        stroke: new Stroke({
-                            color: itemColor,
-                            width: 4
-                        })
-                    }));
-                } else if (item.type === 'Polygon') {
-                    feature.setStyle(new Style({
-                        stroke: new Stroke({
-                            color: itemColor,
-                            width: 3
-                        }),
-                        fill: new Fill({
-                            color: hexToRgba(itemColor, 0.35)
-                        })
-                    }));
-                }
 
                 drawingsSourceRef.current.addFeature(feature);
             } catch (err) {
