@@ -520,6 +520,8 @@ export const RouteManagement = ({
     const [stopSortBy, setStopSortBy] = useState('TYPE'); // 'TYPE' | 'NAME'
     const [stopRouteFilter, setStopRouteFilter] = useState('ALL');
     const [stopSearchQuery, setStopSearchQuery] = useState('');
+    const [stopPage, setStopPage] = useState(1);
+    const STOP_PAGE_SIZE = 100;
 
     // Liman Seçimi Arama Filtresi (Emoji ve bölge ayrımı olmadan düz arama)
     const [portSearchQuery, setPortSearchQuery] = useState('');
@@ -575,6 +577,7 @@ export const RouteManagement = ({
     });
     const [uploadingStopImage, setUploadingStopImage] = useState(false);
     const [isGeneratingRouteId, setIsGeneratingRouteId] = useState(null);
+    const [isBatchGeneratingOsrm, setIsBatchGeneratingOsrm] = useState(false);
 
     // Gemi güzergahları için Varış Ekle modalı
     const [showArrivalModal, setShowArrivalModal] = useState(false);
@@ -670,6 +673,17 @@ export const RouteManagement = ({
             return (a.name || '').localeCompare(b.name || '', 'tr');
         });
     }, [allStops, stopClassFilter, selectedStopCityFilter, stopRouteFilter, stopSearchQuery, stopSortBy, routes]);
+
+    // Filtreler değiştiğinde sayfayı 1'e al
+    useEffect(() => {
+        setStopPage(1);
+    }, [stopClassFilter, selectedStopCityFilter, stopRouteFilter, stopSearchQuery, stopSortBy]);
+
+    const totalStopPages = Math.ceil(filteredStops.length / STOP_PAGE_SIZE) || 1;
+    const paginatedStops = useMemo(() => {
+        const startIndex = (stopPage - 1) * STOP_PAGE_SIZE;
+        return filteredStops.slice(startIndex, startIndex + STOP_PAGE_SIZE);
+    }, [filteredStops, stopPage]);
 
     // Dinamik ve Statik Tüm Limanları Birleştiren Alfabetik Liste
     const allAvailablePorts = useMemo(() => {
@@ -1021,7 +1035,8 @@ export const RouteManagement = ({
                 if ((!stops || stops.length === 0) && Array.isArray(stopsData)) {
                     stops = stopsData.filter(s => s.routeId === current.id || (s.routeIds && s.routeIds.includes(current.id)) || (s.routes && s.routes.some(r => r.id === current.id)));
                 }
-                setRouteStops(stops);
+                const sorted = [...stops].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+                setRouteStops(sorted);
             } else {
                 setSelectedRouteId(null);
                 setRouteStops([]);
@@ -1038,7 +1053,7 @@ export const RouteManagement = ({
     }, [token]);
 
     // Handle Route Selection (Destekler: hem Route objesi hem de routeId int parametresi)
-    const handleSelectRoute = (routeOrId) => {
+    const handleSelectRoute = async (routeOrId) => {
         const rId = typeof routeOrId === 'object' && routeOrId !== null ? routeOrId.id : Number(routeOrId);
         const targetRoute = typeof routeOrId === 'object' && routeOrId !== null ? routeOrId : routes.find(r => r.id === rId);
         setSelectedRouteId(rId);
@@ -1047,7 +1062,23 @@ export const RouteManagement = ({
         if ((!stops || stops.length === 0) && rId && allStops.length > 0) {
             stops = allStops.filter(s => s.routeId === rId || (s.routeIds && s.routeIds.includes(rId)) || (s.routes && s.routes.some(r => r.id === rId)));
         }
-        setRouteStops(stops);
+        if (stops && stops.length > 0) {
+            setRouteStops([...stops].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)));
+        }
+
+        // Rota bazlı özel sıralama ve çoklu aktarma bağlantılarını API'den anlık tazele
+        if (rId && token) {
+            try {
+                const freshStops = await transportApi.getStopsByRoute(rId, token);
+                if (Array.isArray(freshStops) && freshStops.length > 0) {
+                    const sorted = freshStops.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+                    setRouteStops(sorted);
+                    setRoutes(prev => prev.map(r => r.id === rId ? { ...r, stops: sorted } : r));
+                }
+            } catch {
+                // Fallback mevcut durak listesiyle devam eder
+            }
+        }
     };
 
     useEffect(() => {
@@ -1057,9 +1088,9 @@ export const RouteManagement = ({
             if ((!stops || stops.length === 0) && allStops.length > 0) {
                 stops = allStops.filter(s => s.routeId === selectedRouteId || (s.routeIds && s.routeIds.includes(selectedRouteId)) || (s.routes && s.routes.some(r => r.id === selectedRouteId)));
             }
-            setRouteStops(stops);
+            setRouteStops([...stops].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)));
         }
-    }, [selectedRouteId, routes, allStops]);
+    }, [selectedRouteId, routes]);
 
     // --- DRAG & DROP REORDERING ---
     const handleDragStart = (e, index) => {
@@ -1096,11 +1127,14 @@ export const RouteManagement = ({
         // Send to backend
         try {
             setIsReordering(true);
-            const orderedIds = reordered.map(s => s.id);
-            await transportApi.reorderStops(selectedRouteId, orderedIds, token);
+            const res = await transportApi.reorderStops(selectedRouteId, orderedIds, token);
             setSuccessMsg('Durak sıralaması güncellendi ve kaydedildi.');
             // Refresh route data in parent list
-            setRoutes(prev => prev.map(r => r.id === selectedRouteId ? { ...r, stops: reordered } : r));
+            if (res && res.route) {
+                setRoutes(prev => prev.map(r => r.id === selectedRouteId ? res.route : r));
+            } else {
+                setRoutes(prev => prev.map(r => r.id === selectedRouteId ? { ...r, stops: reordered } : r));
+            }
         } catch (err) {
             setError('Sıralama kaydedilemedi: ' + err.message);
             // Revert by reloading
@@ -1443,13 +1477,16 @@ export const RouteManagement = ({
 
         try {
             setIsReordering(true);
-            const orderedIds = reordered.map(s => s.id);
-            await transportApi.reorderStops(selectedRouteId, orderedIds, token);
+            const res = await transportApi.reorderStops(selectedRouteId, orderedIds, token);
             const moveMsg = isShift
                 ? (targetIndex === 0 ? `"${stop.name}" durağı en üste (1. sıraya) taşındı.` : `"${stop.name}" durağı en alta (${targetIndex + 1}. sıraya) taşındı.`)
                 : `"${stop.name}" durağının sırası ${targetIndex + 1} olarak güncellendi.`;
             setSuccessMsg(moveMsg);
-            setRoutes(prev => prev.map(r => r.id === selectedRouteId ? { ...r, stops: reordered } : r));
+            if (res && res.route) {
+                setRoutes(prev => prev.map(r => r.id === selectedRouteId ? res.route : r));
+            } else {
+                setRoutes(prev => prev.map(r => r.id === selectedRouteId ? { ...r, stops: reordered } : r));
+            }
         } catch (err) {
             setError('Sıra güncellenemedi: ' + err.message);
             await loadRoutes(true);
@@ -1663,6 +1700,29 @@ export const RouteManagement = ({
             setError(err.message || 'OSRM ile rota üretilirken hata oluştu.');
         } finally {
             setIsGeneratingRouteId(null);
+        }
+    };
+
+    // BÜTÜN OTOBÜS HATLARI İÇİN TOPLU OSRM HESAPLAMA
+    const handleBatchGenerateAllBusOsrm = async () => {
+        if (!window.confirm(lang === 'tr' 
+            ? "Veritabanındaki tüm otobüs hatlarının sokak geometrileri OSRM üzerinden hesaplanacaktır. Devam etmek istiyor musunuz?" 
+            : "All bus route geometries will be calculated with OSRM. Do you want to continue?")) {
+            return;
+        }
+
+        try {
+            setIsBatchGeneratingOsrm(true);
+            setError('');
+            setSuccessMsg(lang === 'tr' ? 'Bütün otobüs hatları OSRM üzerinden geçiriliyor, lütfen bekleyiniz...' : 'Routing all buses through OSRM, please wait...');
+            const res = await transportApi.generateAllBusRoutesOsrm(false, token);
+            setSuccessMsg(res.message || (lang === 'tr' ? 'Tüm otobüs hatları OSRM ile başarıyla güncellendi!' : 'All bus routes updated with OSRM!'));
+            await loadRoutes(true);
+            if (onRefreshRoutes) onRefreshRoutes();
+        } catch (err) {
+            setError(err.message || (lang === 'tr' ? 'Toplu OSRM işlemi başarısız oldu.' : 'Batch OSRM operation failed.'));
+        } finally {
+            setIsBatchGeneratingOsrm(false);
         }
     };
 
@@ -1958,29 +2018,55 @@ export const RouteManagement = ({
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(380px, 460px) 1fr', gap: '24px', alignItems: 'start' }}>
                     {/* Left: Route List & Filters */}
                     <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, padding: '22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                             <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: 0 }}>
                                 Güzergah Listesi
                             </h3>
-                            <button
-                                onClick={handleOpenCreateRoute}
-                                style={{
-                                    backgroundColor: '#2563eb',
-                                    color: '#ffffff',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    padding: '7px 12px',
-                                    fontSize: '12px',
-                                    fontWeight: '600',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                Yeni Hat Ekle
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <button
+                                    type="button"
+                                    onClick={handleBatchGenerateAllBusOsrm}
+                                    disabled={isBatchGeneratingOsrm}
+                                    title={lang === 'tr' ? "Bütün otobüs hatlarını OSRM karayolu sokak ağına uyarlar" : "Route all bus lines through OSRM road network"}
+                                    style={{
+                                        backgroundColor: isBatchGeneratingOsrm ? '#64748b' : '#059669',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        padding: '7px 12px',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        cursor: isBatchGeneratingOsrm ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                                    <span>{isBatchGeneratingOsrm ? (lang === 'tr' ? 'OSRM Hesaplanıyor...' : 'Calculating...') : (lang === 'tr' ? 'Tüm Otobüsleri OSRM Yap' : 'All Buses to OSRM')}</span>
+                                </button>
+                                <button
+                                    onClick={handleOpenCreateRoute}
+                                    style={{
+                                        backgroundColor: '#2563eb',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        padding: '7px 12px',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                    Yeni Hat Ekle
+                                </button>
+                            </div>
                         </div>
 
                         {/* Tür Filtre Hapları */}
@@ -2168,6 +2254,14 @@ export const RouteManagement = ({
                                                         <span>{route.stops?.length || 0} Durak</span>
                                                         <span>•</span>
                                                         <span>{clsInfo?.label || clsKey}</span>
+                                                        {route.geometryType === 'Osrm' && (
+                                                            <>
+                                                                <span>•</span>
+                                                                <span style={{ padding: '1px 5px', borderRadius: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontSize: '10px', fontWeight: 700 }}>
+                                                                    OSRM
+                                                                </span>
+                                                            </>
+                                                        )}
                                                         <span>•</span>
                                                         <span style={{ padding: '1px 5px', borderRadius: '4px', backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : '#e0f2fe', color: '#0284c7', fontSize: '10px', fontWeight: 600 }}>
                                                             {detectedCity}
@@ -2189,16 +2283,22 @@ export const RouteManagement = ({
                                                             disabled={isOsrmDisabled}
                                                             title={osrmTitle}
                                                             style={{
-                                                                background: 'none',
-                                                                border: 'none',
+                                                                background: route.geometryType === 'Osrm' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.08)',
+                                                                border: `1px solid ${route.geometryType === 'Osrm' ? '#10b981' : 'rgba(16, 185, 129, 0.3)'}`,
                                                                 color: isOsrmDisabled ? '#64748b' : '#10b981',
-                                                                padding: '5px',
+                                                                padding: '3px 8px',
                                                                 cursor: isOsrmDisabled ? 'not-allowed' : 'pointer',
-                                                                borderRadius: '5px',
-                                                                opacity: isOsrmDisabled ? 0.35 : 1
+                                                                borderRadius: '6px',
+                                                                opacity: isOsrmDisabled ? 0.35 : 1,
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px',
+                                                                fontSize: '11px',
+                                                                fontWeight: 600
                                                             }}
                                                         >
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
+                                                            <span>{isGeneratingRouteId === route.id ? '...' : 'OSRM'}</span>
                                                         </button>
                                                     );
                                                 })()}
@@ -2422,10 +2522,13 @@ export const RouteManagement = ({
                                                                     <span>{stop.latitude.toFixed(4)}° N, {stop.longitude.toFixed(4)}° E</span>
                                                                 )}
                                                                 {otherRoutes.length > 0 && (
-                                                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                                                        <span>• Diğer Hatlar:</span>
+                                                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                                                                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+                                                                            {lang === 'tr' ? 'Aktarma:' : 'Transfer:'}
+                                                                        </span>
                                                                         {otherRoutes.map(or => (
-                                                                            <span key={or.id} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '4px', background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#e2e8f0', color: or.color || '#3b82f6', fontWeight: 600 }}>
+                                                                            <span key={or.id} style={{ fontSize: '10.5px', padding: '1.5px 7px', borderRadius: '5px', background: isDarkMode ? 'rgba(255,255,255,0.1)' : '#f1f5f9', color: or.color || '#3b82f6', fontWeight: 700, border: `1px solid ${or.color ? or.color + '40' : '#cbd5e1'}` }}>
                                                                                 {or.name}
                                                                             </span>
                                                                         ))}
@@ -2765,8 +2868,128 @@ export const RouteManagement = ({
                             {lang === 'tr' ? 'Arama ve filtre kriterlerine uygun durak bulunamadı.' : 'No stops found matching the search and filter criteria.'}
                         </div>
                     ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto', paddingRight: '4px' }}>
-                            {filteredStops.map(stop => {
+                        <>
+                            {/* Üst Sayfalama Kontrol Çubuğu */}
+                            {totalStopPages > 1 && (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    flexWrap: 'wrap',
+                                    gap: '10px',
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    backgroundColor: isDarkMode ? '#0f172a' : '#f1f5f9',
+                                    border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                        <span>Görüntülenen: <strong>{(stopPage - 1) * STOP_PAGE_SIZE + 1} - {Math.min(stopPage * STOP_PAGE_SIZE, filteredStops.length)}</strong> / {filteredStops.length}</span>
+                                        <span style={{ padding: '2px 8px', borderRadius: '4px', background: isDarkMode ? '#1e293b' : '#e2e8f0', color: isDarkMode ? '#38bdf8' : '#0284c7', fontWeight: 700 }}>
+                                            Sayfa {stopPage} / {totalStopPages}
+                                        </span>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setStopPage(1)}
+                                            disabled={stopPage <= 1}
+                                            title="İlk Sayfa"
+                                            style={{
+                                                padding: '4px 8px',
+                                                borderRadius: '4px',
+                                                fontSize: '11.5px',
+                                                fontWeight: '700',
+                                                border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                                backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                                color: stopPage <= 1 ? (isDarkMode ? '#475569' : '#94a3b8') : (isDarkMode ? '#ffffff' : '#0f172a'),
+                                                cursor: stopPage <= 1 ? 'not-allowed' : 'pointer'
+                                            }}
+                                        >
+                                            |◀
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setStopPage(p => Math.max(1, p - 1))}
+                                            disabled={stopPage <= 1}
+                                            title="Önceki Sayfa"
+                                            style={{
+                                                padding: '4px 10px',
+                                                borderRadius: '4px',
+                                                fontSize: '11.5px',
+                                                fontWeight: '600',
+                                                border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                                backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                                color: stopPage <= 1 ? (isDarkMode ? '#475569' : '#94a3b8') : (isDarkMode ? '#ffffff' : '#0f172a'),
+                                                cursor: stopPage <= 1 ? 'not-allowed' : 'pointer'
+                                            }}
+                                        >
+                                            ◀ Önceki
+                                        </button>
+
+                                        <select
+                                            value={stopPage}
+                                            onChange={(e) => setStopPage(Number(e.target.value))}
+                                            style={{
+                                                padding: '4px 8px',
+                                                borderRadius: '4px',
+                                                border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                                backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                                color: isDarkMode ? '#ffffff' : '#0f172a',
+                                                fontSize: '11.5px',
+                                                fontWeight: '700',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            {Array.from({ length: totalStopPages }, (_, i) => i + 1).map(p => (
+                                                <option key={p} value={p}>
+                                                    Sayfa {p} ({((p - 1) * STOP_PAGE_SIZE) + 1} - {Math.min(p * STOP_PAGE_SIZE, filteredStops.length)})
+                                                </option>
+                                            ))}
+                                        </select>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setStopPage(p => Math.min(totalStopPages, p + 1))}
+                                            disabled={stopPage >= totalStopPages}
+                                            title="Sonraki Sayfa"
+                                            style={{
+                                                padding: '4px 10px',
+                                                borderRadius: '4px',
+                                                fontSize: '11.5px',
+                                                fontWeight: '600',
+                                                border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                                backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                                color: stopPage >= totalStopPages ? (isDarkMode ? '#475569' : '#94a3b8') : (isDarkMode ? '#ffffff' : '#0f172a'),
+                                                cursor: stopPage >= totalStopPages ? 'not-allowed' : 'pointer'
+                                            }}
+                                        >
+                                            Sonraki ▶
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setStopPage(totalStopPages)}
+                                            disabled={stopPage >= totalStopPages}
+                                            title="Son Sayfa"
+                                            style={{
+                                                padding: '4px 8px',
+                                                borderRadius: '4px',
+                                                fontSize: '11.5px',
+                                                fontWeight: '700',
+                                                border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                                backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                                color: stopPage >= totalStopPages ? (isDarkMode ? '#475569' : '#94a3b8') : (isDarkMode ? '#ffffff' : '#0f172a'),
+                                                cursor: stopPage >= totalStopPages ? 'not-allowed' : 'pointer'
+                                            }}
+                                        >
+                                            ▶|
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto', paddingRight: '4px' }}>
+                                {paginatedStops.map(stop => {
                                 const routeObj = routes.find(r => r.id === stop.routeId);
                                 const clsKey = (stop.stopClass || 'otobus').toLowerCase();
                                 const clsInfo = getRouteClassInfo(clsKey);
@@ -3095,6 +3318,127 @@ export const RouteManagement = ({
                                 );
                             })}
                         </div>
+
+                        {/* Alt Sayfalama Kontrol Çubuğu */}
+                        {totalStopPages > 1 && (
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                flexWrap: 'wrap',
+                                gap: '10px',
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                backgroundColor: isDarkMode ? '#0f172a' : '#f1f5f9',
+                                border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                marginTop: '4px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                    <span>Görüntülenen: <strong>{(stopPage - 1) * STOP_PAGE_SIZE + 1} - {Math.min(stopPage * STOP_PAGE_SIZE, filteredStops.length)}</strong> / {filteredStops.length}</span>
+                                    <span style={{ padding: '2px 8px', borderRadius: '4px', background: isDarkMode ? '#1e293b' : '#e2e8f0', color: isDarkMode ? '#38bdf8' : '#0284c7', fontWeight: 700 }}>
+                                        Sayfa {stopPage} / {totalStopPages}
+                                    </span>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setStopPage(1)}
+                                        disabled={stopPage <= 1}
+                                        title="İlk Sayfa"
+                                        style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            fontSize: '11.5px',
+                                            fontWeight: '700',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                            backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                            color: stopPage <= 1 ? (isDarkMode ? '#475569' : '#94a3b8') : (isDarkMode ? '#ffffff' : '#0f172a'),
+                                            cursor: stopPage <= 1 ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        |◀
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setStopPage(p => Math.max(1, p - 1))}
+                                        disabled={stopPage <= 1}
+                                        title="Önceki Sayfa"
+                                        style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '4px',
+                                            fontSize: '11.5px',
+                                            fontWeight: '600',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                            backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                            color: stopPage <= 1 ? (isDarkMode ? '#475569' : '#94a3b8') : (isDarkMode ? '#ffffff' : '#0f172a'),
+                                            cursor: stopPage <= 1 ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        ◀ Önceki
+                                    </button>
+
+                                    <select
+                                        value={stopPage}
+                                        onChange={(e) => setStopPage(Number(e.target.value))}
+                                        style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                            backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                            color: isDarkMode ? '#ffffff' : '#0f172a',
+                                            fontSize: '11.5px',
+                                            fontWeight: '700',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        {Array.from({ length: totalStopPages }, (_, i) => i + 1).map(p => (
+                                            <option key={p} value={p}>
+                                                Sayfa {p} ({((p - 1) * STOP_PAGE_SIZE) + 1} - {Math.min(p * STOP_PAGE_SIZE, filteredStops.length)})
+                                            </option>
+                                        ))}
+                                    </select>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setStopPage(p => Math.min(totalStopPages, p + 1))}
+                                        disabled={stopPage >= totalStopPages}
+                                        title="Sonraki Sayfa"
+                                        style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '4px',
+                                            fontSize: '11.5px',
+                                            fontWeight: '600',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                            backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                            color: stopPage >= totalStopPages ? (isDarkMode ? '#475569' : '#94a3b8') : (isDarkMode ? '#ffffff' : '#0f172a'),
+                                            cursor: stopPage >= totalStopPages ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        Sonraki ▶
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setStopPage(totalStopPages)}
+                                        disabled={stopPage >= totalStopPages}
+                                        title="Son Sayfa"
+                                        style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            fontSize: '11.5px',
+                                            fontWeight: '700',
+                                            border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`,
+                                            backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                                            color: stopPage >= totalStopPages ? (isDarkMode ? '#475569' : '#94a3b8') : (isDarkMode ? '#ffffff' : '#0f172a'),
+                                            cursor: stopPage >= totalStopPages ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        ▶|
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        </>
                     )}
                 </div>
             )}

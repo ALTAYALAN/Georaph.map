@@ -56,5 +56,33 @@ namespace GeoraphMap.API.Controllers
             if (!success) return NotFound(new { message = "Durak bulunamadı." });
             return Ok(new { message = "Durak başarıyla silindi." });
         }
+
+        [HttpPost("fix-orphan-metro")]
+        public async Task<IActionResult> FixOrphanMetroStops()
+        {
+            var count = await _transportService.FixOrphanMetroStopsAsync();
+            return Ok(new { message = $"{count} adet metro hattına bağlı olmayan durak başarıyla otobüs durağına dönüştürüldü.", count });
+        }
+
+        [HttpPost("fix-orphan-tren")]
+        public async Task<IActionResult> FixOrphanTrenStops()
+        {
+            var count = await _transportService.FixOrphanTrenStopsAsync();
+            return Ok(new { message = $"{count} adet tren hattına bağlı olmayan durak başarıyla otobüs durağına dönüştürüldü.", count });
+        }
+
+        [HttpPost("convert-to-bus")]
+        public async Task<IActionResult> ConvertStopsToBus([FromBody] System.Collections.Generic.List<string> codesOrIds)
+        {
+            var count = await _transportService.ConvertStopsToBusByCodesOrIdsAsync(codesOrIds);
+            return Ok(new { message = $"{count} adet durak başarıyla otobüs durağına dönüştürüldü.", count });
+        }
+
+        [HttpPost("fix-transit-junctions")]
+        public async Task<IActionResult> FixTransitJunctions()
+        {
+            var success = await _transportService.FixAnkaraTransitJunctionsAsync();
+            return Ok(new { message = "Ankara metro ve tren aktarma durakları (Kızılay, AKM, Gar, Sıhhiye vb.) başarıyla bağlandı ve sıralandı.", success });
+        }
     }
 }

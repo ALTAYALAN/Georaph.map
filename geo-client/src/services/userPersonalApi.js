@@ -1,5 +1,15 @@
-// GeoraphMap User Personal API Service
-const API_BASE_URL = 'http://localhost:5041/api';
+const getApiBaseUrl = () => {
+    if (typeof window !== 'undefined' && window.location) {
+        if (window.location.port === '5041') {
+            return `${window.location.origin}/api`;
+        }
+        const host = window.location.hostname || 'localhost';
+        return `http://${host}:5041/api`;
+    }
+    return 'http://localhost:5041/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const getAuthHeaders = (token) => {
     const headers = { 'Content-Type': 'application/json' };

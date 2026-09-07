@@ -24,7 +24,7 @@ namespace GeoraphMap.Infrastructure.Services
         {
             await EnsureTableExistsAsync();
 
-            var query = _context.Cities.AsQueryable();
+            var query = _context.Cities.AsNoTracking().AsQueryable();
             if (!includeDeleted)
             {
                 query = query.Where(c => !c.IsDeleted);
@@ -37,7 +37,7 @@ namespace GeoraphMap.Infrastructure.Services
         public async Task<CityDto?> GetCityByPlateAsync(int plate)
         {
             await EnsureTableExistsAsync();
-            var city = await _context.Cities.FirstOrDefaultAsync(c => c.Plate == plate && !c.IsDeleted);
+            var city = await _context.Cities.AsNoTracking().FirstOrDefaultAsync(c => c.Plate == plate && !c.IsDeleted);
             return city == null ? null : MapToDto(city);
         }
 

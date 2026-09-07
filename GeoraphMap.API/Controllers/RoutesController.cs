@@ -121,6 +121,13 @@ namespace GeoraphMap.API.Controllers
             return Ok(new { message = "OSRM ile karayolu rotası başarıyla oluşturuldu.", route });
         }
 
+        [HttpPost("generate-all-bus-osrm")]
+        public async Task<IActionResult> GenerateAllBusRoutesOsrm([FromQuery] bool onlyNonOsrm = false)
+        {
+            var result = await _transportService.GenerateAllBusRoutesOsrmAsync(onlyNonOsrm);
+            return Ok(new { message = $"{result.SuccessCount} otobüs hattı OSRM ile başarıyla karayoluna uyarlandı.", result });
+        }
+
         [HttpPost("{id}/switch-mode")]
         public async Task<IActionResult> SwitchMode(int id, [FromBody] SwitchGeometryModeDto dto)
         {

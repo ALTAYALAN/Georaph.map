@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { adminApi } from '../../services/adminApi';
 import { getRoleColorStyle } from './UserManagement';
+import { translations } from '../../translations';
+import {
+    translateRoleName,
+    translateRoleDescription,
+    translatePermissionName,
+    translatePermissionDescription
+} from '../../utils/roleTranslations';
 
 // SVG Icons
 const ShieldIcon = () => (
@@ -46,6 +53,7 @@ const KeyIcon = () => (
 export const RoleManagement = ({ token, lang: propLang }) => {
     const lang = propLang || localStorage.getItem('lang') || 'tr';
     const isTr = lang === 'tr';
+    const t = translations[lang] || translations.tr;
     const [roles, setRoles] = useState([]);
     const [permissions, setPermissions] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -75,7 +83,7 @@ export const RoleManagement = ({ token, lang: propLang }) => {
             setRoles(rolesData || []);
             setPermissions(permsData || []);
         } catch (err) {
-            setError(err.message || 'Veriler yüklenirken hata oluştu.');
+            setError(err.message || (isTr ? 'Veriler yüklenirken hata oluştu.' : 'Error loading data.'));
         } finally {
             setLoading(false);
         }
@@ -102,13 +110,14 @@ export const RoleManagement = ({ token, lang: propLang }) => {
     };
 
     const handleDeleteRole = async (roleId, roleName) => {
+        const translatedName = translateRoleName(roleName, lang);
         const confirmMsg = isTr 
-            ? `"${roleName}" rolünü silmek istediğinize emin misiniz? Bu role sahip kullanıcılar etkilenebilir.` 
-            : `Are you sure you want to delete role "${roleName}"? Users with this role may be affected.`;
+            ? `"${translatedName}" rolünü silmek istediğinize emin misiniz? Bu role sahip kullanıcılar etkilenebilir.` 
+            : `Are you sure you want to delete role "${translatedName}"? Users with this role may be affected.`;
         if (!window.confirm(confirmMsg)) return;
         try {
             await adminApi.deleteRole(roleId, token);
-            setSuccessMessage(isTr ? 'Rol başarıyla silindi.' : 'Role deleted successfully.');
+            setSuccessMessage(t.roleDeletedSuccess || (isTr ? 'Rol başarıyla silindi.' : 'Role deleted successfully.'));
             loadData();
             setTimeout(() => setSuccessMessage(''), 3000);
         } catch (err) {
@@ -137,14 +146,14 @@ export const RoleManagement = ({ token, lang: propLang }) => {
                     description: formData.description,
                     permissionIds: formData.selectedPermIds
                 }, token);
-                setSuccessMessage(isTr ? 'Rol başarıyla güncellendi.' : 'Role updated successfully.');
+                setSuccessMessage(t.roleUpdatedSuccess || (isTr ? 'Rol başarıyla güncellendi.' : 'Role updated successfully.'));
             } else {
                 await adminApi.createRole({
                     name: formData.name,
                     description: formData.description,
                     permissionIds: formData.selectedPermIds
                 }, token);
-                setSuccessMessage(isTr ? 'Yeni rol başarıyla oluşturuldu.' : 'New role created successfully.');
+                setSuccessMessage(t.roleCreatedSuccess || (isTr ? 'Yeni rol başarıyla oluşturuldu.' : 'New role created successfully.'));
             }
             setShowModal(false);
             loadData();
@@ -158,15 +167,15 @@ export const RoleManagement = ({ token, lang: propLang }) => {
         <div className="admin-view-container">
             <div className="admin-header">
                 <div>
-                    <h2>{isTr ? 'Rol Listesi ve Yetki Yönetimi' : 'Role List & Permission Management'}</h2>
+                    <h2>{t.roleManagementTitle || (isTr ? 'Rol Listesi ve Yetki Yönetimi' : 'Role List & Permission Management')}</h2>
                     <p className="admin-subtext">
-                        {isTr 
+                        {t.roleManagementSubtitle || (isTr 
                             ? 'Sistemdeki rolleri ve bu rollere bağlı varsayılan yetkileri yönetin.' 
-                            : 'Manage system roles and default permissions assigned to them.'}
+                            : 'Manage system roles and default permissions assigned to them.')}
                     </p>
                 </div>
                 <button className="admin-primary-btn" onClick={handleOpenCreateModal}>
-                    <PlusIcon /> {isTr ? 'Yeni Rol Ekle' : 'Add New Role'}
+                    <PlusIcon /> {t.addNewRole || (isTr ? 'Yeni Rol Ekle' : 'Add New Role')}
                 </button>
             </div>
 
@@ -174,14 +183,17 @@ export const RoleManagement = ({ token, lang: propLang }) => {
             {successMessage && <div className="admin-alert success">{successMessage}</div>}
 
             {loading ? (
-                <div className="admin-loading">{isTr ? 'Roller yükleniyor...' : 'Loading roles...'}</div>
+                <div className="admin-loading">{t.loadingRoles || (isTr ? 'Roller yükleniyor...' : 'Loading roles...')}</div>
             ) : (
                 <div className="roles-cards-grid">
                     {roles.length === 0 ? (
-                        <div className="no-data">{isTr ? 'Rol bulunamadı.' : 'No roles found.'}</div>
+                        <div className="no-data">{t.noRolesFound || (isTr ? 'Rol bulunamadı.' : 'No roles found.')}</div>
                     ) : (
                         roles.map(role => {
                             const style = getRoleColorStyle(role.name, role.id);
+                            const translatedRoleName = translateRoleName(role.name, lang);
+                            const translatedRoleDesc = translateRoleDescription(role.description, lang, role.name);
+
                             return (
                                 <div
                                     key={role.id}
@@ -194,23 +206,23 @@ export const RoleManagement = ({ token, lang: propLang }) => {
                                     <div className="role-card-header">
                                         <div>
                                             <h3 className="role-title" style={{ color: style.color }}>
-                                                {role.name}
+                                                {translatedRoleName}
                                             </h3>
                                             <span className="role-user-count" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <UserIcon /> {role.userCount} {isTr ? 'Kullanıcı' : 'Users'}
+                                                <UserIcon /> {role.userCount} {role.userCount === 1 ? (t.userCountLabel || (isTr ? 'Kullanıcı' : 'User')) : (t.usersCountLabel || (isTr ? 'Kullanıcı' : 'Users'))}
                                             </span>
                                         </div>
                                         <div className="role-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <button
                                                 className="admin-action-btn edit-icon-btn"
-                                                title={isTr ? "Rolü Düzenle" : "Edit Role"}
+                                                title={t.editRole || (isTr ? "Rolü Düzenle" : "Edit Role")}
                                                 onClick={() => handleOpenEditModal(role)}
                                             >
                                                 <EditIcon size={16} />
                                             </button>
                                             <button
                                                 className="admin-action-btn delete-icon-btn"
-                                                title={isTr ? "Rolü Sil" : "Delete Role"}
+                                                title={t.deleteRole || (isTr ? "Rolü Sil" : "Delete Role")}
                                                 onClick={() => handleDeleteRole(role.id, role.name)}
                                             >
                                                 <TrashIcon size={18} />
@@ -218,21 +230,23 @@ export const RoleManagement = ({ token, lang: propLang }) => {
                                         </div>
                                     </div>
 
-                                    <p className="role-description">{role.description || (isTr ? 'Açıklama girilmemiş.' : 'No description provided.')}</p>
+                                    <p className="role-description">
+                                        {translatedRoleDesc || (t.noRoleDesc || (isTr ? 'Açıklama girilmemiş.' : 'No description provided.'))}
+                                    </p>
 
                                     <div className="role-permissions-section">
                                         <span className="role-perm-title">
-                                            {isTr ? 'TANIMLI YETKİLER' : 'DEFINED PERMISSIONS'} ({role.permissions?.length || 0})
+                                            {t.rolePermsTitle || (isTr ? 'TANIMLI YETKİLER' : 'DEFINED PERMISSIONS')} ({role.permissions?.length || 0})
                                         </span>
                                         <div className="role-perm-tags">
                                             {role.permissions && role.permissions.length > 0 ? (
                                                 role.permissions.map(p => (
                                                     <span key={p.id} className="perm-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                                        <KeyIcon /> {p.name}
+                                                        <KeyIcon /> {translatePermissionName(p, lang)}
                                                     </span>
                                                 ))
                                             ) : (
-                                                <span className="muted-text">{isTr ? 'Atanmış yetki yok' : 'No assigned permissions'}</span>
+                                                <span className="muted-text">{t.noAssignedPerms || (isTr ? 'Atanmış yetki yok' : 'No assigned permissions')}</span>
                                             )}
                                         </div>
                                     </div>
@@ -249,43 +263,59 @@ export const RoleManagement = ({ token, lang: propLang }) => {
                     <div className="admin-modal">
                         <div className="admin-modal-header">
                             <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {editingRole ? <><EditIcon /> {isTr ? 'Rol Düzenle' : 'Edit Role'}: {editingRole.name}</> : <><PlusIcon /> {isTr ? 'Yeni Rol Ekle' : 'Add New Role'}</>}
+                                {editingRole ? (
+                                    <><EditIcon /> {t.editRole || (isTr ? 'Rol Düzenle' : 'Edit Role')}: {translateRoleName(editingRole.name, lang)}</>
+                                ) : (
+                                    <><PlusIcon /> {t.addNewRole || (isTr ? 'Yeni Rol Ekle' : 'Add New Role')}</>
+                                )}
                             </h3>
                             <button className="close-btn" onClick={() => setShowModal(false)}>x</button>
                         </div>
                         <form onSubmit={handleSubmit} className="admin-modal-form">
                             <div className="form-group">
-                                <label>{isTr ? 'Rol Adı *' : 'Role Name *'}</label>
+                                <label>{t.roleNameLabel || (isTr ? 'Rol Adı *' : 'Role Name *')}</label>
                                 <input
                                     type="text"
                                     required
                                     value={formData.name}
                                     onChange={e => setFormData({ ...formData, name: e.target.value })}
-                                    placeholder={isTr ? "Örn: Editör, Saha Personeli..." : "e.g. Editor, Field Staff..."}
+                                    placeholder={t.roleNamePlaceholder || (isTr ? "Örn: Editör, Saha Personeli..." : "e.g. Editor, Field Staff...")}
                                 />
+                                {!isTr && formData.name && (
+                                    <span style={{ fontSize: '11px', color: '#38bdf8', display: 'block', marginTop: '3px' }}>
+                                        English Display: <strong>{translateRoleName(formData.name, 'en')}</strong>
+                                    </span>
+                                )}
                             </div>
                             <div className="form-group">
-                                <label>{isTr ? 'Açıklama' : 'Description'}</label>
+                                <label>{t.roleDescLabel || (isTr ? 'Açıklama' : 'Description')}</label>
                                 <textarea
                                     rows="2"
                                     value={formData.description}
                                     onChange={e => setFormData({ ...formData, description: e.target.value })}
-                                    placeholder={isTr ? "Rolün sorumluluk ve kapsama alanı..." : "Role responsibilities and scope..."}
+                                    placeholder={t.roleDescPlaceholder || (isTr ? "Rolün sorumluluk ve kapsama alanı..." : "Role responsibilities and scope...")}
                                 />
+                                {!isTr && formData.description && (
+                                    <span style={{ fontSize: '11px', color: '#38bdf8', display: 'block', marginTop: '3px' }}>
+                                        English Display: <em>{translateRoleDescription(formData.description, 'en')}</em>
+                                    </span>
+                                )}
                             </div>
 
                             <div className="section-divider">
                                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <KeyIcon /> {isTr ? 'Role Atanacak Yetkiler' : 'Permissions to Assign to Role'}
+                                    <KeyIcon /> {t.rolePermsAssignTitle || (isTr ? 'Role Atanacak Yetkiler' : 'Permissions to Assign to Role')}
                                 </h4>
                                 <p className="section-help">
-                                    {isTr ? 'Bu role sahip kullanıcılar bu yetkileri otomatik kazanır.' : 'Users with this role automatically acquire these permissions.'}
+                                    {t.rolePermsAssignHelp || (isTr ? 'Bu role sahip kullanıcılar bu yetkileri otomatik kazanır.' : 'Users with this role automatically acquire these permissions.')}
                                 </p>
                             </div>
 
                             <div className="permissions-grid">
                                 {permissions.map(p => {
                                     const isChecked = formData.selectedPermIds.includes(p.id);
+                                    const permName = translatePermissionName(p, lang);
+                                    const permDesc = translatePermissionDescription(p, lang);
 
                                     return (
                                         <div
@@ -302,11 +332,11 @@ export const RoleManagement = ({ token, lang: propLang }) => {
                                                     onChange={() => { }}
                                                 />
                                                 <label htmlFor={`role-perm-${p.id}`} className="perm-label">
-                                                    <strong>{p.name}</strong>
+                                                    <strong>{permName}</strong>
                                                     <span className="perm-code">({p.code})</span>
                                                 </label>
                                             </div>
-                                            <div className="perm-description">{p.description}</div>
+                                            <div className="perm-description">{permDesc}</div>
                                         </div>
                                     );
                                 })}

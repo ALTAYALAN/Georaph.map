@@ -67,6 +67,13 @@ namespace GeoraphMap.Infrastructure
                     return;
                 }
 
+                // Müzeler zaten mevcutsa 405 adet ardışık veritabanı sorgusunu atla (RAM ve CPU optimizasyonu)
+                if (await context.Pois.CountAsync(p => p.CategoryId == museumCategory.Id && !p.IsDeleted) >= 300)
+                {
+                    Console.WriteLine("[TurkishMuseumsSeeder] 81 ilin tüm müzeleri zaten veritabanında mevcut, seed atlandı.");
+                    return;
+                }
+
                 // 3. 81 İlin En Bilindik 5'er Müzesi (Toplam 405 Müze)
                 var museums = Get81ProvincesMuseumList();
 

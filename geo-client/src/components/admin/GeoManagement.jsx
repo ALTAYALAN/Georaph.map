@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import Map from 'ol/Map';
+import OLMap from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
@@ -2084,7 +2084,7 @@ export const GeoManagement = ({ token, isDarkMode, toggleTheme, lang: propLang }
         });
         baseTileLayerRef.current = baseTileLayer;
 
-        const map = new Map({
+        const map = new OLMap({
             target: mapElementRef.current,
             layers: [
                 baseTileLayer,

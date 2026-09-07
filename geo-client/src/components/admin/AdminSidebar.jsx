@@ -110,7 +110,7 @@ export const AdminSidebar = ({
     ];
 
     const navItems = (isOperator || isEditor)
-        ? allNavItems.filter(item => item.id === 'routes')
+        ? allNavItems.filter(item => item.id === 'routes' || item.id === 'zoom')
         : allNavItems;
 
     const roleDisplayName = userRole === 'Admin' 

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import Map from 'ol/Map';
+import OLMap from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
@@ -16,7 +16,7 @@ import { setupPulsingSpatialBoundaryLayer, isGeomInsideBoundary } from './utils/
 import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
 import TileWMS from 'ol/source/TileWMS';
-import { fromLonLat, toLonLat } from 'ol/proj';
+import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
 import Draw from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
 import Translate from 'ol/interaction/Translate';
@@ -41,12 +41,14 @@ import { HistoricalTimelineSlider } from './components/common/HistoricalTimeline
 import { adminApi } from './services/adminApi';
 import { transportApi } from './services/transportApi';
 import { userPersonalApi } from './services/userPersonalApi';
-import { getPoiCategoryBadgeSvg, getLocalizedPoiCategoryLabel } from './constants/poiIcons';
+import { getPoiCategoryBadgeSvg, getTransitStopBadgeSvg, getLocalizedPoiCategoryLabel } from './constants/poiIcons';
 import { simulationHubService } from './services/simulationHubService';
+import { translateRoleName } from './utils/roleTranslations';
 import { formatDuration } from './utils/formatUtils';
 import { getRouteClassInfo, getVehicleClassInnerSvg, RouteClassIcon } from './constants/routeClasses';
 import { calculateTransitRoute } from './utils/transitRouting';
-import { getZoomSettings, DEFAULT_ZOOM_SETTINGS } from './constants/zoomSettings';
+import { getZoomSettings, DEFAULT_ZOOM_SETTINGS, ZOOM_STORAGE_KEY } from './constants/zoomSettings';
+import { ZoomSettingsManagement } from './components/admin/ZoomSettingsManagement';
 import { cleanPortName, getSeaportInfo, TURKISH_SEAPORTS } from './constants/seaports';
 import { cleanAirportName, getAirportInfo, TURKISH_AIRPORTS } from './constants/airports';
 import { calculateGeometryMetrics } from './utils/geometryUtils';
@@ -278,84 +280,69 @@ export function createDirectionsStyle(feature) {
     return [];
 }
 
-// Metro / Raylı Sistem Durağı İkonu (Sayı yerine Metro Tren İkonu)
+// Metro / Raylı Sistem Durağı İkonu (Metro Tren İkonu)
 export function getMetroStopPinSvg(routeColor = '#ef4444') {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
-        <defs>
-            <filter id="metroShadow" x="-30%" y="-30%" width="160%" height="160%">
-                <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.35"/>
-            </filter>
-        </defs>
-        <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2" filter="url(#metroShadow)"/>
-        <rect x="7.5" y="6" width="9" height="10" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.5"/>
-        <line x1="7.5" y1="11" x2="16.5" y2="11" stroke="#ffffff" stroke-width="1.2"/>
-        <circle cx="9.5" cy="13.5" r="0.9" fill="#ffffff"/>
-        <circle cx="14.5" cy="13.5" r="0.9" fill="#ffffff"/>
-        <line x1="8.5" y1="16" x2="7" y2="18" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
-        <line x1="15.5" y1="16" x2="17" y2="18" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10.5" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
+        <rect x="7.5" y="6" width="9" height="10" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.6"/>
+        <line x1="7.5" y1="11" x2="16.5" y2="11" stroke="#ffffff" stroke-width="1.3"/>
+        <circle cx="9.5" cy="13.5" r="1.1" fill="#ffffff"/>
+        <circle cx="14.5" cy="13.5" r="1.1" fill="#ffffff"/>
+        <line x1="8.5" y1="16" x2="7" y2="18.5" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="15.5" y1="16" x2="17" y2="18.5" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round"/>
     </svg>`;
 }
 
-// Otobüs Durağı İkonu (Sayı yerine Otobüs İkonu)
+// Otobüs Durağı İkonu (Otobüs İkonu)
 export function getBusStopPinSvg(routeColor = '#0284c7') {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 22 22">
-        <defs>
-            <filter id="busShadow" x="-30%" y="-30%" width="160%" height="160%">
-                <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.35"/>
-            </filter>
-        </defs>
-        <circle cx="11" cy="11" r="9" fill="${routeColor}" stroke="#ffffff" stroke-width="1.8" filter="url(#busShadow)"/>
-        <rect x="6.8" y="5.5" width="8.4" height="9.5" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.4"/>
-        <line x1="6.8" y1="9.5" x2="15.2" y2="9.5" stroke="#ffffff" stroke-width="1.1"/>
-        <circle cx="8.5" cy="12.5" r="0.8" fill="#ffffff"/>
-        <circle cx="13.5" cy="12.5" r="0.8" fill="#ffffff"/>
-        <line x1="8" y1="15" x2="7" y2="16.5" stroke="#ffffff" stroke-width="1.3" stroke-linecap="round"/>
-        <line x1="14" y1="15" x2="15" y2="16.5" stroke="#ffffff" stroke-width="1.3" stroke-linecap="round"/>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+        <circle cx="11" cy="11" r="9.5" fill="${routeColor}" stroke="#ffffff" stroke-width="1.8"/>
+        <rect x="6.8" y="5.5" width="8.4" height="9.5" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+        <line x1="6.8" y1="9.5" x2="15.2" y2="9.5" stroke="#ffffff" stroke-width="1.2"/>
+        <circle cx="8.5" cy="12.5" r="0.9" fill="#ffffff"/>
+        <circle cx="13.5" cy="12.5" r="0.9" fill="#ffffff"/>
+        <line x1="8" y1="15" x2="6.8" y2="17" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+        <line x1="14" y1="15" x2="15.2" y2="17" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
     </svg>`;
 }
 
 // Gemi / Vapur İskelesi Terminal Pini (Çapa İkonlu Pin)
 export function getFerryTerminalPinSvg(routeColor = '#0891b2') {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
-        <defs>
-            <filter id="ferryShadow" x="-30%" y="-30%" width="160%" height="160%">
-                <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.35"/>
-            </filter>
-        </defs>
-        <circle cx="12" cy="12" r="10" fill="${routeColor || '#0891b2'}" stroke="#ffffff" stroke-width="2" filter="url(#ferryShadow)"/>
-        <path d="M12 5.5v9M8.5 9h7M7 13.5c0 2.8 2.2 5 5 5s5-2.2 5-5" fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="12" cy="6.5" r="1.1" fill="#ffffff"/>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10.5" fill="${routeColor || '#0891b2'}" stroke="#ffffff" stroke-width="2"/>
+        <path d="M12 5.5v9M8.5 9h7M7 13.5c0 2.8 2.2 5 5 5s5-2.2 5-5" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="12" cy="6.5" r="1.2" fill="#ffffff"/>
     </svg>`;
 }
 
-// Genel / Standart Durak İkonu Seçici (Sayı yok, her 6 türe özel vektörel simge)
+// Genel / Standart Durak İkonu Seçici (Her 6 türe özel vektörel simge)
 export function getStopPinSvg(routeClass = 'otobus', routeColor = '#3b82f6') {
     const rc = (routeClass || '').toLowerCase().trim();
     if (rc === 'havayolu' || rc === 'havalimani' || rc === 'ucak' || rc === 'airport') {
         return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" fill="${routeColor || '#0284c7'}" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="12" cy="12" r="10.5" fill="${routeColor || '#0284c7'}" stroke="#ffffff" stroke-width="2"/>
             <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill="#ffffff"/>
         </svg>`;
     }
     if (rc === 'metro') return getMetroStopPinSvg(routeColor);
     if (rc === 'otobus' || rc === 'bus') return getBusStopPinSvg(routeColor);
-    if (rc === 'gemi' || rc === 'deniz' || rc === 'vapur') return getFerryTerminalPinSvg(routeColor);
+    if (rc === 'gemi' || rc === 'deniz' || rc === 'vapur' || rc === 'liman') return getFerryTerminalPinSvg(routeColor);
     if (rc === 'tramvay' || rc === 'tram') {
         return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="12" cy="12" r="10.5" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
             <path d="M17 14.5V6a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v8.5a2 2 0 0 0 1.5 1.95V18a1 1 0 0 0 1 1h1v-1h3v1h1a1 1 0 0 0 1-1v-1.55a2 2 0 0 0 1.5-1.95zM8 6h8v3H8V6zm1.5 8.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm5 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z" fill="#ffffff"/>
         </svg>`;
     }
     if (rc === 'metrobus') {
         return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="12" cy="12" r="10.5" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
             <path d="M5 14c0 .8.3 1.5.8 1.9V17c0 .5.4 1 1 1h1v-1h8v1h1c.6 0 1-.5 1-1v-1.1c.5-.4.8-1.1.8-1.9V6c0-2.8-2.8-3-6.8-3s-6.8.2-6.8 3v8zm2.5.5c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1zm9 0c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1zM18 9H6V5.5h12V9z" fill="#ffffff"/>
             <path d="M12 2l1.5 1.5h-3L12 2z" fill="#ffffff"/>
         </svg>`;
     }
     if (rc === 'tren' || rc === 'train') {
         return `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
+            <circle cx="12" cy="12" r="10.5" fill="${routeColor}" stroke="#ffffff" stroke-width="2"/>
             <path d="M8 6h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" fill="none" stroke="#ffffff" stroke-width="1.5"/>
             <line x1="6" y1="11" x2="18" y2="11" stroke="#ffffff" stroke-width="1.2"/>
             <circle cx="9" cy="14" r="0.9" fill="#ffffff"/>
@@ -364,9 +351,9 @@ export function getStopPinSvg(routeClass = 'otobus', routeColor = '#3b82f6') {
             <line x1="16" y1="17" x2="18" y2="19" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
         </svg>`;
     }
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20">
-        <circle cx="10" cy="10" r="7.5" fill="${routeColor}" stroke="#ffffff" stroke-width="1.8"/>
-        <circle cx="10" cy="10" r="3" fill="#ffffff"/>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <circle cx="10" cy="10" r="8.5" fill="${routeColor}" stroke="#ffffff" stroke-width="1.8"/>
+        <circle cx="10" cy="10" r="3.5" fill="#ffffff"/>
     </svg>`;
 }
 
@@ -407,7 +394,12 @@ export function createTransitRouteStyle(feature, resolution, selectedRouteId) {
         minRouteZoom = zs.routeMinZoom ?? 11.5;
     }
 
-    // Dinamik zoom eşiği kontrolü (Admin panelinden ayarlanabilir)
+    // 1. Otobüs hatları ANCAK VE ANCAK durağa tıklandığı zaman hat seçimi yapıldığında gözükür
+    if (isBus && !isSelected) {
+        return null;
+    }
+
+    // 2. Diğer hatlar için dinamik zoom eşiği kontrolü (Admin panelinden canlı ayarlanabilir)
     // Seçili rota her zoom seviyesinde her zaman görünür, seçili olmayanlar eşik zoom değerinde görünür
     if (!isSelected && zoom < minRouteZoom) {
         return null;
@@ -537,6 +529,15 @@ export function createRouteStyleWithDirectionArrows(lineGeom, routeColor = '#3b8
             zIndex: 12
         })
     ];
+}
+
+// Hat isminden sadece hat numarasını/kodunu (örn: "427", "427-6", "185", "413", "M4") çıkarma yardımcısı
+export function extractRouteBadgeCode(name) {
+    if (!name) return 'Hat';
+    const trimmed = name.trim();
+    const egoMatch = trimmed.match(/^(?:EGO\s+)?([A-Za-z0-9]+(?:-[0-9]+)?)/i);
+    if (egoMatch) return egoMatch[1];
+    return trimmed.split(/[\s-]+/)[0] || trimmed.substring(0, 8);
 }
 
 // Hex rengi RGBA stringe çevirme yardımcısı
@@ -1273,6 +1274,7 @@ function App() {
     routesRef.current = routes;
     const [stops, setStops] = useState([]);
     const [selectedStopInfo, setSelectedStopInfo] = useState(null);
+    const [stopRouteSearch, setStopRouteSearch] = useState('');
     const [selectedRouteInfo, setSelectedRouteInfo] = useState(null);
     const [selectedBoundaryInfo, setSelectedBoundaryInfo] = useState(null);
     const selectedRouteInfoRef = useRef(null);
@@ -1288,6 +1290,8 @@ function App() {
     const [modifiedStopCoords, setModifiedStopCoords] = useState({ lat: null, lon: null, wkt: '' });
     const [stopOriginalWkt, setStopOriginalWkt] = useState('');
     const stopModifyInteractionRef = useRef(null);
+    const stopTranslateInteractionRef = useRef(null);
+    const modifyingRouteBindingsRef = useRef([]);
 
     const [showAddStopModal, setShowAddStopModal] = useState(false);
     const [draftStopCoords, setDraftStopCoords] = useState({ lat: 0, lon: 0, wkt: '' });
@@ -1303,8 +1307,8 @@ function App() {
         pois: true,
         drawings: true,
         heatmap: false,
-        routeTypes: { metro: true, otobus: true, tren: true, gemi: true, araba: true },
-        stopTypes: { metro: true, otobus: true, tren: true, gemi: true },
+        routeTypes: { metro: true, otobus: true, tren: true, gemi: true, deniz: true, araba: true, havayolu: true },
+        stopTypes: { metro: true, otobus: true, tren: true, gemi: true, deniz: true, liman: true, vapur: true, havayolu: true },
         poiCategories: {},
         poiTypes: {
             hastane: true, eczane: true, okul: true, muze: true, kutuphane: true,
@@ -1319,6 +1323,8 @@ function App() {
 
     const routeSourceRef = useRef(new VectorSource());
     const stopSourceRef = useRef(new VectorSource());
+    const allStopFeaturesRef = useRef([]);
+    const updateVisibleStopsInViewportRef = useRef(null);
     const routeLayerRef = useRef(null);
     const stopLayerRef = useRef(null);
     const poiLayerRef = useRef(null);
@@ -1333,11 +1339,16 @@ function App() {
     const simSpeedMapRef = useRef(simSpeedMap);
     simSpeedMapRef.current = simSpeedMap;
     const [zoomSettings, setZoomSettings] = useState(getZoomSettings);
+    const zoomSettingsRef = useRef(getZoomSettings());
+    zoomSettingsRef.current = zoomSettings;
+    const [isZoomSettingsModalOpen, setIsZoomSettingsModalOpen] = useState(false);
 
     // DİNAMİK HARİTA ZOOM & GÖRÜNÜRLÜK AYARLARI DİNLENMESİ
     useEffect(() => {
         const refreshLayers = (settings) => {
+            zoomSettingsRef.current = settings;
             setZoomSettings(settings);
+            if (updateVisibleStopsInViewportRef.current) updateVisibleStopsInViewportRef.current();
             if (routeLayerRef.current) routeLayerRef.current.changed();
             if (stopLayerRef.current) stopLayerRef.current.changed();
             if (poiLayerRef.current) poiLayerRef.current.changed();
@@ -1354,7 +1365,7 @@ function App() {
         };
 
         const handleStorageChanged = (e) => {
-            if (e.key === 'geomap_admin_zoom_settings_v2' || e.key === 'geomap_admin_zoom_settings_v1') {
+            if (e.key === ZOOM_STORAGE_KEY || e.key?.startsWith('geomap_admin_zoom_settings')) {
                 refreshLayers(getZoomSettings());
             }
         };
@@ -1477,10 +1488,16 @@ function App() {
         if (layerKey.startsWith('routeType_')) {
             const subKey = layerKey.replace('routeType_', '');
             setLayerVisibility(prev => {
-                const cur = prev.routeTypes || { metro: true, otobus: true, tren: true, gemi: true, araba: true };
+                const cur = prev.routeTypes || { metro: true, otobus: true, tren: true, gemi: true, deniz: true, araba: true };
+                const nextVal = !cur[subKey];
+                const nextRouteTypes = { ...cur, [subKey]: nextVal };
+                if (subKey === 'gemi') {
+                    nextRouteTypes['deniz'] = nextVal;
+                    nextRouteTypes['vapur'] = nextVal;
+                }
                 const nextState = {
                     ...prev,
-                    routeTypes: { ...cur, [subKey]: !cur[subKey] }
+                    routeTypes: nextRouteTypes
                 };
                 layerVisibilityRef.current = nextState;
                 return nextState;
@@ -1491,10 +1508,17 @@ function App() {
         if (layerKey.startsWith('stopType_')) {
             const subKey = layerKey.replace('stopType_', '');
             setLayerVisibility(prev => {
-                const cur = prev.stopTypes || { metro: true, otobus: true, tren: true, gemi: true };
+                const cur = prev.stopTypes || { metro: true, otobus: true, tren: true, gemi: true, deniz: true, liman: true, vapur: true };
+                const nextVal = !cur[subKey];
+                const nextStopTypes = { ...cur, [subKey]: nextVal };
+                if (subKey === 'gemi') {
+                    nextStopTypes['deniz'] = nextVal;
+                    nextStopTypes['liman'] = nextVal;
+                    nextStopTypes['vapur'] = nextVal;
+                }
                 const nextState = {
                     ...prev,
-                    stopTypes: { ...cur, [subKey]: !cur[subKey] }
+                    stopTypes: nextStopTypes
                 };
                 layerVisibilityRef.current = nextState;
                 return nextState;
@@ -2938,6 +2962,112 @@ function App() {
         }
     };
 
+    // DURAK STİL VE İKON ÖNBELLEĞİ (STYLE CACHE)
+    // 9.288 durak için Icon/Style nesnelerini tek sefer oluşturup bellekte tutar; her render'da yeni Image yaratmaz.
+    const transitStopStyleCache = useRef(new Map());
+    const transitStopLabelCache = useRef(new Map());
+
+    const getOrCreateStopStyle = (normClass, routeColor, isSelected, zoom, stopName, isBus) => {
+        const iconCacheKey = `${normClass}_${routeColor}_${isSelected ? '1' : '0'}`;
+        let baseStyle = transitStopStyleCache.current.get(iconCacheKey);
+
+        if (!baseStyle) {
+            const stopBadgeSvg = getTransitStopBadgeSvg(normClass, routeColor);
+            const icon = new Icon({
+                src: 'data:image/svg+xml;utf8,' + encodeURIComponent(stopBadgeSvg),
+                size: [34, 34],
+                scale: isSelected ? 0.85 : 0.65,
+                anchor: [0.5, 0.5]
+            });
+
+            baseStyle = new Style({
+                image: icon,
+                zIndex: isSelected ? 36 : ((normClass === 'havayolu' || normClass === 'gemi') ? 29 : (normClass === 'metro' ? 28 : (normClass === 'tren' ? 27 : 26)))
+            });
+            transitStopStyleCache.current.set(iconCacheKey, baseStyle);
+        }
+
+        if (!stopName) {
+            return baseStyle;
+        }
+
+        const labelCacheKey = `${stopName}_${isBus ? '1' : '0'}_${isSelected ? '1' : '0'}`;
+        let labelStyle = transitStopLabelCache.current.get(labelCacheKey);
+        if (!labelStyle) {
+            labelStyle = new Style({
+                text: new Text({
+                    text: stopName,
+                    font: isBus ? '600 10px Inter, system-ui, sans-serif' : '700 11px Inter, system-ui, sans-serif',
+                    fill: new Fill({ color: '#ffffff' }),
+                    stroke: new Stroke({ color: '#0f172a', width: 3.5, lineJoin: 'round' }),
+                    offsetY: 15,
+                    overflow: true
+                }),
+                zIndex: isSelected ? 37 : 29
+            });
+            transitStopLabelCache.current.set(labelCacheKey, labelStyle);
+        }
+
+        return [baseStyle, labelStyle];
+    };
+
+    // AKILLI ULAŞIM - ZOOM VE TÜR DUYARLI DURAK STİL FONKSİYONU
+    const createStopStyle = (feature, resolution) => {
+        const vis = layerVisibilityRef.current || {};
+        if (vis.stops === false) return null;
+
+        const rawClass = (feature.get('stopClass') || feature.get('routeClass') || 'otobus').toLowerCase().trim();
+        const isAirport = rawClass === 'havayolu' || rawClass === 'havalimani' || rawClass === 'airport' || rawClass === 'ucak';
+        const isBus = rawClass === 'otobus' || rawClass === 'bus';
+        const isGemi = rawClass === 'gemi' || rawClass === 'liman' || rawClass === 'deniz' || rawClass === 'vapur';
+        const isMetro = rawClass === 'metro' || rawClass === 'tramvay' || rawClass === 'metrobus';
+        const isTren = rawClass === 'tren' || rawClass === 'train';
+        const normClass = isGemi ? 'gemi' : (isAirport ? 'havayolu' : (isMetro ? 'metro' : (isTren ? 'tren' : 'otobus')));
+
+        if (vis.stopTypes && (vis.stopTypes[rawClass] === false || vis.stopTypes[normClass] === false)) {
+            return null;
+        }
+
+        const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : (mapRef.current?.getView()?.getZoom() || 12);
+        const featureRouteId = feature.get('routeId');
+        const isSelectedRoute = selectedRouteInfoRef.current?.id === featureRouteId;
+        const zs = zoomSettingsRef.current || DEFAULT_ZOOM_SETTINGS;
+
+        // Dinamik durak görünürlük zoom eşiği kontrolü (Ayar panelinden canlı yönetilebilir)
+        let minStopZoom = zs.stopMinZoom ?? 6.0;
+        if (isAirport) minStopZoom = zs.airportStopMinZoom ?? 4.0;
+        else if (isGemi) minStopZoom = zs.shipStopMinZoom ?? 4.0;
+        else if (isMetro) minStopZoom = zs.metroStopMinZoom ?? 6.0;
+        else if (isTren) minStopZoom = zs.trainStopMinZoom ?? 5.0;
+        else if (isBus) minStopZoom = zs.busStopMinZoom ?? 6.0;
+
+        if (!isSelectedRoute && zoom < minStopZoom) {
+            return null;
+        }
+
+        const routeColor = feature.get('routeColor') || (
+            isMetro ? '#ef4444' :
+            (isGemi ? '#0891b2' :
+            (isTren ? '#f59e0b' :
+            (isAirport ? '#0284c7' : '#0284c7')))
+        );
+
+        const stopName = feature.get('stopName') || '';
+
+        const stopNameMinZoom = isAirport 
+            ? (zs.airportStopMinZoom ? zs.airportStopMinZoom + 1.0 : 5.0)
+            : (isGemi 
+                ? (zs.shipStopMinZoom ? zs.shipStopMinZoom + 1.0 : 5.0)
+                : (isMetro 
+                    ? (zs.metroStopMinZoom ? zs.metroStopMinZoom + 1.0 : 7.0)
+                    : (isTren 
+                        ? (zs.trainStopMinZoom ? zs.trainStopMinZoom + 1.0 : 6.5)
+                        : (zs.stopNameMinZoom ?? 11.0))));
+        const showStopLabel = stopName && (zoom >= stopNameMinZoom || isSelectedRoute);
+
+        return getOrCreateStopStyle(normClass, routeColor, isSelectedRoute, zoom, showStopLabel ? stopName : '', isBus);
+    };
+
     // POI (POINT OF INTEREST) VE KATEGORİLERİ ÇEKME & HARİTADA GÖSTERME
     const fetchPois = async () => {
         try {
@@ -3022,13 +3152,32 @@ function App() {
         }
     };
 
+    // AKILLI ULAŞIM - DURAK VE GÜZERGAH KATMANI GÜNCELLEMESİ
+    const updateVisibleStopsInViewport = useCallback(() => {
+        if (!stopSourceRef.current) return;
+        const allFeats = allStopFeaturesRef.current;
+        if (!allFeats || allFeats.length === 0) return;
+
+        // stopSourceRef içinde bütün durakların var olduğundan emin ol
+        if (stopSourceRef.current.getFeatures().length === 0 && allFeats.length > 0) {
+            stopSourceRef.current.addFeatures(allFeats);
+        }
+
+        if (stopLayerRef.current) {
+            stopLayerRef.current.changed();
+        }
+    }, [layerVisibility]);
+
+    updateVisibleStopsInViewportRef.current = updateVisibleStopsInViewport;
+
     // GÜZERGAHLARI VE DURAKLARI ÇEKME VE HARİTADA GÖSTERME (Akıllı Ulaşım Modülü)
     const fetchRoutesAndStops = async () => {
-        if (!token) return;
+        if (isModifyingStop) return; // Durak taşınırken haritayı sıfırlama
+        const tokenToUse = token || localStorage.getItem('jwt_token');
         try {
             const [routesData, stopsData] = await Promise.all([
-                transportApi.getRoutes(token).catch(err => { console.error('getRoutes error:', err); return []; }),
-                transportApi.getAllStops(token).catch(err => { console.error('getAllStops error:', err); return []; })
+                transportApi.getRoutes(tokenToUse).catch(err => { console.error('getRoutes error:', err); return []; }),
+                transportApi.getAllStops(tokenToUse).catch(err => { console.error('getAllStops error:', err); return []; })
             ]);
 
             const routeList = Array.isArray(routesData) ? routesData : [];
@@ -3086,11 +3235,22 @@ function App() {
                 }
             });
 
-            // 2. BÜTÜN Durakları (Hem Güzergaha Bağlı Olanları Hem de Bağımsız Durakları / Limanları) Haritaya Ekle
-            const routeMap = new Map(routeList.map(r => [r.id, r]));
-
+            // 2. BÜTÜN Durakları Hazırla (Aynı veya çok yakın konumdaki durakları üst üste binmesin diye yan yana konumlandır)
+            const coordGroups = new Map();
             allStopsList.forEach((s) => {
                 if (s.longitude == null || s.latitude == null) return;
+                const key = `${s.longitude.toFixed(4)}_${s.latitude.toFixed(4)}`;
+                if (!coordGroups.has(key)) coordGroups.set(key, []);
+                coordGroups.get(key).push(s);
+            });
+
+            const routeMap = new Map(routeList.map(r => [r.id, r]));
+            const stopFeatures = [];
+
+            allStopsList.forEach((s) => {
+                const sLon = parseFloat(s.longitude ?? s.displayLongitude);
+                const sLat = parseFloat(s.latitude ?? s.displayLatitude);
+                if (isNaN(sLon) || isNaN(sLat)) return;
 
                 const boundRoute = s.routeId ? routeMap.get(s.routeId) : null;
                 const isRouteVisible = !s.routeId || !hiddenRouteIds.has(s.routeId);
@@ -3104,7 +3264,20 @@ function App() {
                     stopClass === 'otobus' ? '#0284c7' : '#3b82f6'
                 );
 
-                const stopGeom = new Point(fromLonLat([s.longitude, s.latitude]));
+                // Yan yana yerleşim: Aynı isimli veya aynı koordinattaki farklı durakları Doğu-Batı ekseninde hafifçe kaydır
+                let finalLon = sLon;
+                let finalLat = sLat;
+                const key = `${sLon.toFixed(4)}_${sLat.toFixed(4)}`;
+                const group = coordGroups.get(key) || [];
+                if (group.length > 1) {
+                    const idx = group.findIndex(item => item.id === s.id);
+                    if (idx !== -1) {
+                        const offset = (idx - (group.length - 1) / 2) * 0.00018;
+                        finalLon += offset;
+                    }
+                }
+
+                const stopGeom = new Point(fromLonLat([finalLon, finalLat]));
                 const stopFeature = new Feature({
                     geometry: stopGeom,
                     id: s.id,
@@ -3115,9 +3288,16 @@ function App() {
                     routeId: s.routeId || null,
                     orderIndex: s.orderIndex || 1,
                     stopName: s.name,
+                    stopCode: s.stopCode,
                     routeColor: routeColor,
+                    _lon: finalLon,
+                    _lat: finalLat,
                     stopData: {
                         ...s,
+                        longitude: s.longitude,
+                        latitude: s.latitude,
+                        displayLongitude: finalLon,
+                        displayLatitude: finalLat,
                         stopClass: stopClass,
                         routeColor: routeColor,
                         routeName: boundRoute?.name || null,
@@ -3127,10 +3307,26 @@ function App() {
                     }
                 });
 
-                stopSourceRef.current?.addFeature(stopFeature);
+                stopFeatures.push(stopFeature);
             });
 
+            allStopFeaturesRef.current = stopFeatures;
             setStops(allStopsList);
+
+            if (stopFeatures.length > 0 && stopSourceRef.current) {
+                stopSourceRef.current.clear(true);
+                stopSourceRef.current.addFeatures(stopFeatures);
+            }
+
+            if (stopLayerRef.current) {
+                stopLayerRef.current.changed();
+            }
+            if (routeLayerRef.current) {
+                routeLayerRef.current.changed();
+            }
+            if (mapRef.current) {
+                mapRef.current.render();
+            }
         } catch (err) {
             console.error('Güzergah ve durak verileri getirilirken hata:', err);
         }
@@ -3145,6 +3341,7 @@ function App() {
 
     // Güzergah seçildiğinde durak ve hat katmanlarını yenile (otobüs güzergahları seçildiğinde görünsün)
     useEffect(() => {
+        updateVisibleStopsInViewport();
         if (stopLayerRef.current) {
             stopLayerRef.current.changed();
         }
@@ -4813,6 +5010,12 @@ function App() {
     // DURAK KONUMUNU HARİTADA SÜRÜKLEME & TAŞIMA YÖNETİMİ
     // ==========================================
     const stopStopVertexEditing = () => {
+        if (stopTranslateInteractionRef.current && mapRef.current) {
+            try {
+                mapRef.current.removeInteraction(stopTranslateInteractionRef.current);
+            } catch (e) { }
+            stopTranslateInteractionRef.current = null;
+        }
         if (stopModifyInteractionRef.current && mapRef.current) {
             try {
                 mapRef.current.removeInteraction(stopModifyInteractionRef.current);
@@ -4825,6 +5028,7 @@ function App() {
             } catch (e) { }
             stopGeomChangeKeyRef.current = null;
         }
+        modifyingRouteBindingsRef.current = [];
         modifyingStopRouteFeatureRef.current = null;
         modifyingStopVertexIndexRef.current = -1;
         modifyingStopRouteOrigCoordsRef.current = null;
@@ -4846,17 +5050,51 @@ function App() {
         setSelectedPointInfo(null);
 
         const features = stopSourceRef.current.getFeatures();
-        let targetFeature = features.find(f => f.get('id') === stop.id || f.get('stopData')?.id === stop.id);
+        let targetFeature = features.find(f => f.get('id') === stop.id || f.get('stopData')?.id === stop.id || String(f.get('id')) === String(stop.id));
+
+        if (!targetFeature) {
+            const allFeats = allStopFeaturesRef.current || [];
+            targetFeature = allFeats.find(f => f.get('id') === stop.id || f.get('stopData')?.id === stop.id || String(f.get('id')) === String(stop.id));
+            if (!targetFeature && (stop.longitude != null && stop.latitude != null)) {
+                targetFeature = new Feature({
+                    geometry: new Point(fromLonLat([stop.longitude, stop.latitude])),
+                    id: stop.id,
+                    isStop: true,
+                    stopId: stop.id,
+                    stopClass: stop.stopClass || 'otobus',
+                    stopName: stop.name,
+                    stopCode: stop.stopCode,
+                    routeColor: '#3b82f6',
+                    stopData: { ...stop }
+                });
+            }
+            if (targetFeature) {
+                stopSourceRef.current.addFeature(targetFeature);
+            }
+        }
 
         if (!targetFeature) {
             toastRef.current?.show({
                 severity: 'warn',
                 summary: 'Durak Bulunamadı',
-                detail: 'Harita üzerinde bu durağa ait nesne bulunamadı.',
+                detail: 'Harita üzerinde bu durağa ait koordinat veya nesne bulunamadı.',
                 life: 3000
             });
             return;
         }
+
+        // Haritayı bu durağın koordinatına taşı ve yakınlaştır
+        try {
+            const geom = targetFeature.getGeometry();
+            if (geom && mapRef.current) {
+                const coord = geom.getCoordinates();
+                mapRef.current.getView().animate({
+                    center: coord,
+                    zoom: Math.max(mapRef.current.getView().getZoom() || 14, 15),
+                    duration: 500
+                });
+            }
+        } catch (e) { }
 
         const wktFormat = new WKT();
         let origWkt = stop.wkt;
@@ -4878,85 +5116,97 @@ function App() {
         setModifyingStop(stop);
         setIsModifyingStop(true);
 
-        // Bağlı olduğu güzergah çizgi nesnesini bul ve durak ile bağlantılı vertex indeksini eşleştir
+        // Durağa bağlı TÜM güzergahların hat çizgilerini bul ve her birindeki en yakın vertex'i eşleştir
+        const connectedRouteIds = (stop.routeIds && stop.routeIds.length > 0)
+            ? stop.routeIds.map(Number)
+            : (stop.routes && stop.routes.length > 0
+                ? stop.routes.map(r => Number(r.id))
+                : (stop.routeId ? [Number(stop.routeId)] : []));
+
         const routeFeatures = routeSourceRef.current ? routeSourceRef.current.getFeatures() : [];
-        const targetRouteFeature = routeFeatures.find(f => f.get('id') === stop.routeId || f.get('routeData')?.id === stop.routeId);
-        
-        let closestVertexIndex = -1;
-        let origRouteCoords = null;
+        const stopCoord = targetFeature.getGeometry().getCoordinates();
+        const matchedBindings = [];
 
-        if (targetRouteFeature && targetRouteFeature.getGeometry()) {
-            origRouteCoords = targetRouteFeature.getGeometry().getCoordinates();
-            const stopCoord = targetFeature.getGeometry().getCoordinates();
-            let minDist = Infinity;
-            origRouteCoords.forEach((coord, idx) => {
-                const dx = coord[0] - stopCoord[0];
-                const dy = coord[1] - stopCoord[1];
-                const dist = dx * dx + dy * dy;
-                if (dist < minDist) {
-                    minDist = dist;
-                    closestVertexIndex = idx;
-                }
-            });
-        }
-
-        modifyingStopRouteFeatureRef.current = targetRouteFeature;
-        modifyingStopVertexIndexRef.current = closestVertexIndex;
-        modifyingStopRouteOrigCoordsRef.current = origRouteCoords ? JSON.parse(JSON.stringify(origRouteCoords)) : null;
-
-        // Canlı Harita Sürükleme Esnasında Hattı Anında Durağa Bağlı Tutma (Real-time Rubber-banding)
-        const geomListener = targetFeature.getGeometry().on('change', () => {
-            try {
-                const currentCoord = targetFeature.getGeometry().getCoordinates();
-                if (modifyingStopRouteFeatureRef.current && modifyingStopRouteFeatureRef.current.getGeometry()) {
-                    const rGeom = modifyingStopRouteFeatureRef.current.getGeometry();
-                    const coords = rGeom.getCoordinates();
-                    const vIdx = modifyingStopVertexIndexRef.current;
-                    if (vIdx >= 0 && vIdx < coords.length) {
-                        coords[vIdx] = currentCoord;
-                        rGeom.setCoordinates(coords);
+        routeFeatures.forEach(rf => {
+            const rawId = rf.get('id') || rf.get('routeData')?.id;
+            const rfId = Number(rawId);
+            if (connectedRouteIds.includes(rfId) && rf.getGeometry()) {
+                const coords = rf.getGeometry().getCoordinates();
+                let closestIdx = -1;
+                let minDist = Infinity;
+                coords.forEach((coord, idx) => {
+                    const dx = coord[0] - stopCoord[0];
+                    const dy = coord[1] - stopCoord[1];
+                    const dist = dx * dx + dy * dy;
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestIdx = idx;
                     }
+                });
+                if (closestIdx >= 0) {
+                    matchedBindings.push({
+                        feature: rf,
+                        routeId: rfId,
+                        vertexIndex: closestIdx,
+                        origCoords: JSON.parse(JSON.stringify(coords))
+                    });
                 }
-            } catch (e) { }
+            }
         });
-        stopGeomChangeKeyRef.current = geomListener;
 
-        try {
-            mapRef.current.getView().animate({
-                center: targetFeature.getGeometry().getCoordinates(),
-                zoom: Math.max(mapRef.current.getView().getZoom(), 16),
-                duration: 500
+        modifyingRouteBindingsRef.current = matchedBindings;
+
+        // Canlı Harita Sürükleme ve Tüm Bağlı Hatları Güncelleme Fonksiyonu
+        const onStopMoved = (newCoord) => {
+            const coordsDeg = toLonLat(newCoord);
+            const pLon = parseFloat(coordsDeg[0].toFixed(6));
+            const pLat = parseFloat(coordsDeg[1].toFixed(6));
+            const newWkt = `POINT(${pLon} ${pLat})`;
+            setModifiedStopCoords({ lat: pLat, lon: pLon, wkt: newWkt });
+
+            // Canlı Harita Sürükleme: Bağlı olan TÜM hatların çizgi vertex'lerini aynı anda durağa kilitli tut
+            matchedBindings.forEach(binding => {
+                try {
+                    const rGeom = binding.feature.getGeometry();
+                    if (rGeom) {
+                        const coords = rGeom.getCoordinates();
+                        const vIdx = binding.vertexIndex;
+                        if (vIdx >= 0 && vIdx < coords.length) {
+                            coords[vIdx] = newCoord;
+                            rGeom.setCoordinates(coords);
+                        }
+                    }
+                } catch (e) { }
             });
-        } catch (e) { }
+        };
 
+        // 1. Translate Etkileşimi (Durağı haritada kolayca tutup sürükleme)
+        const translate = new Translate({
+            features: new Collection([targetFeature])
+        });
+
+        translate.on('translating', (evt) => {
+            const currentCoord = targetFeature.getGeometry().getCoordinates();
+            onStopMoved(currentCoord);
+        });
+
+        translate.on('translateend', (evt) => {
+            const currentCoord = targetFeature.getGeometry().getCoordinates();
+            onStopMoved(currentCoord);
+        });
+
+        mapRef.current.addInteraction(translate);
+        stopTranslateInteractionRef.current = translate;
+
+        // 2. Modify Etkileşimi (Nokta vertex düzenleme desteği)
         const modify = new Modify({
             features: new Collection([targetFeature]),
-            pixelTolerance: 14
+            pixelTolerance: 16
         });
 
         modify.on('modifyend', () => {
-            try {
-                const geom = targetFeature.getGeometry();
-                const coordsDeg = toLonLat(geom.getCoordinates());
-                const pLon = parseFloat(coordsDeg[0].toFixed(6));
-                const pLat = parseFloat(coordsDeg[1].toFixed(6));
-                const newWkt = `POINT(${pLon} ${pLat})`;
-
-                setModifiedStopCoords({ lat: pLat, lon: pLon, wkt: newWkt });
-
-                // Hattı da yeni konuma sabitle
-                if (modifyingStopRouteFeatureRef.current && modifyingStopRouteFeatureRef.current.getGeometry()) {
-                    const rGeom = modifyingStopRouteFeatureRef.current.getGeometry();
-                    const coords = rGeom.getCoordinates();
-                    const vIdx = modifyingStopVertexIndexRef.current;
-                    if (vIdx >= 0 && vIdx < coords.length) {
-                        coords[vIdx] = geom.getCoordinates();
-                        rGeom.setCoordinates(coords);
-                    }
-                }
-            } catch (err) {
-                console.error('Stop modify end error:', err);
-            }
+            const currentCoord = targetFeature.getGeometry().getCoordinates();
+            onStopMoved(currentCoord);
         });
 
         mapRef.current.addInteraction(modify);
@@ -4965,7 +5215,7 @@ function App() {
         toastRef.current?.show({
             severity: 'info',
             summary: 'Durak Taşıma Modu Aktif',
-            detail: 'Durağı fare ile tutup istediğiniz yeni konuma sürükleyin. Güzergah çizgisi durağa bağlı kalacaktır.',
+            detail: 'Durağı fare ile tutup istediğiniz konuma sürükleyin. Bağlı olan tüm güzergah çizgileri durağa bağlı kalacaktır.',
             life: 4500
         });
     };
@@ -4973,11 +5223,11 @@ function App() {
     const handleSaveStopRepositioning = async () => {
         if (!modifyingStop || !modifiedStopCoords.wkt) return;
         try {
-            const currentRouteIds = modifyingStop.routeIds && modifyingStop.routeIds.length > 0
+            const currentRouteIds = (modifyingStop.routeIds && modifyingStop.routeIds.length > 0)
                 ? modifyingStop.routeIds
                 : (modifyingStop.routes ? modifyingStop.routes.map(r => r.id) : (modifyingStop.routeId ? [modifyingStop.routeId] : []));
 
-            // 1. Durağın Yeni Konumunu Kaydet (Mevcut tüm hat bağlantılarını koruyarak)
+            // 1. Durağın Yeni Konumunu Kaydet (Backend otomatik olarak tüm bağlı güzergahları yeniden hesaplayacak)
             await transportApi.updateStop(modifyingStop.id, {
                 name: modifyingStop.name,
                 stopCode: modifyingStop.stopCode,
@@ -4989,32 +5239,26 @@ function App() {
                 wkt: modifiedStopCoords.wkt
             }, token);
 
-            // 2. Eğer Güzergahın Geometrisi Varsa Hattın da Güncel WKT'sini Kaydet
-            if (modifyingStopRouteFeatureRef.current && modifyingStopRouteFeatureRef.current.getGeometry()) {
+            // 2. Haritada açık olan tüm bağlı güzergah çizgilerini anında güncelle
+            const wktFormat = new WKT();
+            for (const binding of modifyingRouteBindingsRef.current || []) {
                 try {
-                    const wktFormat = new WKT();
-                    const updatedRouteWkt = wktFormat.writeGeometry(modifyingStopRouteFeatureRef.current.getGeometry(), {
-                        dataProjection: 'EPSG:4326',
-                        featureProjection: 'EPSG:3857'
-                    });
-                    if (updatedRouteWkt && modifyingStop.routeId) {
-                        await transportApi.updateRouteGeometry(modifyingStop.routeId, updatedRouteWkt, token);
+                    const rId = binding.routeId;
+                    if (rId && binding.feature.getGeometry()) {
+                        const updatedRouteWkt = wktFormat.writeGeometry(binding.feature.getGeometry(), {
+                            dataProjection: 'EPSG:4326',
+                            featureProjection: 'EPSG:3857'
+                        });
+                        if (updatedRouteWkt) {
+                            await transportApi.updateRouteGeometry(rId, updatedRouteWkt, token);
+                        }
                     }
                 } catch (e) { }
             }
 
-            // 3. Bağlı olan diğer tüm güzergahların hat çizgilerini de yeni konuma göre güncelle
-            for (const rId of currentRouteIds) {
-                if (rId !== modifyingStop.routeId) {
-                    try {
-                        await transportApi.generateOsrmRoute(rId, token);
-                    } catch (e) { }
-                }
-            }
-
             toastRef.current?.show({
                 severity: 'success',
-                summary: 'Durak ve Hat Güncellendi',
+                summary: 'Durak ve Hatlar Güncellendi',
                 detail: `"${modifyingStop.name}" durağının yeni konumu ve tüm bağlı hat geometrileri başarıyla kaydedildi!`,
                 life: 3500
             });
@@ -5046,12 +5290,14 @@ function App() {
                 } catch (e) { }
             }
         }
-        // Hattı orijinal geometrisine geri al
-        if (modifyingStopRouteFeatureRef.current && modifyingStopRouteOrigCoordsRef.current) {
-            try {
-                modifyingStopRouteFeatureRef.current.getGeometry()?.setCoordinates(modifyingStopRouteOrigCoordsRef.current);
-            } catch (e) { }
-        }
+        // Tüm bağlı hatları orijinal koordinatlarına geri al
+        (modifyingRouteBindingsRef.current || []).forEach(binding => {
+            if (binding.feature && binding.origCoords) {
+                try {
+                    binding.feature.getGeometry()?.setCoordinates(binding.origCoords);
+                } catch (e) { }
+            }
+        });
 
         stopStopVertexEditing();
         toastRef.current?.show({
@@ -5134,9 +5380,6 @@ function App() {
         stopVertexEditing();
         setSavedPlaces([]);
         setSavedDrawings([]);
-        setPois([]);
-        setRoutes([]);
-        setStops([]);
         setSelectedPoiInfo(null);
         setSelectedPointInfo(null);
         setSelectedStopInfo(null);
@@ -5144,27 +5387,15 @@ function App() {
         setSelectedEditorFilter('ALL');
         if (savedPlacesSourceRef.current) savedPlacesSourceRef.current.clear();
         if (drawingsSourceRef.current) drawingsSourceRef.current.clear();
-        if (poiSourceRef.current) poiSourceRef.current.clear();
-        if (routeSourceRef.current) routeSourceRef.current.clear();
-        if (stopSourceRef.current) stopSourceRef.current.clear();
         if (vectorSourceRef.current) vectorSourceRef.current.clear();
-        if (mapRef.current) {
-            try {
-                mapRef.current.setTarget(null);
-            } catch (e) { }
-            mapRef.current = null;
-        }
     };
 
-    // Giriş yapıldığında tüm çizimleri, POI'leri ve Güzergahları yükle
+    // Uygulama açıldığında veya giriş yapıldığında tüm POI'leri, Güzergahları ve Durakları yükle
     useEffect(() => {
+        fetchPois();
+        fetchRoutesAndStops();
         if (token) {
-            clearUserData();
             fetchDrawings();
-            fetchPois();
-            fetchRoutesAndStops();
-        } else {
-            clearUserData();
         }
     }, [token]);
 
@@ -5526,112 +5757,13 @@ function App() {
             });
             poiLayerRef.current = poiLayer;
 
-            // ÖNBELLEKLENMİŞ DURAK STİLLERİ (Style Cache - 9.121 durak için sıfır tahsisat ve 60 FPS akıcılık)
-            const stopIconStyleCache = new Map();
-            const stopLabelStyleCache = new Map();
-
-            const getCachedStopIconStyle = (routeClass, color, isSelected) => {
-                const key = `${routeClass}_${color}_${isSelected}`;
-                let style = stopIconStyleCache.get(key);
-                if (!style) {
-                    const pinSvg = getStopPinSvg(routeClass, color);
-                    const isGemi = routeClass === 'gemi' || routeClass === 'liman' || routeClass === 'deniz';
-                    const isBus = routeClass === 'otobus' || routeClass === 'bus';
-                    style = new Style({
-                        image: new Icon({
-                            src: 'data:image/svg+xml;utf8,' + encodeURIComponent(pinSvg),
-                            scale: isGemi ? 0.95 : (isBus ? 0.8 : 0.85),
-                            anchor: [0.5, 0.5]
-                        }),
-                        zIndex: isSelected ? 28 : (isGemi ? 26 : 24)
-                    });
-                    stopIconStyleCache.set(key, style);
-                }
-                return style;
-            };
-
-            const getCachedStopLabelStyle = (name, isBus, isSelected) => {
-                const key = `${name}_${isBus}_${isSelected}`;
-                let style = stopLabelStyleCache.get(key);
-                if (!style) {
-                    style = new Style({
-                        text: new Text({
-                            text: name,
-                            font: isBus ? '600 9.5px Inter, system-ui, sans-serif' : '600 11px Inter, system-ui, sans-serif',
-                            fill: new Fill({ color: '#ffffff' }),
-                            stroke: new Stroke({ color: '#0f172a', width: 3.5, lineJoin: 'round' }),
-                            offsetY: isBus ? 12 : 16,
-                            overflow: true
-                        }),
-                        zIndex: isSelected ? 29 : 25
-                    });
-                    stopLabelStyleCache.set(key, style);
-                }
-                return style;
-            };
-
-            // AKILLI ULAŞIM - DURAKLAR KATMANI: Yüksek Performanslı Dinamik Zoom, Stil Önbellekleme ve Seçim Kontrolü
+            // AKILLI ULAŞIM - DURAKLAR KATMANI: Yüksek Performanslı Dinamik Zoom ve Seçim Kontrolü
             const stopLayer = new VectorLayer({
                 source: stopSourceRef.current,
-                zIndex: 25,
-                declutter: true,
-                style: (feature, resolution) => {
-                    const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : (mapRef.current?.getView()?.getZoom() || 0);
-                    const featureRouteClass = (feature.get('stopClass') || feature.get('routeClass') || 'otobus').toLowerCase();
-                    if (layerVisibility.stopTypes && layerVisibility.stopTypes[featureRouteClass] === false) {
-                        return null;
-                    }
-
-                    const featureRouteId = feature.get('routeId');
-                    const isIndependent = !featureRouteId;
-                    const isAirport = featureRouteClass === 'havayolu' || featureRouteClass === 'havalimani' || featureRouteClass === 'airport' || featureRouteClass === 'ucak';
-                    const isBus = featureRouteClass === 'otobus' || featureRouteClass === 'bus';
-                    const isGemi = featureRouteClass === 'gemi' || featureRouteClass === 'liman' || featureRouteClass === 'deniz';
-                    const isMetro = featureRouteClass === 'metro';
-                    const isTren = featureRouteClass === 'tren' || featureRouteClass === 'train';
-                    const isSelectedRoute = selectedRouteInfoRef.current?.id === featureRouteId;
-
-                    const zs = getZoomSettings();
-                    const minStopZoom = isAirport
-                        ? (zs.airportStopMinZoom ?? 4.5)
-                        : (isGemi 
-                            ? (zs.shipStopMinZoom ?? 8.0) 
-                            : (isMetro 
-                                ? (zs.metroStopMinZoom ?? 12.0) 
-                                : (isTren 
-                                    ? (zs.trainStopMinZoom ?? 11.0) 
-                                    : (isBus 
-                                        ? (zs.busStopMinZoom ?? 14.5) 
-                                        : (zs.stopMinZoom ?? 14.0)))));
-
-                    if (!isSelectedRoute && zoom < minStopZoom) {
-                        return null;
-                    }
-
-                    const routeColor = feature.get('routeColor') || '#3b82f6';
-                    const stopName = feature.get('stopName') || '';
-
-                    const iconStyle = getCachedStopIconStyle(featureRouteClass, routeColor, isSelectedRoute);
-
-                    const stopNameMinZoom = isAirport 
-                        ? (zs.airportStopMinZoom ? zs.airportStopMinZoom + 1.5 : 6.0) 
-                        : (isGemi 
-                            ? (zs.shipStopMinZoom ? zs.shipStopMinZoom + 1.0 : 7.5) 
-                            : (isMetro 
-                                ? (zs.metroStopMinZoom ? zs.metroStopMinZoom + 1.0 : 12.5) 
-                                : (isTren 
-                                    ? (zs.trainStopMinZoom ? zs.trainStopMinZoom + 1.0 : 11.5) 
-                                    : (zs.stopNameMinZoom ?? 16.0))));
-                    const showStopLabel = stopName && (zoom >= stopNameMinZoom || isSelectedRoute);
-
-                    if (showStopLabel) {
-                        const labelStyle = getCachedStopLabelStyle(stopName, isBus, isSelectedRoute);
-                        return [iconStyle, labelStyle];
-                    }
-
-                    return iconStyle;
-                },
-                visible: layerVisibility.stops
+                style: createStopStyle,
+                zIndex: 30,
+                declutter: false,
+                visible: true
             });
             stopLayerRef.current = stopLayer;
 
@@ -5649,7 +5781,7 @@ function App() {
             });
             simulationLayerRef.current = simulationLayer;
 
-            const map = new Map({
+            const map = new OLMap({
                 target: container,
                 layers: [
                     baseTileLayer,
@@ -5768,25 +5900,29 @@ function App() {
                 });
 
                 if (clickedStop) {
-                    // Bu duraktan geçen BÜTÜN hatları dinamik olarak tespit et (1 durak birden fazla hat paylaşabilir)
+                    // Bu duraktan geçen hatları KESİNLİKLE sadece bu durağın benzersiz ID'sine göre tespit et.
+                    // Aynı isimli farklı duraklar (örn. Yargıtay'ın farklı yöndeki veya farklı konumlardaki durakları) asla birbirine karıştırılmaz.
                     const activeRoutesList = routesRef.current || routes || [];
+                    const stopId = clickedStop.id;
+                    const stopRouteIds = new Set([
+                        ...(clickedStop.routeId ? [clickedStop.routeId, String(clickedStop.routeId)] : []),
+                        ...(Array.isArray(clickedStop.routeIds) ? clickedStop.routeIds.flatMap(id => [id, String(id)]) : []),
+                        ...(Array.isArray(clickedStop.routes) ? clickedStop.routes.flatMap(r => [r.id, String(r.id)]) : [])
+                    ]);
+
                     const passingRoutes = activeRoutesList.filter(r => {
-                        if (clickedStop.routeId && (r.id === clickedStop.routeId || String(r.id) === String(clickedStop.routeId))) return true;
+                        if (stopRouteIds.has(r.id) || stopRouteIds.has(String(r.id))) return true;
                         if (Array.isArray(r.stops)) {
-                            return r.stops.some(st => 
-                                (clickedStop.id && st.id === clickedStop.id) || 
-                                (st.name && clickedStop.name && st.name.trim().toLowerCase() === clickedStop.name.trim().toLowerCase()) ||
-                                (st.longitude != null && clickedStop.longitude != null && 
-                                 Math.abs(st.longitude - clickedStop.longitude) < 0.0008 && 
-                                 Math.abs(st.latitude - clickedStop.latitude) < 0.0008)
-                            );
+                            return r.stops.some(st => st.id === stopId || String(st.id) === String(stopId));
                         }
                         return false;
                     });
 
                     const enrichedStop = {
                         ...clickedStop,
-                        routes: passingRoutes.length > 0 ? passingRoutes : (clickedStop.routes || (clickedStop.routeId ? [{ id: clickedStop.routeId, name: clickedStop.routeName, color: clickedStop.routeColor, routeClass: clickedStop.routeClass }] : []))
+                        routes: passingRoutes.length > 0 
+                            ? passingRoutes 
+                            : (clickedStop.routes || (clickedStop.routeId ? [{ id: clickedStop.routeId, name: clickedStop.routeName, color: clickedStop.routeColor, routeClass: clickedStop.routeClass }] : []))
                     };
 
                     setSelectedStopInfo(enrichedStop);
@@ -5928,6 +6064,9 @@ function App() {
                     setCurrentZoom(z);
                     setMapZoom(z);
                 }
+                if (updateVisibleStopsInViewportRef.current) {
+                    updateVisibleStopsInViewportRef.current();
+                }
             };
 
             map.getView().on('change:resolution', updateLiveZoom);
@@ -5980,8 +6119,8 @@ function App() {
     useEffect(() => {
         if (currentView === 'map') {
             fetchPois();
+            fetchRoutesAndStops();
             if (token) {
-                fetchRoutesAndStops();
                 fetchDrawings();
             }
             if (mapRef.current) {
@@ -8219,7 +8358,7 @@ function App() {
                                         </svg>
                                     </span>
                                     <span className={`user-profile-role-tag ${userRole?.toLowerCase()}`}>
-                                        {userRole || 'Viewer'}
+                                        {translateRoleName(userRole, lang)}
                                     </span>
                                 </div>
                             </div>
@@ -8509,7 +8648,7 @@ function App() {
                                 type="button"
                                 className="mini-sidebar-btn"
                                 onClick={() => setIsProfileDrawerOpen(true)}
-                                title={loggedInUsername ? `Profil: ${loggedInUsername} (${userRole || 'Viewer'})` : "Kullanıcı Profili"}
+                                title={loggedInUsername ? (lang === 'tr' ? `Profil: ${loggedInUsername} (${translateRoleName(userRole, 'tr')})` : `Profile: ${loggedInUsername} (${translateRoleName(userRole, 'en')})`) : (t.profileTitle || "Kullanıcı Profili")}
                             >
                                 <div style={{
                                     width: '32px',
@@ -9336,7 +9475,14 @@ function App() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setLayerVisibility({ routes: true, stops: true, pois: true, drawings: true, heatmap: isHeatmapActive });
+                                                setLayerVisibility(prev => ({
+                                                    ...prev,
+                                                    routes: true,
+                                                    stops: true,
+                                                    pois: true,
+                                                    drawings: true,
+                                                    heatmap: isHeatmapActive
+                                                }));
                                                 if (routeLayerRef.current) routeLayerRef.current.setVisible(true);
                                                 if (stopLayerRef.current) stopLayerRef.current.setVisible(true);
                                                 if (poiLayerRef.current) poiLayerRef.current.setVisible(true);
@@ -9359,7 +9505,14 @@ function App() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setLayerVisibility({ routes: false, stops: false, pois: false, drawings: false, heatmap: false });
+                                                setLayerVisibility(prev => ({
+                                                    ...prev,
+                                                    routes: false,
+                                                    stops: false,
+                                                    pois: false,
+                                                    drawings: false,
+                                                    heatmap: false
+                                                }));
                                                 if (routeLayerRef.current) routeLayerRef.current.setVisible(false);
                                                 if (stopLayerRef.current) stopLayerRef.current.setVisible(false);
                                                 if (poiLayerRef.current) poiLayerRef.current.setVisible(false);
@@ -11390,9 +11543,11 @@ function App() {
                                         </span>
                                     )}
                                 </div>
-                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                    {selectedStopInfo.routeName ? `Hat Durağı (${selectedStopInfo.routeName})` : (selectedStopInfo.routes && selectedStopInfo.routes.length > 0 ? selectedStopInfo.routes.map(r => r.name).join(', ') : 'Ulaşım Durağı')}
-                                </span>
+                                {selectedStopInfo.routeName && (
+                                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                                        Hat Durağı ({selectedStopInfo.routeName})
+                                    </span>
+                                )}
                             </div>
                         </div>
                         <button
@@ -11471,8 +11626,18 @@ function App() {
                             );
                         })()}
 
-                        <div className="stop-detail-row" style={{ alignItems: 'flex-start' }}>
-                            <span className="stop-detail-label" style={{ marginTop: '3px' }}>{lang === 'tr' ? 'Geçen Hatlar:' : 'Passing Routes:'}</span>
+                        <div className="stop-detail-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                <span className="stop-detail-label" style={{ fontWeight: 700, color: '#f1f5f9' }}>
+                                    {lang === 'tr' ? 'Geçen Otobüs Hatları' : 'Passing Bus Lines'}
+                                    {Array.isArray(selectedStopInfo.routes) && selectedStopInfo.routes.length > 0 && (
+                                        <span style={{ marginLeft: '6px', fontSize: '11px', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.15)', padding: '1px 6px', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                                            {selectedStopInfo.routes.length} Hat
+                                        </span>
+                                    )}
+                                </span>
+                            </div>
+
                             {(() => {
                                 const routeList = Array.isArray(selectedStopInfo.routes) && selectedStopInfo.routes.length > 0
                                     ? selectedStopInfo.routes
@@ -11493,68 +11658,101 @@ function App() {
                                     );
                                 }
 
+                                const filteredRouteList = stopRouteSearch
+                                    ? routeList.filter(r => (r.name || '').toLowerCase().includes(stopRouteSearch.toLowerCase()) || extractRouteBadgeCode(r.name).toLowerCase().includes(stopRouteSearch.toLowerCase()))
+                                    : routeList;
+
                                 return (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1 }}>
-                                        {routeList.map(r => {
-                                            const rColor = r.color || '#3b82f6';
-                                            const isCurrentSelected = selectedRouteInfo?.id === r.id;
-                                            return (
-                                                <button
-                                                    key={r.id}
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        const targetRoute = routes.find(rt => rt.id === r.id) || r;
-                                                        setSelectedRouteInfo(targetRoute);
+                                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                        {routeList.length > 8 && (
+                                            <input
+                                                type="text"
+                                                placeholder={lang === 'tr' ? 'Hat No Ara (örn: 427)...' : 'Filter Line (e.g. 427)...'}
+                                                value={stopRouteSearch}
+                                                onChange={(e) => setStopRouteSearch(e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '5px 10px',
+                                                    fontSize: '11px',
+                                                    borderRadius: '6px',
+                                                    border: '1px solid rgba(255,255,255,0.15)',
+                                                    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+                                                    color: '#ffffff',
+                                                    outline: 'none',
+                                                    marginBottom: '2px'
+                                                }}
+                                            />
+                                        )}
 
-                                                        // Hat geometrisine kamerayı yumuşakça odakla
-                                                        const lineFeat = routeSourceRef.current?.getFeatures()?.find(f => f.get('id') === r.id || f.get('routeData')?.id === r.id);
-                                                        if (lineFeat && mapRef.current) {
-                                                            try {
-                                                                const extent = lineFeat.getGeometry().getExtent();
-                                                                mapRef.current.getView().fit(extent, {
-                                                                    padding: [90, 90, 90, 90],
-                                                                    maxZoom: 16,
-                                                                    duration: 650
-                                                                });
-                                                            } catch (err) { }
-                                                        }
+                                        <div style={{
+                                            display: 'flex',
+                                            flexWrap: 'wrap',
+                                            gap: '6px',
+                                            maxHeight: '160px',
+                                            overflowY: 'auto',
+                                            paddingRight: '4px'
+                                        }}>
+                                            {filteredRouteList.map(r => {
+                                                const rColor = r.color || '#3b82f6';
+                                                const isCurrentSelected = selectedRouteInfo?.id === r.id;
+                                                const routeCode = extractRouteBadgeCode(r.name);
+                                                return (
+                                                    <button
+                                                        key={r.id}
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const targetRoute = routes.find(rt => rt.id === r.id) || r;
+                                                            setSelectedRouteInfo(targetRoute);
 
-                                                        toastRef.current?.show({
-                                                            severity: 'info',
-                                                            summary: r.name || (lang === 'tr' ? 'Güzergah Seçildi' : 'Route Selected'),
-                                                            detail: lang === 'tr' ? 'Hat güzergahı ve durakları haritada görüntülendi.' : 'Route trajectory displayed on map.',
-                                                            life: 2500
-                                                        });
-                                                    }}
-                                                    className="stop-route-interactive-btn"
-                                                    style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: '5px',
-                                                        padding: '4px 10px',
-                                                        borderRadius: '8px',
-                                                        fontSize: '11px',
-                                                        fontWeight: 700,
-                                                        backgroundColor: isCurrentSelected ? `${rColor}` : `${rColor}22`,
-                                                        color: isCurrentSelected ? '#ffffff' : rColor,
-                                                        border: `1.5px solid ${isCurrentSelected ? rColor : `${rColor}66`}`,
-                                                        cursor: 'pointer',
-                                                        boxShadow: isCurrentSelected ? `0 2px 8px ${rColor}50` : 'none',
-                                                        transition: 'all 0.18s cubic-bezier(0.16, 1, 0.3, 1)'
-                                                    }}
-                                                    title={`${r.name} - ${lang === 'tr' ? 'Güzergahı ve araçları haritada göster' : 'Show route on map'}`}
-                                                >
-                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{ opacity: 0.9 }}>
-                                                        <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
-                                                    </svg>
-                                                    <span>{r.name}</span>
-                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.8 }}>
-                                                        <polyline points="9 18 15 12 9 6" />
-                                                    </svg>
-                                                </button>
-                                            );
-                                        })}
+                                                            // Hat geometrisine kamerayı yumuşakça odakla
+                                                            const lineFeat = routeSourceRef.current?.getFeatures()?.find(f => f.get('id') === r.id || f.get('routeData')?.id === r.id);
+                                                            if (lineFeat && mapRef.current) {
+                                                                try {
+                                                                    const extent = lineFeat.getGeometry().getExtent();
+                                                                    mapRef.current.getView().fit(extent, {
+                                                                        padding: [90, 90, 90, 90],
+                                                                        maxZoom: 16,
+                                                                        duration: 650
+                                                                    });
+                                                                } catch (err) { }
+                                                            }
+
+                                                            toastRef.current?.show({
+                                                                severity: 'info',
+                                                                summary: r.name || (lang === 'tr' ? 'Güzergah Seçildi' : 'Route Selected'),
+                                                                detail: lang === 'tr' ? 'Hat güzergahı ve durakları haritada görüntülendi.' : 'Route trajectory displayed on map.',
+                                                                life: 2500
+                                                            });
+                                                        }}
+                                                        className="stop-route-interactive-btn"
+                                                        style={{
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            padding: '4px 10px',
+                                                            borderRadius: '8px',
+                                                            fontSize: '12px',
+                                                            fontWeight: 800,
+                                                            letterSpacing: '0.2px',
+                                                            backgroundColor: isCurrentSelected ? `${rColor}` : `${rColor}22`,
+                                                            color: isCurrentSelected ? '#ffffff' : rColor,
+                                                            border: `1.5px solid ${isCurrentSelected ? rColor : `${rColor}66`}`,
+                                                            cursor: 'pointer',
+                                                            boxShadow: isCurrentSelected ? `0 2px 8px ${rColor}50` : 'none',
+                                                            transition: 'all 0.18s cubic-bezier(0.16, 1, 0.3, 1)'
+                                                        }}
+                                                        title={`${r.name} - ${lang === 'tr' ? 'Güzergahı haritada göster' : 'Show route on map'}`}
+                                                    >
+                                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{ opacity: 0.9 }}>
+                                                            <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
+                                                        </svg>
+                                                        <span>{routeCode}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
                                 );
                             })()}
@@ -11962,8 +12160,18 @@ function App() {
 
                                 <div className="stop-detail-row">
                                     <span className="stop-detail-label">Hat Geometrisi:</span>
-                                    <span className="stop-detail-value" style={{ color: selectedRouteInfo.wkt ? '#10b981' : '#38bdf8', fontWeight: 600 }}>
-                                        {selectedRouteInfo.wkt ? 'Özel Bükülmüş Geometri' : 'Standart Durak Çizgisi'}
+                                    <span className="stop-detail-value" style={{ 
+                                        color: selectedRouteInfo.geometryType === 'Osrm' ? '#10b981' : (selectedRouteInfo.wkt ? '#38bdf8' : '#94a3b8'), 
+                                        fontWeight: 600,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                    }}>
+                                        {selectedRouteInfo.geometryType === 'Osrm' 
+                                            ? '🛣️ OSRM Karayolu Rotası' 
+                                            : (selectedRouteInfo.geometryType === 'Custom' || (selectedRouteInfo.wkt && selectedRouteInfo.geometryType !== 'Direct') 
+                                                ? '✏️ Özel Bükülmüş Geometri' 
+                                                : '📏 Kuş Uçuşu Hat')}
                                     </span>
                                 </div>
 
@@ -12301,8 +12509,42 @@ function App() {
                                             <span>{t.btnDirect || 'Kuş Uçuşu'}</span>
                                         </button>
 
-                                        {/* SADECE OTOBÜS İÇİN OSRM ROTA BUTONU VEYA GERİ AL BUTONU */}
-                                        {selectedRouteInfo.previousWkt !== undefined ? (
+                                        {/* OTOBÜS / KARAYOLU HATTI İÇİN OSRM BUTONU */}
+                                        {['otobus', 'bus', 'araba', 'car'].includes((selectedRouteInfo.routeClass || '').toLowerCase()) && (
+                                            <button
+                                                type="button"
+                                                className="stop-btn-manage"
+                                                onClick={() => handleGenerateOsrmRouteFromMap(selectedRouteInfo.id)}
+                                                disabled={isGeneratingOsrmOnMapId === selectedRouteInfo.id}
+                                                title={lang === 'tr' ? "OSRM ile duraklar arası gerçek karayolu rotasını hesapla ve haritaya çiz" : "Calculate real highway road routing with OSRM and draw on map"}
+                                                style={{
+                                                    backgroundColor: '#059669',
+                                                    color: '#ffffff',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.3)',
+                                                    fontSize: '11.5px',
+                                                    fontWeight: 700,
+                                                    padding: '0 10px',
+                                                    height: '36px',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '6px',
+                                                    cursor: isGeneratingOsrmOnMapId === selectedRouteInfo.id ? 'not-allowed' : 'pointer',
+                                                    whiteSpace: 'nowrap',
+                                                    transition: 'all 0.15s ease'
+                                                }}
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                                    <polygon points="3 11 22 2 13 21 11 13 3 11" />
+                                                </svg>
+                                                <span>{isGeneratingOsrmOnMapId === selectedRouteInfo.id ? (lang === 'tr' ? 'Hesaplanıyor...' : 'Calculating...') : (t.btnOsrmRoute || 'OSRM Karayolu')}</span>
+                                            </button>
+                                        )}
+
+                                        {/* GERİ AL BUTONU (Önceki kayıtlı geometri varsa) */}
+                                        {Boolean(selectedRouteInfo.previousWkt) && (
                                             <button
                                                 type="button"
                                                 className="stop-btn-manage"
@@ -12323,78 +12565,17 @@ function App() {
                                                     alignItems: 'center',
                                                     justifyContent: 'center',
                                                     gap: '5px',
-                                                    cursor: 'pointer',
-                                                    whiteSpace: 'nowrap'
-                                                }}
-                                            >
-                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                                    <polyline points="1 4 1 10 7 10"></polyline>
-                                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-                                                </svg>
-                                                <span>{t.undo || 'Geri Al'}</span>
-                                            </button>
-                                        ) : (((selectedRouteInfo.routeClass || '').toLowerCase() === 'otobus') ? (
-                                            <button
-                                                type="button"
-                                                className="stop-btn-manage"
-                                                onClick={() => handleGenerateOsrmRouteFromMap(selectedRouteInfo.id)}
-                                                disabled={isGeneratingOsrmOnMapId === selectedRouteInfo.id}
-                                                title={lang === 'tr' ? "OSRM ile duraklar arası gerçek karayolu rotasını hesapla ve haritaya çiz" : "Calculate real highway road routing with OSRM and draw on map"}
-                                                style={{
-                                                    backgroundColor: '#059669',
-                                                    color: '#ffffff',
-                                                    border: 'none',
-                                                    borderRadius: '8px',
-                                                    boxShadow: 'none',
-                                                    fontSize: '11.5px',
-                                                    fontWeight: 700,
-                                                    padding: '0 8px',
-                                                    height: '36px',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '5px',
                                                     cursor: isGeneratingOsrmOnMapId === selectedRouteInfo.id ? 'not-allowed' : 'pointer',
                                                     whiteSpace: 'nowrap'
                                                 }}
                                             >
                                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                                    <polygon points="3 11 22 2 13 21 11 13 3 11" />
-                                                </svg>
-                                                <span>{isGeneratingOsrmOnMapId === selectedRouteInfo.id ? '...' : (t.btnOsrmRoute || 'OSRM')}</span>
-                                            </button>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                className="stop-btn-manage"
-                                                onClick={() => handleRevertGeometryFromMap(selectedRouteInfo.id)}
-                                                disabled={true}
-                                                style={{
-                                                    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : '#f8fafc',
-                                                    color: isDarkMode ? '#475569' : '#94a3b8',
-                                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : '#e2e8f0'}`,
-                                                    borderRadius: '8px',
-                                                    boxShadow: 'none',
-                                                    padding: '0 8px',
-                                                    height: '36px',
-                                                    fontSize: '11.5px',
-                                                    fontWeight: 600,
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '5px',
-                                                    cursor: 'not-allowed',
-                                                    opacity: 0.6,
-                                                    whiteSpace: 'nowrap'
-                                                }}
-                                            >
-                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                                                     <polyline points="1 4 1 10 7 10"></polyline>
                                                     <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
                                                 </svg>
                                                 <span>{t.undo || 'Geri Al'}</span>
                                             </button>
-                                        ))}
+                                        )}
                                     </div>
                                 )}
                             </div>

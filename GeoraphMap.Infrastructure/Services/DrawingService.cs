@@ -79,14 +79,15 @@ namespace GeoraphMap.Infrastructure.Services
 
             bool isViewer = string.Equals(userRole, "Viewer", StringComparison.OrdinalIgnoreCase) || userId == 0 || string.IsNullOrEmpty(userRole);
 
-            var linesQuery = _context.Lines.Where(l => !l.IsDeleted);
-            var polygonsQuery = _context.Polygons.Where(pg => !pg.IsDeleted);
-            var pointsQuery = _context.Points.Where(pt => !pt.IsDeleted);
+            var linesQuery = _context.Lines.AsNoTracking().Where(l => !l.IsDeleted);
+            var polygonsQuery = _context.Polygons.AsNoTracking().Where(pg => !pg.IsDeleted);
+            var pointsQuery = _context.Points.AsNoTracking().Where(pt => !pt.IsDeleted);
 
             // Tüm kullanıcılar ve editörler haritada ve filtreleme ekranında tüm çizimleri görüntüleyebilir
             // Düzenleme / güncelleme yetkisi ise yalnızca çizim sahibi, admin veya onaylı işbirliği olan editörlere verilir
 
             var usersMap = await _context.Users
+                .AsNoTracking()
                 .ToDictionaryAsync(u => u.Id, u => u.Username);
 
             string GetUsername(int uid)

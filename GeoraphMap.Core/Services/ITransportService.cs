@@ -27,11 +27,20 @@ namespace GeoraphMap.Core.Services
 
         // OSRM Automatic Routing & Geometry Mode Switching
         Task<RouteDto?> GenerateOsrmRouteAsync(int routeId);
+        Task<BatchOsrmResultDto> GenerateAllBusRoutesOsrmAsync(bool onlyNonOsrm = false);
         Task<RouteDto?> SwitchRouteGeometryModeAsync(int routeId, string mode);
         Task<RouteDto?> RevertRouteGeometryAsync(int routeId);
 
         // Stop-Route Attachment (with flexible position: start, end, before, after)
         Task<bool> AddStopToRouteAsync(int routeId, int stopId, string position = "end", int? targetStopId = null);
         Task<bool> RemoveStopFromRouteAsync(int routeId, int stopId);
+
+        // Stop Classification Cleanup
+        Task<int> FixOrphanMetroStopsAsync();
+        Task<int> FixOrphanTrenStopsAsync();
+        Task<int> ConvertStopsToBusByCodesOrIdsAsync(List<string> codesOrIds);
+
+        // Transit Junction & Multi-Route Stops Fix
+        Task<bool> FixAnkaraTransitJunctionsAsync();
     }
 }
