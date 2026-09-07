@@ -343,6 +343,42 @@ export function getPoiCategoryBadgeSvg(catName = '', catIcon = '', color = '#3b8
     </svg>`;
 }
 
+// Akıllı Ulaşım Durakları için Vektörel Rozet SVG Üretici
+export function getTransitStopBadgeSvg(stopClass = 'otobus', color = '#0284c7') {
+    const sc = (stopClass || '').toLowerCase().trim();
+    const isAirport = sc === 'havayolu' || sc === 'havalimani' || sc === 'airport' || sc === 'ucak';
+    const isGemi = sc === 'gemi' || sc === 'liman' || sc === 'deniz' || sc === 'vapur';
+    const isMetro = sc === 'metro' || sc === 'tramvay' || sc === 'metrobus';
+    const isTren = sc === 'tren' || sc === 'train';
+    
+    let glyph = '';
+    let safeColor = color;
+    if (isAirport) {
+        glyph = '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill="#ffffff" stroke="#ffffff" stroke-width="1" stroke-linejoin="round"/>';
+        safeColor = color || '#0284c7';
+    } else if (isGemi) {
+        glyph = '<circle cx="12" cy="5" r="3" stroke="#ffffff" stroke-width="2"/><line x1="12" y1="8" x2="12" y2="21" stroke="#ffffff" stroke-width="2"/><path d="M5 12H2a10 10 0 0 0 20 0h-3" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>';
+        safeColor = color || '#0891b2';
+    } else if (isMetro) {
+        glyph = '<rect x="5" y="4" width="14" height="14" rx="2" stroke="#ffffff" stroke-width="2"/><path d="M5 11h14" stroke="#ffffff" stroke-width="2"/><line x1="12" y1="4" x2="12" y2="11" stroke="#ffffff" stroke-width="1.8"/><circle cx="8" cy="15" r="1.3" fill="#ffffff"/><circle cx="16" cy="15" r="1.3" fill="#ffffff"/><path d="m8 18-3 2.5M16 18l3 2.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>';
+        safeColor = color || '#ef4444';
+    } else if (isTren) {
+        glyph = '<rect x="5" y="4" width="14" height="14" rx="2" stroke="#ffffff" stroke-width="2"/><path d="M5 11h14" stroke="#ffffff" stroke-width="2"/><circle cx="8" cy="15" r="1.3" fill="#ffffff"/><circle cx="16" cy="15" r="1.3" fill="#ffffff"/><path d="m8 18-3 2.5M16 18l3 2.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>';
+        safeColor = color || '#f59e0b';
+    } else {
+        glyph = '<rect x="4" y="4" width="16" height="13" rx="2" stroke="#ffffff" stroke-width="2"/><path d="M4 9h16" stroke="#ffffff" stroke-width="2"/><circle cx="7.5" cy="14" r="1.4" fill="#ffffff"/><circle cx="16.5" cy="14" r="1.4" fill="#ffffff"/><path d="M6 17v2.5M18 17v2.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>';
+        safeColor = color || '#0284c7';
+    }
+
+    return `<svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="17" cy="17" r="15" fill="${safeColor}" stroke="#ffffff" stroke-width="2.2"/>
+      <circle cx="17" cy="17" r="13.5" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.8"/>
+      <g transform="translate(5, 5)" color="#ffffff">
+        ${glyph}
+      </g>
+    </svg>`;
+}
+
 // Veritabanındaki Dinamik Kategoriler ile Standart Kategorileri Birleştiren Fonksiyon
 export function getMergedPoiCategories(dynamicDbCategories = []) {
     const list = [...POI_FILTER_CATEGORIES];

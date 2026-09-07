@@ -113,6 +113,7 @@ namespace GeoraphMap.Infrastructure.Services
             await EnsureDefaultCategoriesSeededAsync();
 
             var query = _context.PoiCategories
+                .AsNoTracking()
                 .Include(c => c.Parent)
                 .Include(c => c.Pois)
                 .Where(c => !c.IsDeleted);
@@ -148,6 +149,7 @@ namespace GeoraphMap.Infrastructure.Services
         public async Task<List<PoiCategoryTreeDto>> GetCategoryTreeAsync()
         {
             var allCategories = await _context.PoiCategories
+                .AsNoTracking()
                 .Include(c => c.Pois)
                 .Where(c => !c.IsDeleted && c.IsActive)
                 .OrderBy(c => c.DisplayOrder)
@@ -186,6 +188,7 @@ namespace GeoraphMap.Infrastructure.Services
         public async Task<PoiCategoryDto?> GetCategoryByIdAsync(int id)
         {
             var c = await _context.PoiCategories
+                .AsNoTracking()
                 .Include(c => c.Parent)
                 .Include(c => c.Pois)
                 .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted);
@@ -312,6 +315,7 @@ namespace GeoraphMap.Infrastructure.Services
         public async Task<List<PoiDto>> GetAllPoisAsync(int userId, string userRole, int? categoryId = null, bool includeInactive = false)
         {
             var query = _context.Pois
+                .AsNoTracking()
                 .Include(p => p.Category)
                     .ThenInclude(c => c.Parent)
                 .Include(p => p.User)
@@ -342,6 +346,7 @@ namespace GeoraphMap.Infrastructure.Services
         public async Task<PoiDto?> GetPoiByIdAsync(int id)
         {
             var p = await _context.Pois
+                .AsNoTracking()
                 .Include(p => p.Category)
                     .ThenInclude(c => c.Parent)
                 .Include(p => p.User)

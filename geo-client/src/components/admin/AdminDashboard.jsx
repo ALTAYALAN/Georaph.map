@@ -87,7 +87,7 @@ export const AdminDashboard = ({
                 <header className="admin-top-bar">
                     <div className="admin-top-bar-left">
                         <span className="admin-top-bar-badge">
-                            {userRole === 'Admin' ? 'YÖNETİCİ PORTALI' : 'CBS PANELİ'}
+                            {userRole === 'Admin' ? (t.adminPortalBadge || (lang === 'tr' ? 'YÖNETİCİ PORTALI' : 'ADMIN PORTAL')) : (t.gisPortalBadge || (lang === 'tr' ? 'CBS PANELİ' : 'GIS PANEL'))}
                         </span>
                         <div className="admin-top-bar-breadcrumb">
                             <span className="breadcrumb-root">Georaph.map</span>

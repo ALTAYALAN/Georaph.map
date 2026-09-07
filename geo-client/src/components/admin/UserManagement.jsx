@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import Map from 'ol/Map';
+import OLMap from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
@@ -57,6 +57,13 @@ export const getRoleColorStyle = (roleName, roleId) => {
     return palette[idx];
 };
 import { adminApi } from '../../services/adminApi';
+import { translations } from '../../translations';
+import {
+    translateRoleName,
+    translateRoleDescription,
+    translatePermissionName,
+    translatePermissionDescription
+} from '../../utils/roleTranslations';
 
 // SVG Icons
 const UserIcon = () => (
@@ -319,6 +326,7 @@ const MapIcon = () => (
 export const UserManagement = ({ token, lang: propLang }) => {
     const lang = propLang || localStorage.getItem('lang') || 'tr';
     const isTr = lang === 'tr';
+    const t = translations[lang] || translations.tr;
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
     const [permissions, setPermissions] = useState([]);
@@ -571,6 +579,7 @@ export const UserManagement = ({ token, lang: propLang }) => {
                                                     {u.roles && u.roles.length > 0 ? (
                                                         u.roles.map(r => {
                                                             const style = getRoleColorStyle(r.name, r.id);
+                                                            const translatedName = translateRoleName(r.name, lang);
                                                             return (
                                                                 <span
                                                                     key={r.id}
@@ -589,12 +598,12 @@ export const UserManagement = ({ token, lang: propLang }) => {
                                                                         letterSpacing: '0.3px'
                                                                     }}
                                                                 >
-                                                                    {r.name}
+                                                                    {translatedName}
                                                                 </span>
                                                             );
                                                         })
                                                     ) : (
-                                                        <span className="badge muted-badge">{isTr ? 'Rolsüz' : 'No Role'}</span>
+                                                        <span className="badge muted-badge">{t.roleNoRole || (isTr ? 'Rolsüz' : 'No Role')}</span>
                                                     )}
                                                 </div>
                                             </td>
@@ -728,14 +737,17 @@ export const UserManagement = ({ token, lang: propLang }) => {
                             {/* ROLES SECTION */}
                             <div className="section-divider">
                                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <ShieldIcon /> {isTr ? 'Rol Seçimi' : 'Role Selection'}
+                                    <ShieldIcon /> {t.roleSelectionTitle || (isTr ? 'Rol Seçimi' : 'Role Selection')}
                                 </h4>
-                                <p className="section-help">{isTr ? 'Kullanıcıya tanımlanacak rolleri seçin.' : 'Select roles to assign to the user.'}</p>
+                                <p className="section-help">{t.roleSelectionHelp || (isTr ? 'Kullanıcıya tanımlanacak rolleri seçin.' : 'Select roles to assign to the user.')}</p>
                             </div>
                             <div className="roles-checkbox-grid">
                                 {roles.map(r => {
                                     const style = getRoleColorStyle(r.name, r.id);
                                     const isSelected = formData.selectedRoleIds.includes(r.id);
+                                    const translatedRoleName = translateRoleName(r.name, lang);
+                                    const translatedRoleDesc = translateRoleDescription(r.description, lang, r.name);
+
                                     return (
                                         <label
                                             key={r.id}
@@ -752,8 +764,8 @@ export const UserManagement = ({ token, lang: propLang }) => {
                                                 onChange={() => handleRoleToggle(r.id)}
                                             />
                                             <div className="checkbox-info">
-                                                <strong style={{ color: isSelected ? style.color : 'inherit' }}>{r.name}</strong>
-                                                <small>{r.description}</small>
+                                                <strong style={{ color: isSelected ? style.color : 'inherit' }}>{translatedRoleName}</strong>
+                                                <small>{translatedRoleDesc}</small>
                                             </div>
                                         </label>
                                     );
@@ -763,21 +775,24 @@ export const UserManagement = ({ token, lang: propLang }) => {
                             {/* DYNAMIC PERMISSIONS SECTION */}
                             <div className="section-divider">
                                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <KeyIcon /> {isTr ? 'Kullanıcı Yetkileri (Dinamik Yetkilendirme)' : 'User Permissions (Dynamic Authorization)'}
+                                    <KeyIcon /> {t.userPermsTitle || (isTr ? 'Kullanıcı Yetkileri (Dinamik Yetkilendirme)' : 'User Permissions (Dynamic Authorization)')}
                                 </h4>
                                 <p className="section-help">
-                                    {isTr 
+                                    {t.userPermsHelp || (isTr 
                                         ? 'Aşağıda sistemdeki tüm yetkiler listelenmektedir. Seçili rollerden gelen yetkiler otomatik olarak seçili ve kilitlidir.' 
-                                        : 'All system permissions are listed below. Permissions from selected roles are automatically checked and locked.'}
+                                        : 'All system permissions are listed below. Permissions from selected roles are automatically checked and locked.')}
                                 </p>
                             </div>
 
                             <div className="permissions-grid">
                                 {permissions.map(p => {
                                     const isInherited = !!inheritedPerms[p.id];
-                                    const roleName = inheritedPerms[p.id];
+                                    const rawRoleName = inheritedPerms[p.id];
+                                    const roleName = translateRoleName(rawRoleName, lang);
                                     const isDirectChecked = formData.selectedDirectPermIds.includes(p.id);
                                     const isChecked = isInherited || isDirectChecked;
+                                    const permName = translatePermissionName(p, lang);
+                                    const permDesc = translatePermissionDescription(p, lang);
 
                                     return (
                                         <div
@@ -793,25 +808,25 @@ export const UserManagement = ({ token, lang: propLang }) => {
                                                     onChange={() => !isInherited && handleDirectPermToggle(p.id)}
                                                 />
                                                 <label htmlFor={`perm-${p.id}`} className="perm-label">
-                                                    <strong>{p.name}</strong>
+                                                    <strong>{permName}</strong>
                                                     <span className="perm-code">({p.code})</span>
                                                 </label>
                                             </div>
 
-                                            <div className="perm-description">{p.description}</div>
+                                            <div className="perm-description">{permDesc}</div>
 
                                             <div className="perm-source-tag">
                                                 {isInherited ? (
                                                     <span className="badge inherited-badge" title={isTr ? "Bu yetki kullanıcının rolünden gelmektedir ve tekrar değiştirilemez." : "This permission is inherited from role and cannot be modified."}>
-                                                        <ShieldIcon /> {isTr ? 'Rolden Geliyor' : 'From Role'} ({roleName})
+                                                        <ShieldIcon /> {t.permFromRole || (isTr ? 'Rolden Geliyor' : 'From Role')} ({roleName})
                                                     </span>
                                                 ) : isDirectChecked ? (
                                                     <span className="badge direct-badge">
-                                                        <CheckIcon /> {isTr ? 'Doğrudan Atanmış' : 'Directly Assigned'}
+                                                        <CheckIcon /> {t.permDirect || (isTr ? 'Doğrudan Atanmış' : 'Directly Assigned')}
                                                     </span>
                                                 ) : (
                                                     <span className="badge unassigned-badge">
-                                                        {isTr ? 'Atanmadı' : 'Unassigned'}
+                                                        {t.permUnassigned || (isTr ? 'Atanmadı' : 'Unassigned')}
                                                     </span>
                                                 )}
                                             </div>
@@ -1190,7 +1205,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
         });
         citiesVectorLayerRef.current = citiesVectorLayer;
 
-        const map = new Map({
+        const map = new OLMap({
             target: mapContainerRef.current,
             layers: [
                 new TileLayer({

@@ -1,5 +1,15 @@
-// GeoraphMap Transport API Service
-const API_BASE_URL = 'http://localhost:5041/api';
+const getApiBaseUrl = () => {
+    if (typeof window !== 'undefined' && window.location) {
+        if (window.location.port === '5041') {
+            return `${window.location.origin}/api`;
+        }
+        const host = window.location.hostname || 'localhost';
+        return `http://${host}:5041/api`;
+    }
+    return 'http://localhost:5041/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const getAuthHeaders = (token) => {
     const headers = { 'Content-Type': 'application/json' };
@@ -99,6 +109,30 @@ export const transportApi = {
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.message || 'OSRM ile rota üretilemedi.');
+        }
+        return res.json();
+    },
+
+    generateAllBusRoutesOsrm: async (onlyNonOsrm = false, token) => {
+        const res = await fetch(`${API_BASE_URL}/routes/generate-all-bus-osrm?onlyNonOsrm=${onlyNonOsrm}`, {
+            method: 'POST',
+            headers: getAuthHeaders(token)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || 'Toplu OSRM işlemi gerçekleştirilemedi.');
+        }
+        return res.json();
+    },
+
+    fixOrphanMetroStops: async (token) => {
+        const res = await fetch(`${API_BASE_URL}/stops/fix-orphan-metro`, {
+            method: 'POST',
+            headers: getAuthHeaders(token)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || 'Metro durakları güncellenemedi.');
         }
         return res.json();
     },

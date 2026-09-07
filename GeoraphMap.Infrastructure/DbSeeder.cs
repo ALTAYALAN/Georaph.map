@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using GeoraphMap.Core;
+using GeoraphMap.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using BCrypt.Net;
 
@@ -91,6 +92,7 @@ namespace GeoraphMap.Infrastructure
             }
 
             await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
             Console.WriteLine("[DbSeeder] asdf.admin user, role and default viewer roles ensured successfully.");
         }
 
@@ -206,17 +208,29 @@ namespace GeoraphMap.Infrastructure
                        OR name ILIKE '%Port%'
                        OR route_id IN (SELECT id FROM tbl_route WHERE route_class = 'gemi');
 
-                    -- Metro duraklarını 'metro' sınıfı yap
+                    -- Metro duraklarını 'metro' sınıfı yap (Sadece gerçek metro hatlarına bağlı olanlar)
                     UPDATE tbl_stop SET stop_class = 'metro' 
-                    WHERE route_id IN (SELECT id FROM tbl_route WHERE route_class = 'metro')
-                       OR name ILIKE '%Metro%' 
-                       OR name ILIKE '%İstasyon%';
+                    WHERE route_id IN (SELECT id FROM tbl_route WHERE route_class = 'metro' AND NOT is_deleted)
+                       OR id IN (SELECT rs.stop_id FROM tbl_route_stop rs JOIN tbl_route r ON r.id = rs.route_id WHERE r.route_class = 'metro' AND NOT r.is_deleted);
 
-                    -- Tren duraklarını 'tren' sınıfı yap
+                    -- Tren duraklarını 'tren' sınıfı yap (Sadece gerçek tren hatlarına bağlı olanlar)
                     UPDATE tbl_stop SET stop_class = 'tren' 
-                    WHERE route_id IN (SELECT id FROM tbl_route WHERE route_class = 'tren')
-                       OR name ILIKE '%Gar%' 
-                       OR name ILIKE '%Garı%';
+                    WHERE route_id IN (SELECT id FROM tbl_route WHERE route_class = 'tren' AND NOT is_deleted)
+                       OR id IN (SELECT rs.stop_id FROM tbl_route_stop rs JOIN tbl_route r ON r.id = rs.route_id WHERE r.route_class = 'tren' AND NOT r.is_deleted);
+
+                    -- Metro ve tren hatlarına bağlı OLMAYAN bütün duraklar kesinlikle 'otobus' durağı yapılır
+                    UPDATE tbl_stop SET stop_class = 'otobus'
+                    WHERE stop_class IN ('metro', 'tren')
+                      AND (route_id IS NULL OR route_id NOT IN (SELECT id FROM tbl_route WHERE route_class IN ('metro', 'tren') AND NOT is_deleted))
+                      AND id NOT IN (SELECT rs.stop_id FROM tbl_route_stop rs JOIN tbl_route r ON r.id = rs.route_id WHERE r.route_class IN ('metro', 'tren') AND NOT r.is_deleted);
+
+                    -- Metro ve tren duraklarına bağlı olan otobüs hatlarını tamamen temizle
+                    DELETE FROM tbl_route_stop rs
+                    USING tbl_stop s, tbl_route r
+                    WHERE rs.stop_id = s.id
+                      AND rs.route_id = r.id
+                      AND s.stop_class IN ('metro', 'tren')
+                      AND r.route_class = 'otobus';
 
                     CREATE TABLE IF NOT EXISTS tbl_route_stop (
                         id SERIAL PRIMARY KEY,
@@ -235,6 +249,7 @@ namespace GeoraphMap.Infrastructure
                     UPDATE tbl_stop SET stop_code = 'TRAIN-' || LPAD(id::text, 4, '0') WHERE stop_code IS NULL AND stop_class = 'tren';
                     UPDATE tbl_stop SET stop_code = 'ROAD-' || LPAD(id::text, 4, '0') WHERE stop_code IS NULL AND stop_class = 'araba';
                     UPDATE tbl_stop SET stop_code = 'BUS-' || LPAD(id::text, 4, '0') WHERE stop_code IS NULL;
+                    UPDATE tbl_stop SET stop_code = 'BUS-' || LPAD(id::text, 4, '0') WHERE stop_class = 'otobus' AND (stop_code LIKE 'METRO-%' OR stop_code LIKE 'TRAIN-%');
 
                     -- Mevcut tekil route_id bağlantılarını tbl_route_stop junction tablosuna da işle
                     INSERT INTO tbl_route_stop (route_id, stop_id, order_index, created_date)
@@ -531,6 +546,8 @@ namespace GeoraphMap.Infrastructure
 
                 // 7. Türkiye'deki 81 İlin En Bilindik 5'er Müzesi (405 Müze POI)
                 await TurkishMuseumsSeeder.SeedAllTurkeyProvincialMuseumsAsync(context);
+
+                context.ChangeTracker.Clear();
             }
             catch (Exception ex)
             {
@@ -542,6 +559,12 @@ namespace GeoraphMap.Infrastructure
         {
             try
             {
+                if (await context.Stops.AnyAsync(s => s.StopClass == "gemi" && !s.IsDeleted))
+                {
+                    Console.WriteLine("[DbSeeder] Türkiye limanları zaten veritabanında mevcut, seed atlandı.");
+                    return;
+                }
+
                 var wktReader = new NetTopologySuite.IO.WKTReader { DefaultSRID = 4326 };
 
                 // 1. Sahte tekil liman güzergahlarını (RouteClass: gemi olup Wkt'si olmayan veya tek duraklı) veritabanından tamamen temizle
@@ -770,6 +793,12 @@ namespace GeoraphMap.Infrastructure
         {
             try
             {
+                if (await context.Routes.AnyAsync(r => r.Name.Contains("M1 Kızılay") && !r.IsDeleted))
+                {
+                    Console.WriteLine("[DbSeeder] Ankara raylı sistem ve transit hatları zaten mevcut, seed atlandı.");
+                    return;
+                }
+
                 var wktReader = new NetTopologySuite.IO.WKTReader { DefaultSRID = 4326 };
 
                 // 1. Ankara Hat Tanımları
@@ -884,7 +913,7 @@ namespace GeoraphMap.Infrastructure
                         Desc: "Ankara EGO 185 Kızılay - Çankaya - Oran Ekspres Hattı",
                         Stops: new[]
                         {
-                            ("15 Temmuz Kızılay Milli İrade", "METRO-ANK-KZY", "otobus", 32.8543, 39.9208),
+                            ("Kızılay EGO Otobüs Durağı", "BUS-ANK-KZY-EGO", "otobus", 32.8545, 39.9209),
                             ("Bakanlıklar EGO Durağı", "BUS-ANK-BKN", "otobus", 32.8534, 39.9134),
                             ("Kuğulu Park & Tunalı Hilmi", "BUS-ANK-KGL", "otobus", 32.8567, 39.8978),
                             ("Atakule & Botanik Parkı", "BUS-ANK-ATK", "otobus", 32.8589, 39.8856),
@@ -900,10 +929,10 @@ namespace GeoraphMap.Infrastructure
                         Desc: "Ankara EGO 413 Kızılay - Sıhhiye - Dışkapı - Keçiören Hattı",
                         Stops: new[]
                         {
-                            ("15 Temmuz Kızılay Milli İrade", "METRO-ANK-KZY", "otobus", 32.8543, 39.9208),
-                            ("Sıhhiye İstasyonu (Ankara)", "METRO-ANK-SHY", "otobus", 32.8539, 39.9298),
-                            ("Ulus Metro İstasyonu", "METRO-ANK-ULS", "otobus", 32.8542, 39.9419),
-                            ("Dışkapı Metro İstasyonu", "METRO-ANK-DSK", "otobus", 32.8612, 39.9623),
+                            ("Kızılay EGO Otobüs Durağı", "BUS-ANK-KZY-EGO", "otobus", 32.8545, 39.9209),
+                            ("Sıhhiye Köprüsü EGO Durağı", "BUS-ANK-SHY-EGO", "otobus", 32.8540, 39.9299),
+                            ("Ulus Heykel EGO Durağı", "BUS-ANK-ULS-EGO", "otobus", 32.8544, 39.9420),
+                            ("Dışkapı Köprüsü EGO Durağı", "BUS-ANK-DSK-EGO", "otobus", 32.8614, 39.9625),
                             ("Altınpark EGO Durağı", "BUS-ANK-ALT", "otobus", 32.8789, 39.9712),
                             ("Aydınlıkevler Durağı", "BUS-ANK-AYD", "otobus", 32.8856, 39.9789),
                             ("Keçiören Gazino Son Durak", "BUS-ANK-GZN", "otobus", 32.8956, 39.9912)
@@ -975,6 +1004,13 @@ namespace GeoraphMap.Infrastructure
                             }
                         }
 
+                        // SADECE UYUMLU SINIFLAR BAĞLANABİLİR: Metro veya tren durağına otobüs hattı BAĞLANAMAZ!
+                        if (!TransportService.AreClassesCompatible(existingStop.StopClass, existingRoute.RouteClass))
+                        {
+                            order++;
+                            continue;
+                        }
+
                         // Çoklu Güzergah Junction (tbl_route_stop) Ekle
                         var existingJunction = await context.RouteStops
                             .FirstOrDefaultAsync(rs => rs.RouteId == existingRoute.Id && rs.StopId == existingStop.Id);
@@ -993,6 +1029,16 @@ namespace GeoraphMap.Infrastructure
                     }
                     await context.SaveChangesAsync();
                 }
+
+                // Metro ve tren duraklarına bağlanmış olabilecek otobüs hatlarını kesin olarak temizle
+                await context.Database.ExecuteSqlRawAsync(@"
+                    DELETE FROM tbl_route_stop rs
+                    USING tbl_stop s, tbl_route r
+                    WHERE rs.stop_id = s.id
+                      AND rs.route_id = r.id
+                      AND s.stop_class IN ('metro', 'tren')
+                      AND r.route_class = 'otobus';
+                ");
 
                 Console.WriteLine("[DbSeeder] Ankara Metro, Ankaray, Başkentray ve EGO hatları çoklu aktarma bağlantılarıyla başarıyla işlendi.");
             }
@@ -1097,6 +1143,12 @@ namespace GeoraphMap.Infrastructure
         {
             try
             {
+                if (await context.Routes.AnyAsync(r => r.Name.Contains("427 SUBAYEVLERİ") && !r.IsDeleted))
+                {
+                    Console.WriteLine("[DbSeeder] 427, 427-6 ve 427-7 EGO hatları zaten mevcut, seed atlandı.");
+                    return;
+                }
+
                 var wktReader = new NetTopologySuite.IO.WKTReader { DefaultSRID = 4326 };
 
                 // 1. Tüm EGO Durakları (Altındağ, Çankaya, Keçiören - Hat 427, 427-6, 427-7)
@@ -1286,14 +1338,9 @@ namespace GeoraphMap.Infrastructure
                         .Select(st => (Lon: st.Geometry!.Coordinate.X, Lat: st.Geometry!.Coordinate.Y))
                         .ToList();
 
-                    // OSRM üzerinden sokak ve cadde ağını birebir takip eden yüksek çözünürlüklü güzergah geometrisi çek
-                    string linestringWkt = await FetchOsrmRouteGeometryAsync(stopCoordinates);
-
-                    if (string.IsNullOrWhiteSpace(linestringWkt))
-                    {
-                        var directPairs = stopCoordinates.Select(c => $"{c.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {c.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
-                        linestringWkt = $"LINESTRING({string.Join(", ", directPairs)})";
-                    }
+                    // OSRM rotaları manuel tuşa bağlandığından başlangıç seed işleminde doğrudan durak bağlantı geometrisi kullanılır.
+                    var directPairs = stopCoordinates.Select(c => $"{c.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture)} {c.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                    string linestringWkt = $"LINESTRING({string.Join(", ", directPairs)})";
 
                     route = new RouteFeature
                     {
@@ -1302,7 +1349,7 @@ namespace GeoraphMap.Infrastructure
                         Color = line.Color,
                         Description = line.Desc,
                         Wkt = linestringWkt,
-                        GeometryType = "Osrm",
+                        GeometryType = "Direct",
                         IsActive = true,
                         IsDeleted = false,
                         CreatedDate = DateTime.UtcNow,
@@ -1339,7 +1386,8 @@ namespace GeoraphMap.Infrastructure
                     await context.SaveChangesAsync();
                 }
 
-                Console.WriteLine("[DbSeeder] 427, 427-6 ve 427-7 EGO otobüs hatları, tüm durakları ve OSRM sokak güzergahları başarıyla veritabanına işlendi.");
+                context.ChangeTracker.Clear();
+                Console.WriteLine("[DbSeeder] 427, 427-6 ve 427-7 EGO otobüs hatları ve durakları başarıyla veritabanına işlendi (Geometri: Direct).");
             }
             catch (Exception ex)
             {

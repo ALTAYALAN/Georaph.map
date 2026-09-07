@@ -90,6 +90,11 @@ using (var scope = app.Services.CreateScope())
     DbSeeder.SeedKeciorenEgoLinesAsync(dbContext).GetAwaiter().GetResult();
 }
 
+// Başlangıç seed ve migrasyon nesnelerini derhal temizleyip RAM'i işletim sistemine iade et
+GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+GC.WaitForPendingFinalizers();
+GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

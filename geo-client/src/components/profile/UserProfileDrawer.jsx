@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { userPersonalApi } from '../../services/userPersonalApi';
 import { translations } from '../../translations';
 import { formatDuration } from '../../utils/formatUtils';
+import { translateRoleName } from '../../utils/roleTranslations';
 
 export default function UserProfileDrawer({
     isOpen,
@@ -182,7 +183,7 @@ export default function UserProfileDrawer({
                                     color: role === 'Admin' ? '#ef4444' : '#38bdf8',
                                     border: `1px solid ${role === 'Admin' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(37, 99, 235, 0.3)'}`
                                 }}>
-                                    {role}
+                                    {translateRoleName(role, lang)}
                                 </span>
                             </div>
                             {email ? (
@@ -609,7 +610,7 @@ export default function UserProfileDrawer({
                                         backgroundColor: role === 'Admin' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(37, 99, 235, 0.12)',
                                         color: role === 'Admin' ? '#ef4444' : '#2563eb'
                                     }}>
-                                        {role}
+                                        {translateRoleName(role, lang)}
                                     </span>
                                 </div>
 

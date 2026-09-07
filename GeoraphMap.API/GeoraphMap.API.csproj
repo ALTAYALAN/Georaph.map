@@ -4,6 +4,11 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- RAM Optimizasyonu: Server GC yerine Workstation GC kullanarak belleğin 5.8 GB'a sismesini engeller -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <GarbageCollectionAdaptation>1</GarbageCollectionAdaptation>
+    <RetainVM>false</RetainVM>
   </PropertyGroup>
 
   <ItemGroup>

@@ -105,4 +105,14 @@ namespace GeoraphMap.Core.DTOs
     {
         public List<int> OrderedStopIds { get; set; } = new List<int>();
     }
+
+    public class BatchOsrmResultDto
+    {
+        public int TotalRoutes { get; set; }
+        public int ProcessedCount { get; set; }
+        public int SuccessCount { get; set; }
+        public int FailedCount { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public List<string> Details { get; set; } = new List<string>();
+    }
 }
