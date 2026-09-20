@@ -10,7 +10,7 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 
 ## Öne Çıkan Özellikler
 
-### 🚌 Canlı Araç Simülasyonu & SignalR Gerçek Zamanlı Takip (Real-Time Transit)
+### Canlı Araç Simülasyonu & SignalR Gerçek Zamanlı Takip (Real-Time Transit)
 - **Operatör ve Admin Simülasyon Başlatma:** Haritada veya listede bir güzergaha tıklandığında *"Simülasyonu Başlat"* butonu ile ilk duraktan son durağa gerçekçi araç hareketi başlatma (Yetki kısıtlaması: Sadece Admin ve Operatör).
 - **SignalR İki Yönlü Veri Yayını (`/hubs/simulation`):** WebSocket altyapısıyla her 850 ms'de bir dinamik interpolasyonlu enlem, boylam, pusula açısı (`bearing`), hız ve tamamlanma yüzdesi yayını.
 - **İstemci Canlı Araç Takibi (Auto-Pan Follow Mode):** Kullanıcıların güzergah kartından *"Takip Et"* butonu ile aracı canlı kamera takibine alabilmesi ve *"Takibi Bırak"* ile takipten çıkabilmesi.
@@ -83,7 +83,7 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 
 ## Kurulum ve Çalıştırma
 
-### 🚀 Tek Tıkla Başlatma (En Kolay Yol)
+### Tek Tıkla Başlatma (En Kolay Yol)
 Proje kök dizinindeki `start.bat` veya `baslat.bat` dosyasına **çift tıklayarak** hem **Backend (.NET Web API)** hem de **Frontend (React)** servislerini aynı anda otomatik olarak başlatabilirsiniz.
 
 ---
