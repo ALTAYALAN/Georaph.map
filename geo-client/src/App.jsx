@@ -45,14 +45,16 @@ import { getPoiCategoryBadgeSvg, getTransitStopBadgeSvg, getLocalizedPoiCategory
 import { simulationHubService } from './services/simulationHubService';
 import { translateRoleName } from './utils/roleTranslations';
 import { formatDuration } from './utils/formatUtils';
-import { getRouteClassInfo, getVehicleClassInnerSvg, RouteClassIcon } from './constants/routeClasses';
+import { getRouteClassInfo, getVehicleClassInnerSvg, RouteClassIcon, normalizeTransitClass } from './constants/routeClasses';
 import { calculateTransitRoute } from './utils/transitRouting';
 import { getZoomSettings, DEFAULT_ZOOM_SETTINGS, ZOOM_STORAGE_KEY } from './constants/zoomSettings';
 import { ZoomSettingsManagement } from './components/admin/ZoomSettingsManagement';
 import { cleanPortName, getSeaportInfo, TURKISH_SEAPORTS } from './constants/seaports';
 import { cleanAirportName, getAirportInfo, TURKISH_AIRPORTS } from './constants/airports';
+import { getAirportCode } from './utils/airportIdentity';
 import { calculateGeometryMetrics } from './utils/geometryUtils';
 import './App.css';
+import { getSessionRole } from './utils/sessionRole';
 
 // Açısal En Kısa Yol İnterpolasyonu (Angle Shortest Path Lerp - 360 dönüş sıçramalarını önler)
 export function lerpAngle(startRad, targetRad, t) {
@@ -1217,20 +1219,20 @@ function App() {
     const [loggedInUsername, setLoggedInUsername] = useState(localStorage.getItem('logged_in_username') || '');
 
     const [userRole, setUserRole] = useState(() => {
-        const storedRole = localStorage.getItem('user_role');
-        if (storedRole) return storedRole;
-        const payload = parseJwt(localStorage.getItem('jwt_token'));
-        if (payload) {
-            const r = payload.userRole || payload["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
-            if (r) return r;
-        }
-        return 'Viewer';
+        return getSessionRole(parseJwt(localStorage.getItem('jwt_token')));
     });
 
     const [isAdmin, setIsAdmin] = useState(() => {
-        const role = localStorage.getItem('user_role') || (parseJwt(localStorage.getItem('jwt_token'))?.userRole);
-        return role === 'Admin';
+        return getSessionRole(parseJwt(localStorage.getItem('jwt_token'))) === 'Admin';
     });
+
+    useEffect(() => {
+        const role = getSessionRole(parseJwt(token));
+        setUserRole(role);
+        setIsAdmin(role === 'Admin');
+        localStorage.setItem('user_role', role);
+        localStorage.setItem('is_admin', String(role === 'Admin'));
+    }, [token]);
 
     const [userSpatialBoundaryWkt, setUserSpatialBoundaryWkt] = useState('');
     const [spatialBoundariesData, setSpatialBoundariesData] = useState([]);
@@ -1324,6 +1326,7 @@ function App() {
     const routeSourceRef = useRef(new VectorSource());
     const stopSourceRef = useRef(new VectorSource());
     const allStopFeaturesRef = useRef([]);
+    const airportStopFeaturesRef = useRef(new Map());
     const updateVisibleStopsInViewportRef = useRef(null);
     const routeLayerRef = useRef(null);
     const stopLayerRef = useRef(null);
@@ -2788,6 +2791,11 @@ function App() {
         const zoom = resolution ? Math.log2(156543.03392804097 / resolution) : (mapRef.current?.getView()?.getZoom() || 0);
 
         const poi = feature.get('poiData') || {};
+        const airportCode = poi.airportCode || (poi.isAirport ? getAirportCode(poi) : null);
+        const airportStop = airportCode && airportStopFeaturesRef.current.get(airportCode);
+        // A visible flight stop is the single airport marker. If its layer is
+        // hidden, the POI marker remains available with its own layer controls.
+        if (airportStop && createStopStyle(airportStop, resolution)) return [];
         const priority = poi.categoryDisplayOrder || 1;
         const poiColor = poi.categoryColor || '#8b5cf6';
         const catName = poi.categoryName || poi.name || '';
@@ -3072,55 +3080,16 @@ function App() {
     const fetchPois = async () => {
         try {
             const [poisData, catsData] = await Promise.all([
-                adminApi.getPois(null, false, token).catch(() => []),
-                adminApi.getPoiCategories(false, token).catch(() => [])
+                adminApi.getPois(null, false, token),
+                adminApi.getPoiCategories(false, token)
             ]);
 
             const dbPois = Array.isArray(poisData) ? poisData : [];
-            const dbPoisNameSet = new Set(dbPois.map(p => (p.name || '').toLowerCase().trim()));
-
-            let effectiveCats = Array.isArray(catsData) ? [...catsData] : [];
-            let airportCat = effectiveCats.find(c => (c.name || '').toLowerCase().includes('havaliman') || c.key === 'havalimani');
-            if (!airportCat) {
-                airportCat = {
-                    id: 9901,
-                    name: 'Havalimanı & Uçuş',
-                    key: 'havalimani',
-                    color: '#0284c7',
-                    icon: 'plane',
-                    displayOrder: 2,
-                    isActive: true
-                };
-                effectiveCats.push(airportCat);
-            }
-
-            const airportPois = (TURKISH_AIRPORTS || []).filter(apt => !dbPoisNameSet.has(apt.name.toLowerCase().trim())).map((apt, idx) => ({
-                id: apt.id || `apt_${idx + 1}`,
-                name: apt.name,
-                description: `${apt.type} • ${apt.runways} • IATA: ${apt.iata} • ICAO: ${apt.icao} • ${apt.description}`,
-                categoryName: airportCat.name,
-                parentCategoryName: 'Ulaşım',
-                categoryId: airportCat.id,
-                categoryColor: '#0284c7',
-                categoryIcon: 'plane',
-                workingHours: '7/24 Açık (24 Saat Kesintisiz Uçuş)',
-                imageUrl: apt.imageUrl,
-                wkt: `POINT(${apt.coordinates[0]} ${apt.coordinates[1]})`,
-                latitude: apt.coordinates[1],
-                longitude: apt.coordinates[0],
-                username: 'Sistem Kaydı',
-                createdAt: '2026-09-04 12:00',
-                isActive: true,
-                isAirport: true,
-                iata: apt.iata,
-                icao: apt.icao,
-                city: apt.city,
-                region: apt.region,
-                runways: apt.runways,
-                type: apt.type
-            }));
-
-            const combinedPois = [...dbPois, ...airportPois];
+            const effectiveCats = Array.isArray(catsData) ? catsData : [];
+            const combinedPois = dbPois.map(poi => {
+                const airport = poi.airportCode ? TURKISH_AIRPORTS.find(a => a.iata === poi.airportCode) : null;
+                return airport ? { ...airport, ...poi, isAirport: true, iata: poi.airportCode } : poi;
+            });
             setPois(combinedPois);
             setPoiCategories(effectiveCats);
             poiCategoriesRef.current = effectiveCats;
@@ -3311,6 +3280,11 @@ function App() {
             });
 
             allStopFeaturesRef.current = stopFeatures;
+            airportStopFeaturesRef.current = new Map(stopFeatures
+                .filter(f => normalizeTransitClass(f.get('stopClass')) === 'havayolu')
+                .map(f => [getAirportCode(f.get('stopData')), f])
+                .filter(([code]) => code));
+            poiLayerRef.current?.changed();
             setStops(allStopsList);
 
             if (stopFeatures.length > 0 && stopSourceRef.current) {
@@ -5223,39 +5197,10 @@ function App() {
     const handleSaveStopRepositioning = async () => {
         if (!modifyingStop || !modifiedStopCoords.wkt) return;
         try {
-            const currentRouteIds = (modifyingStop.routeIds && modifyingStop.routeIds.length > 0)
-                ? modifyingStop.routeIds
-                : (modifyingStop.routes ? modifyingStop.routes.map(r => r.id) : (modifyingStop.routeId ? [modifyingStop.routeId] : []));
-
-            // 1. Durağın Yeni Konumunu Kaydet (Backend otomatik olarak tüm bağlı güzergahları yeniden hesaplayacak)
+            // Move only the shared stop. The server owns all linked route geometries.
             await transportApi.updateStop(modifyingStop.id, {
-                name: modifyingStop.name,
-                stopCode: modifyingStop.stopCode,
-                stopClass: modifyingStop.stopClass,
-                routeId: modifyingStop.routeId,
-                routeIds: currentRouteIds,
-                description: modifyingStop.description,
-                orderIndex: modifyingStop.orderIndex,
                 wkt: modifiedStopCoords.wkt
             }, token);
-
-            // 2. Haritada açık olan tüm bağlı güzergah çizgilerini anında güncelle
-            const wktFormat = new WKT();
-            for (const binding of modifyingRouteBindingsRef.current || []) {
-                try {
-                    const rId = binding.routeId;
-                    if (rId && binding.feature.getGeometry()) {
-                        const updatedRouteWkt = wktFormat.writeGeometry(binding.feature.getGeometry(), {
-                            dataProjection: 'EPSG:4326',
-                            featureProjection: 'EPSG:3857'
-                        });
-                        if (updatedRouteWkt) {
-                            await transportApi.updateRouteGeometry(rId, updatedRouteWkt, token);
-                        }
-                    }
-                } catch (e) { }
-            }
-
             toastRef.current?.show({
                 severity: 'success',
                 summary: 'Durak ve Hatlar Güncellendi',
@@ -7157,7 +7102,7 @@ function App() {
                     categoryId: parseInt(newPoiForm.categoryId, 10),
                     workingHours: newPoiForm.workingHours?.trim(),
                     imageUrl: serializedImage,
-                    wkt: editingPoiModalData.wkt || newPoiForm.wkt,
+                    wkt: newPoiForm.wkt || editingPoiModalData.wkt,
                     isActive: editingPoiModalData.isActive !== false
                 }, token);
 
@@ -7681,12 +7626,14 @@ function App() {
                     <div className="login-card">
                         <h2>{isRegisterMode ? t.registerTitle : t.loginTitle}</h2>
                         {registerSuccessMsg && <div className="success-msg">{registerSuccessMsg}</div>}
-                        {error && <div className="error-msg">{error}</div>}
+                        {error && <div className="error-msg" role="alert">{error}</div>}
 
                         <form onSubmit={isRegisterMode ? handleRegister : handleLogin}>
                             <div className="input-group">
-                                <label className="input-label">{t.usernameLabel}</label>
+                                <label className="input-label" htmlFor="auth-username">{t.usernameLabel}</label>
                                 <input
+                                    id="auth-username"
+                                    autoComplete="username"
                                     type="text"
                                     placeholder={t.usernamePlaceholder}
                                     value={username}
@@ -7698,9 +7645,9 @@ function App() {
                             {isRegisterMode && (
                                 <>
                                     <div className="input-group">
-                                        <label className="input-label">{t.emailLabel}</label>
+                                        <label className="input-label" htmlFor="auth-email">{t.emailLabel}</label>
                                         <input
-                                            type="email"
+                                            id="auth-email" autoComplete="email" type="email"
                                             placeholder={t.emailPlaceholder}
                                             value={email}
                                             onChange={(e) => setEmail(e.target.value)}
@@ -7708,9 +7655,9 @@ function App() {
                                     </div>
 
                                     <div className="input-group">
-                                        <label className="input-label">{t.phoneLabel}</label>
+                                        <label className="input-label" htmlFor="auth-phone">{t.phoneLabel}</label>
                                         <input
-                                            type="tel"
+                                            id="auth-phone" autoComplete="tel" type="tel"
                                             placeholder={t.phonePlaceholder}
                                             value={phone}
                                             onChange={(e) => setPhone(e.target.value)}
@@ -7720,9 +7667,9 @@ function App() {
                             )}
 
                             <div className="input-group">
-                                <label className="input-label">{t.passwordLabel}</label>
+                                <label className="input-label" htmlFor="auth-password">{t.passwordLabel}</label>
                                 <input
-                                    type="password"
+                                    id="auth-password" autoComplete={isRegisterMode ? "new-password" : "current-password"} type="password"
                                     placeholder="••••••••"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
@@ -7730,7 +7677,7 @@ function App() {
                                 />
                             </div>
 
-                            <button type="submit" className="login-btn">
+                            <button type="submit" className="login-btn" disabled={isLoggingIn || isSubmittingRegister}>
                                 {isRegisterMode
                                     ? (isSubmittingRegister ? t.registering : t.registerButton)
                                     : (isLoggingIn ? t.loggingIn : t.loginButton)}
@@ -11317,7 +11264,7 @@ function App() {
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                                 <h3 className="poi-card-title">{selectedPoiInfo.name}</h3>
-                                <span className="poi-card-subtitle">POI Detayları</span>
+                                <span className="poi-card-subtitle">{selectedPoiInfo.airportCode ? `Havalimanı ID: ${selectedPoiInfo.airportCode}` : 'POI Detayları'}</span>
                             </div>
                         </div>
                         <button
@@ -11761,7 +11708,7 @@ function App() {
                         {/* Liman & Deniz Yetki Alanı Bilgileri (Küçük ve Sade Menü) */}
                         {(() => {
                             const sc = (selectedStopInfo.stopClass || selectedStopInfo.routeClass || '').toLowerCase();
-                            if (sc === 'gemi' || sc === 'liman' || selectedStopInfo.name?.toLowerCase().includes('liman') || selectedStopInfo.name?.toLowerCase().includes('iskele')) {
+                            if (normalizeTransitClass(sc) === 'deniz') {
                                 const portInfo = getSeaportInfo(selectedStopInfo.name);
                                 if (portInfo) {
                                     return (
@@ -12168,10 +12115,10 @@ function App() {
                                         gap: '4px'
                                     }}>
                                         {selectedRouteInfo.geometryType === 'Osrm' 
-                                            ? '🛣️ OSRM Karayolu Rotası' 
+                                            ? 'OSRM Karayolu Rotası' 
                                             : (selectedRouteInfo.geometryType === 'Custom' || (selectedRouteInfo.wkt && selectedRouteInfo.geometryType !== 'Direct') 
-                                                ? '✏️ Özel Bükülmüş Geometri' 
-                                                : '📏 Kuş Uçuşu Hat')}
+                                                ? 'Özel Bükülmüş Geometri' 
+                                                : 'Kuş Uçuşu Hat')}
                                     </span>
                                 </div>
 
@@ -14994,3 +14941,5 @@ function App() {
 }
 
 export default App;
+// @refresh reset
+// OpenLayers retains feature/style callbacks outside React; remount the map after HMR.

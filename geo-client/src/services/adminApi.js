@@ -16,12 +16,21 @@ const getAuthHeaders = (token) => ({
     'Authorization': token ? `Bearer ${token}` : ''
 });
 
+async function readAdminList(res, fallback) {
+    if (res.status === 401) throw new Error('Oturum doğrulanamadı. Çıkış yapıp yeniden giriş yapın.');
+    if (res.status === 403) throw new Error('Bu oturumda yönetici yetkisi bulunmuyor. Admin hesabınızla yeniden giriş yapın.');
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.message || `${fallback} (HTTP ${res.status})`);
+    }
+    return res.json();
+}
+
 export const adminApi = {
     // USERS
     getUsers: async (token) => {
         const res = await fetch(`${API_BASE_URL}/users`, { headers: getAuthHeaders(token) });
-        if (!res.ok) throw new Error('Kullanıcılar getirilemedi.');
-        return await res.json();
+        return readAdminList(res, 'Kullanıcılar getirilemedi.');
     },
 
     createUser: async (userDto, token) => {
@@ -91,8 +100,7 @@ export const adminApi = {
     // ROLES
     getRoles: async (token) => {
         const res = await fetch(`${API_BASE_URL}/roles`, { headers: getAuthHeaders(token) });
-        if (!res.ok) throw new Error('Roller getirilemedi.');
-        return await res.json();
+        return readAdminList(res, 'Roller getirilemedi.');
     },
 
     createRole: async (roleDto, token) => {

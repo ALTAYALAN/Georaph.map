@@ -8,7 +8,7 @@ export const ROUTE_CLASSES = [
         shortLabel: 'Otobüs',
         icon: 'bus',
         color: '#0284c7',
-        bullet: '🔵',
+        bullet: '●',
         bg: 'rgba(2, 132, 199, 0.15)',
         border: '#0284c7',
         description: 'Şehir içi belediye ve halk otobüs hatları',
@@ -20,7 +20,7 @@ export const ROUTE_CLASSES = [
         shortLabel: 'Metro',
         icon: 'metro',
         color: '#ef4444',
-        bullet: '🔴',
+        bullet: '●',
         bg: 'rgba(239, 68, 68, 0.15)',
         border: '#ef4444',
         description: 'Yeraltı ve yerüstü hızlı metro raylı sistem hatları',
@@ -32,7 +32,7 @@ export const ROUTE_CLASSES = [
         shortLabel: 'Tramvay',
         icon: 'tram',
         color: '#06b6d4',
-        bullet: '🟢',
+        bullet: '●',
         bg: 'rgba(6, 182, 212, 0.15)',
         border: '#06b6d4',
         description: 'Cadde üzeri ve hafif raylı tramvay hatları',
@@ -44,7 +44,7 @@ export const ROUTE_CLASSES = [
         shortLabel: 'Metrobüs',
         icon: 'metrobus',
         color: '#f59e0b',
-        bullet: '🟠',
+        bullet: '●',
         bg: 'rgba(245, 158, 11, 0.15)',
         border: '#f59e0b',
         description: 'Ayrılmış özel yollu metrobüs ve ekspres transit hatları',
@@ -56,7 +56,7 @@ export const ROUTE_CLASSES = [
         shortLabel: 'Tren',
         icon: 'train',
         color: '#8b5cf6',
-        bullet: '🟣',
+        bullet: '●',
         bg: 'rgba(139, 92, 246, 0.15)',
         border: '#8b5cf6',
         description: 'TCDD, Banliyö (Marmaray, İZBAN, Başkentray) ve bölgesel trenler',
@@ -68,7 +68,7 @@ export const ROUTE_CLASSES = [
         shortLabel: 'Deniz',
         icon: 'ship',
         color: '#0ea5e9',
-        bullet: '🔷',
+        bullet: '●',
         bg: 'rgba(14, 165, 233, 0.15)',
         border: '#0ea5e9',
         description: 'Şehir Hatları vapur, deniz otobüsü ve arabalı feribot hatları',
@@ -80,7 +80,7 @@ export const ROUTE_CLASSES = [
         shortLabel: 'Havayolu',
         icon: 'plane',
         color: '#0284c7',
-        bullet: '✈️',
+        bullet: '●',
         bg: 'rgba(2, 132, 199, 0.15)',
         border: '#0284c7',
         description: 'Yurtiçi ve uluslararası tarifeli havayolu uçuş rotaları',
@@ -98,7 +98,7 @@ export function normalizeTransitClass(classKey) {
     if (!classKey) return 'otobus';
     const key = String(classKey).toLowerCase().trim();
     if (key === 'havayolu' || key === 'ucak' || key === 'uçak' || key === 'plane' || key === 'flight' || key === 'air' || key === 'airway') return 'havayolu';
-    if (key === 'gemi' || key === 'deniz' || key === 'vapur' || key === 'feribot' || key === 'ship' || key === 'port') return 'deniz';
+    if (key === 'gemi' || key === 'deniz' || key === 'liman' || key === 'vapur' || key === 'feribot' || key === 'ship' || key === 'port') return 'deniz';
     if (key === 'bus' || key === 'otobus' || key === 'iett' || key === 'ego' || key === 'eshot') return 'otobus';
     if (key === 'metro' || key === 'm' || key === 'subway') return 'metro';
     if (key === 'tramvay' || key === 'tram' || key === 'nostaljik') return 'tramvay';

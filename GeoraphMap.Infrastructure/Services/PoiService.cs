@@ -358,6 +358,7 @@ namespace GeoraphMap.Infrastructure.Services
 
         public async Task<PoiDto> CreatePoiAsync(CreatePoiDto dto, int userId)
         {
+            await ValidateCategoryAsync(dto.CategoryId);
             if (string.IsNullOrWhiteSpace(dto.Wkt))
                 throw new ArgumentException("POI konumu (WKT) boş olamaz.");
 
@@ -406,6 +407,23 @@ namespace GeoraphMap.Infrastructure.Services
                 throw new UnauthorizedAccessException("Bu POI'yi güncelleme yetkiniz bulunmamaktadır.");
             }
 
+            await ValidateCategoryAsync(dto.CategoryId);
+            Geometry? updatedGeometry = null;
+            if (!string.IsNullOrWhiteSpace(dto.Wkt) && dto.Wkt != poi.Wkt)
+            {
+                try
+                {
+                    updatedGeometry = _wktReader.Read(dto.Wkt);
+                    if (updatedGeometry.IsEmpty || !updatedGeometry.IsValid)
+                        throw new ArgumentException("Geometri boş veya geçersiz.");
+                    updatedGeometry.SRID = 4326;
+                }
+                catch (Exception ex)
+                {
+                    throw new ArgumentException("Geçersiz POI konumu (WKT).", ex);
+                }
+            }
+
             poi.Name = dto.Name.Trim();
             poi.Description = dto.Description?.Trim();
             poi.CategoryId = dto.CategoryId;
@@ -414,12 +432,10 @@ namespace GeoraphMap.Infrastructure.Services
             poi.IsActive = dto.IsActive;
             poi.ModifiedDate = DateTime.UtcNow;
 
-            if (!string.IsNullOrWhiteSpace(dto.Wkt) && dto.Wkt != poi.Wkt)
+            if (updatedGeometry != null)
             {
-                var geom = _wktReader.Read(dto.Wkt);
-                geom.SRID = 4326;
-                poi.Geometry = geom;
-                poi.Wkt = dto.Wkt.Trim();
+                poi.Geometry = updatedGeometry;
+                poi.Wkt = dto.Wkt!.Trim();
             }
 
             await contextSaveAsync();
@@ -470,6 +486,7 @@ namespace GeoraphMap.Infrastructure.Services
             return new PoiDto
             {
                 Id = p.Id,
+                AirportCode = p.AirportCode,
                 Name = p.Name,
                 Description = p.Description,
                 CategoryId = p.CategoryId,
@@ -490,6 +507,12 @@ namespace GeoraphMap.Infrastructure.Services
                 CreatedDate = p.CreatedDate,
                 ModifiedDate = p.ModifiedDate
             };
+        }
+
+        private async Task ValidateCategoryAsync(int categoryId)
+        {
+            if (!await _context.PoiCategories.AnyAsync(c => c.Id == categoryId && !c.IsDeleted))
+                throw new ArgumentException("Seçilen POI kategorisi bulunamadı. Kategorileri yenileyip tekrar seçin.");
         }
 
         private async Task contextSaveAsync()

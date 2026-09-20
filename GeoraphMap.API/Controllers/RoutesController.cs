@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace GeoraphMap.API.Controllers
 {
     [ApiController]
+    [TransportValidation]
     [Route("api/[controller]")]
     public class RoutesController : ControllerBase
     {

@@ -38,9 +38,11 @@ bld/
 node_modules/
 **/node_modules/
 dist/
+/artifacts/
+/transport-audit/
+/output/
 
 # Ignore all Markdown files except README.md
 *.md
 !README.md
-
 

@@ -704,11 +704,7 @@ export const RouteManagement = ({
 
         // 2. Veritabanından gelen tüm 'gemi' sınıfı ve liman duraklarını ekle / eşleştir
         (allStops || []).forEach(s => {
-            const isPort = (s.stopClass || '').toLowerCase() === 'gemi' ||
-                           (s.name || '').toLowerCase().includes('liman') ||
-                           (s.name || '').toLowerCase().includes('iskele') ||
-                           (s.name || '').toLowerCase().includes('port') ||
-                           (s.name || '').toLowerCase().includes('feribot');
+            const isPort = normalizeTransitClass(s.stopClass) === 'deniz';
 
             if (isPort && s.longitude != null && s.latitude != null) {
                 const sNameClean = cleanPortName(s.name).toLowerCase();
@@ -756,11 +752,7 @@ export const RouteManagement = ({
 
         // 2. Veritabanından gelen tüm 'havayolu' / 'ucak' sınıfı ve havalimanı duraklarını ekle / eşleştir
         (allStops || []).forEach(s => {
-            const isAirport = (s.stopClass || '').toLowerCase() === 'havayolu' ||
-                              (s.stopClass || '').toLowerCase() === 'ucak' ||
-                              (s.name || '').toLowerCase().includes('havaliman') ||
-                              (s.name || '').toLowerCase().includes('havaalan') ||
-                              (s.name || '').toLowerCase().includes('airport');
+            const isAirport = normalizeTransitClass(s.stopClass) === 'havayolu';
 
             if (isAirport && s.longitude != null && s.latitude != null) {
                 const sNameClean = cleanAirportName(s.name).toLowerCase();

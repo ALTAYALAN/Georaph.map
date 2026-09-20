@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GeoraphMap.Core\GeoraphMap.Core.csproj" />
+    <EmbeddedResource Include="../shared/airports.json" LogicalName="GeoMap.airports.json" />
   </ItemGroup>
 
 </Project>

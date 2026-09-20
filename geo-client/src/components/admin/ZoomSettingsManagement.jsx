@@ -310,7 +310,7 @@ export const ZoomSettingsManagement = ({
                                 transition: 'all 0.15s ease'
                             }}
                         >
-                            ⚖️ {isTr ? 'Dengeli (Varsayılan)' : 'Balanced (Default)'}
+                            {isTr ? 'Dengeli (Varsayılan)' : 'Balanced (Default)'}
                         </button>
                         <button
                             type="button"
@@ -328,7 +328,7 @@ export const ZoomSettingsManagement = ({
                             }}
                             title={isTr ? 'Tüm Türkiye ve bölge ölçeğinde durak ve hatları erken gösterir' : 'Show stops and routes earlier at wide country scale'}
                         >
-                            🌍 {isTr ? 'Geniş / Türkiye Ölçeği' : 'Wide / Turkey Scale'}
+                            {isTr ? 'Geniş / Türkiye Ölçeği' : 'Wide / Turkey Scale'}
                         </button>
                         <button
                             type="button"
@@ -346,7 +346,7 @@ export const ZoomSettingsManagement = ({
                             }}
                             title={isTr ? 'Yalnızca harita yakınlaştırıldığında simgeleri göstererek performansı artırır' : 'Optimize performance by only rendering at close zoom levels'}
                         >
-                            ⚡ {isTr ? 'Yüksek Performans' : 'High Performance'}
+                            {isTr ? 'Yüksek Performans' : 'High Performance'}
                         </button>
                     </div>
 
@@ -405,11 +405,11 @@ export const ZoomSettingsManagement = ({
                 {/* KATEGORİ SEKMELERİ (TABS) */}
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', width: '100%' }}>
                     {[
-                        { id: 'all', label: isTr ? 'Tümü' : 'All', icon: '🧭' },
-                        { id: 'routes', label: isTr ? 'Hat & Güzergahlar' : 'Transit Routes', icon: '🛣️' },
-                        { id: 'stops', label: isTr ? 'Duraklar & İstasyonlar' : 'Stops & Stations', icon: '🚏' },
-                        { id: 'pois', label: isTr ? `İlgi Noktaları (${allCategories.length})` : `POIs (${allCategories.length})`, icon: '📍' },
-                        { id: 'drawings', label: isTr ? 'Çizimler & Alanlar' : 'Drawings & Areas', icon: '📐' }
+                        { id: 'all', label: isTr ? 'Tümü' : 'All', icon: 'pi-th-large' },
+                        { id: 'routes', label: isTr ? 'Hat & Güzergahlar' : 'Transit Routes', icon: 'pi-map' },
+                        { id: 'stops', label: isTr ? 'Duraklar & İstasyonlar' : 'Stops & Stations', icon: 'pi-map-marker' },
+                        { id: 'pois', label: isTr ? `İlgi Noktaları (${allCategories.length})` : `POIs (${allCategories.length})`, icon: 'pi-map-marker' },
+                        { id: 'drawings', label: isTr ? 'Çizimler & Alanlar' : 'Drawings & Areas', icon: 'pi-pencil' }
                     ].map(tab => {
                         const isActive = activeTab === tab.id;
                         return (
@@ -432,7 +432,7 @@ export const ZoomSettingsManagement = ({
                                     transition: 'all 0.15s ease'
                                 }}
                             >
-                                <span>{tab.icon}</span>
+                                <i className={`pi ${tab.icon}`} aria-hidden="true" />
                                 <span>{tab.label}</span>
                             </button>
                         );

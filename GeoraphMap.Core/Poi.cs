@@ -6,6 +6,7 @@ namespace GeoraphMap.Core
     public class Poi
     {
         public int Id { get; set; }
+        public string? AirportCode { get; set; }
         public string Name { get; set; } = string.Empty;
         public string? Description { get; set; }
         

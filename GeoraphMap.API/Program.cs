@@ -86,7 +86,9 @@ using (var scope = app.Services.CreateScope())
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     dbContext.Database.Migrate();
     DbSeeder.EnsureTablesCreatedAsync(dbContext).GetAwaiter().GetResult();
+    PoiCategoryCatalog.EnsureAsync(dbContext).GetAwaiter().GetResult();
     DbSeeder.SeedAsdfUserAndAssignDrawingsAsync(dbContext).GetAwaiter().GetResult();
+    AirportPoiCatalog.EnsureAsync(dbContext).GetAwaiter().GetResult();
     DbSeeder.SeedKeciorenEgoLinesAsync(dbContext).GetAwaiter().GetResult();
 }
 

@@ -141,6 +141,8 @@ namespace GeoraphMap.Infrastructure
                         modified_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
                     );
                     ALTER TABLE tbl_poi ADD COLUMN IF NOT EXISTS image_url TEXT;
+                    ALTER TABLE tbl_poi ADD COLUMN IF NOT EXISTS airport_code TEXT;
+                    CREATE UNIQUE INDEX IF NOT EXISTS ix_poi_airport_code ON tbl_poi(airport_code) WHERE airport_code IS NOT NULL;
 
                     -- Önemli Ankara POI noktalarına varsayılan yüksek çözünürlüklü fotoğraflar ata (boş ise)
                     UPDATE tbl_poi SET image_url = 'https://images.unsplash.com/photo-1596422846543-75c6fc197f07?auto=format&fit=crop&w=1000&q=80||https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=1000&q=80' 
@@ -198,39 +200,7 @@ namespace GeoraphMap.Infrastructure
                     ALTER TABLE tbl_stop ADD COLUMN IF NOT EXISTS stop_code VARCHAR(100);
                     ALTER TABLE tbl_stop ADD COLUMN IF NOT EXISTS image_url TEXT;
                     
-                    -- Liman, İskele, Feribot duraklarının sınıflarını 'gemi' yap
-                    UPDATE tbl_stop SET stop_class = 'gemi' 
-                    WHERE name ILIKE '%Liman%' 
-                       OR name ILIKE '%İskele%' 
-                       OR name ILIKE '%İskelesi%' 
-                       OR name ILIKE '%Feribot%' 
-                       OR name ILIKE '%Ro-Ro%' 
-                       OR name ILIKE '%Port%'
-                       OR route_id IN (SELECT id FROM tbl_route WHERE route_class = 'gemi');
-
-                    -- Metro duraklarını 'metro' sınıfı yap (Sadece gerçek metro hatlarına bağlı olanlar)
-                    UPDATE tbl_stop SET stop_class = 'metro' 
-                    WHERE route_id IN (SELECT id FROM tbl_route WHERE route_class = 'metro' AND NOT is_deleted)
-                       OR id IN (SELECT rs.stop_id FROM tbl_route_stop rs JOIN tbl_route r ON r.id = rs.route_id WHERE r.route_class = 'metro' AND NOT r.is_deleted);
-
-                    -- Tren duraklarını 'tren' sınıfı yap (Sadece gerçek tren hatlarına bağlı olanlar)
-                    UPDATE tbl_stop SET stop_class = 'tren' 
-                    WHERE route_id IN (SELECT id FROM tbl_route WHERE route_class = 'tren' AND NOT is_deleted)
-                       OR id IN (SELECT rs.stop_id FROM tbl_route_stop rs JOIN tbl_route r ON r.id = rs.route_id WHERE r.route_class = 'tren' AND NOT r.is_deleted);
-
-                    -- Metro ve tren hatlarına bağlı OLMAYAN bütün duraklar kesinlikle 'otobus' durağı yapılır
-                    UPDATE tbl_stop SET stop_class = 'otobus'
-                    WHERE stop_class IN ('metro', 'tren')
-                      AND (route_id IS NULL OR route_id NOT IN (SELECT id FROM tbl_route WHERE route_class IN ('metro', 'tren') AND NOT is_deleted))
-                      AND id NOT IN (SELECT rs.stop_id FROM tbl_route_stop rs JOIN tbl_route r ON r.id = rs.route_id WHERE r.route_class IN ('metro', 'tren') AND NOT r.is_deleted);
-
-                    -- Metro ve tren duraklarına bağlı olan otobüs hatlarını tamamen temizle
-                    DELETE FROM tbl_route_stop rs
-                    USING tbl_stop s, tbl_route r
-                    WHERE rs.stop_id = s.id
-                      AND rs.route_id = r.id
-                      AND s.stop_class IN ('metro', 'tren')
-                      AND r.route_class = 'otobus';
+                    -- Existing stop types and links are user data; startup must not infer or delete them.
 
                     CREATE TABLE IF NOT EXISTS tbl_route_stop (
                         id SERIAL PRIMARY KEY,
@@ -770,16 +740,8 @@ namespace GeoraphMap.Infrastructure
                     }
                 }
 
-                // 4. Veritabanındaki adı 'Liman' veya 'İskele' içeren tüm durakların StopClass'ını 'gemi' yap
-                var allPortStops = await context.Stops
-                    .Where(s => s.Name.Contains("Liman") || s.Name.Contains("İskele") || s.Name.Contains("Feribot") || s.Name.Contains("Port"))
-                    .ToListAsync();
-
-                foreach (var ps in allPortStops)
-                {
-                    ps.StopClass = "gemi";
-                }
-
+                // Classify only the explicitly seeded ports above. Substrings such as
+                // 'Portakal' and 'Havalimanı' must never change an existing stop's type.
                 await context.SaveChangesAsync();
                 Console.WriteLine("[DbSeeder] Tüm Türkiye limanları 'gemi' sınıfı ile başarıyla güncellendi.");
             }

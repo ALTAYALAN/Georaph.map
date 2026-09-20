@@ -65,7 +65,9 @@ namespace GeoraphMap.Infrastructure.Services
         public static string NormalizeClass(string? classKey)
         {
             if (string.IsNullOrWhiteSpace(classKey)) return "otobus";
-            var key = classKey.ToLowerInvariant().Trim();
+            var key = classKey.ToLowerInvariant().Trim().Replace('ü', 'u').Replace('ı', 'i').Replace('ğ', 'g').Replace('ş', 's').Replace('ö', 'o').Replace('ç', 'c');
+            if (key == "havayolu" || key == "ucak" || key == "havalimani" || key == "airport" || key == "plane") return "havayolu";
+            if (key == "liman" || key == "iskele" || key == "marina" || key == "ferry" || key == "seaport") return "deniz";
             if (key == "gemi" || key == "deniz" || key == "vapur" || key == "feribot" || key == "ship" || key == "port") return "deniz";
             if (key == "metro" || key == "subway") return "metro";
             if (key == "tramvay" || key == "tram" || key == "nostaljik") return "tramvay";
@@ -78,6 +80,13 @@ namespace GeoraphMap.Infrastructure.Services
         public static bool AreClassesCompatible(string? class1, string? class2)
         {
             return NormalizeClass(class1) == NormalizeClass(class2);
+        }
+
+        private static bool CanConvertLinkedStopToBus(StopFeature stop, bool allowUnlinked = false)
+        {
+            var routes = stop.RouteStops.Where(j => j.Route != null && !j.Route.IsDeleted).Select(j => j.Route!)
+                .Concat(stop.Route is { IsDeleted: false } ? new[] { stop.Route } : Array.Empty<RouteFeature>()).ToList();
+            return (allowUnlinked || routes.Count > 0) && routes.All(r => AreClassesCompatible(r.RouteClass, "otobus"));
         }
 
         private static string GenerateStopCode(string stopClass, int? id = null)
@@ -259,7 +268,13 @@ namespace GeoraphMap.Infrastructure.Services
                 route.Color = dto.Color.Trim();
 
             if (!string.IsNullOrWhiteSpace(dto.RouteClass))
-                route.RouteClass = NormalizeClass(dto.RouteClass);
+            {
+                var nextClass = NormalizeClass(dto.RouteClass);
+                var attachedStops = route.Stops.Concat(route.RouteStops.Where(rs => rs.Stop != null).Select(rs => rs.Stop!));
+                if (attachedStops.Any(s => !s.IsDeleted && !AreClassesCompatible(s.StopClass, nextClass)))
+                    throw new ArgumentException("Hat türü bağlı duraklarla uyumsuz. Önce durak bağlantılarını düzenleyin.");
+                route.RouteClass = nextClass;
+            }
 
             if (dto.Description != null)
                 route.Description = dto.Description.Trim();
@@ -483,6 +498,7 @@ namespace GeoraphMap.Infrastructure.Services
         public async Task<StopDto> CreateStopAsync(CreateStopDto dto)
         {
             await EnsureStopSchemaAsync();
+            await using var transaction = _context.Database.CurrentTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
 
             string finalClass = NormalizeClass(dto.StopClass);
 
@@ -499,6 +515,8 @@ namespace GeoraphMap.Infrastructure.Services
                 .Where(r => AreClassesCompatible(r.RouteClass, finalClass))
                 .Select(r => r.Id)
                 .ToList();
+            if (compatibleRouteIds.Count != rawRouteIds.Count)
+                throw new ArgumentException("Durak yalnızca aynı ulaşım türündeki mevcut hatlara bağlanabilir.");
 
             int? primaryRouteId = compatibleRouteIds.FirstOrDefault() > 0 ? compatibleRouteIds.First() : (int?)null;
             int nextOrder = 1;
@@ -553,11 +571,13 @@ namespace GeoraphMap.Infrastructure.Services
             // Sync RouteStop Junction Entries (1-to-N relationships within same class)
             foreach (var rId in compatibleRouteIds)
             {
+                var routeOrder = rId == primaryRouteId ? finalOrder :
+                    (await _context.RouteStops.Where(rs => rs.RouteId == rId).MaxAsync(rs => (int?)rs.OrderIndex) ?? 0) + 1;
                 _context.RouteStops.Add(new RouteStopFeature
                 {
                     RouteId = rId,
                     StopId = stop.Id,
-                    OrderIndex = finalOrder,
+                    OrderIndex = routeOrder,
                     CreatedDate = DateTime.UtcNow
                 });
             }
@@ -570,12 +590,14 @@ namespace GeoraphMap.Infrastructure.Services
                 }
             }
 
+            if (transaction != null) await transaction.CommitAsync();
             return MapToStopDto(stop);
         }
 
         public async Task<StopDto?> UpdateStopAsync(int id, UpdateStopDto dto)
         {
             await EnsureStopSchemaAsync();
+            await using var transaction = _context.Database.CurrentTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
 
             var stop = await _context.Stops
                 .Include(s => s.Route)
@@ -584,6 +606,25 @@ namespace GeoraphMap.Infrastructure.Services
                 .FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted);
 
             if (stop == null) return null;
+
+            var nextStopClass = NormalizeClass(dto.StopClass ?? stop.StopClass);
+            var requestedIds = dto.RouteIds ?? (dto.RouteId.HasValue ? new List<int> { dto.RouteId.Value } : null);
+            var idsToValidate = requestedIds ?? stop.RouteStops.Where(rs => rs.Route != null && !rs.Route.IsDeleted).Select(rs => rs.RouteId)
+                .Concat(stop.Route is { IsDeleted: false } ? new[] { stop.Route.Id } : Array.Empty<int>()).Distinct().ToList();
+            var requestedRoutes = await _context.Routes.Where(r => idsToValidate.Contains(r.Id) && !r.IsDeleted).ToListAsync();
+            if (idsToValidate.Any(r => r <= 0) || requestedRoutes.Count != idsToValidate.Distinct().Count()
+                || requestedRoutes.Any(r => !AreClassesCompatible(r.RouteClass, nextStopClass)))
+                throw new ArgumentException("Durak türü bağlı hatlarla uyumsuz. Farklı ulaşım türleri aynı durağı paylaşamaz.");
+
+            Point? nextPoint = null;
+            var oldPoint = stop.Geometry == null ? null : (Point)stop.Geometry.Copy();
+            if (!string.IsNullOrWhiteSpace(dto.Wkt))
+            {
+                try { nextPoint = _wktReader.Read(dto.Wkt) as Point; } catch { }
+                if (nextPoint == null || nextPoint.IsEmpty || !double.IsFinite(nextPoint.X) || !double.IsFinite(nextPoint.Y)
+                    || Math.Abs(nextPoint.X) > 180 || Math.Abs(nextPoint.Y) > 90)
+                    throw new ArgumentException("Durak konumu geçerli bir WGS84 POINT olmalıdır.");
+            }
 
             if (!string.IsNullOrWhiteSpace(dto.Name))
                 stop.Name = dto.Name.Trim();
@@ -626,9 +667,9 @@ namespace GeoraphMap.Infrastructure.Services
             var currentClass = stop.StopClass;
             List<int>? targetRouteIds = null;
 
-            if (dto.RouteIds != null)
+            if (requestedIds != null)
             {
-                targetRouteIds = dto.RouteIds.Where(r => r > 0).Distinct().ToList();
+                targetRouteIds = requestedIds.Distinct().ToList();
             }
 
             if (targetRouteIds != null)
@@ -702,17 +743,33 @@ namespace GeoraphMap.Infrastructure.Services
 
                 foreach (var rId in affectedRouteIds)
                 {
-                    try
+                    var linkedRoute = await _context.Routes.FindAsync(rId);
+                    if (linkedRoute != null && linkedRoute.GeometryType == "Custom" && oldPoint != null && nextPoint != null
+                        && linkedRoute.Geometry is LineString line && line.NumPoints >= 2)
                     {
-                        await GenerateOsrmRouteAsync(rId);
+                        // Preserve the hand-drawn shape; move only the closest stop anchor.
+                        var coords = line.Coordinates.Select(c => c.Copy()).ToList();
+                        var nearest = Enumerable.Range(0, coords.Count).MinBy(i => coords[i].Distance(oldPoint.Coordinate));
+                        if (coords[nearest].Distance(oldPoint.Coordinate) < 0.00002)
+                            coords[nearest] = nextPoint.Coordinate.Copy();
+                        else
+                        {
+                            var segment = Enumerable.Range(0, coords.Count - 1)
+                                .MinBy(i => new LineSegment(coords[i], coords[i + 1]).Distance(oldPoint.Coordinate));
+                            coords.Insert(segment + 1, nextPoint.Coordinate.Copy());
+                        }
+                        linkedRoute.PreviousWkt = linkedRoute.Wkt;
+                        linkedRoute.Geometry = new LineString(coords.ToArray()) { SRID = 4326 };
+                        linkedRoute.Wkt = linkedRoute.Geometry.AsText();
+                        linkedRoute.CustomWkt = linkedRoute.Wkt;
+                        linkedRoute.ModifiedDate = DateTime.UtcNow;
+                        await _context.SaveChangesAsync();
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[TransportService] Error auto-updating route {rId} geometry after stop {id} move: {ex.Message}");
-                    }
+                    else await GenerateOsrmRouteAsync(rId);
                 }
             }
 
+            if (transaction != null) await transaction.CommitAsync();
             return MapToStopDto(stop);
         }
 
@@ -750,6 +807,11 @@ namespace GeoraphMap.Infrastructure.Services
                 .ToListAsync();
 
             if (!stops.Any() && !routeStops.Any()) return false;
+            var route = await _context.Routes.FirstOrDefaultAsync(r => r.Id == routeId && !r.IsDeleted);
+            if (route == null || orderedStopIds.Count != orderedStopIds.Distinct().Count()
+                || !stops.Select(s => s.Id).ToHashSet().SetEquals(orderedStopIds)
+                || stops.Any(s => !AreClassesCompatible(s.StopClass, route.RouteClass)))
+                throw new ArgumentException("Sıralama yalnızca bu hatta bağlı, aynı türdeki tüm durakları birer kez içermelidir.");
 
             for (int i = 0; i < orderedStopIds.Count; i++)
             {
@@ -851,7 +913,10 @@ namespace GeoraphMap.Infrastructure.Services
             if (rClass == "metro" || rClass == "deniz" || rClass == "tren" || rClass == "tramvay" || rClass == "metrobus" || rClass == "havayolu")
             {
                 // Kuş uçuşu sert kırılmalar yerine raylı sistemler için organik kıvrımlı (Catmull-Rom Spline) geometri üret
-                var curvedPoints = GenerateSmoothSpline(coordsList, segmentsPerSpan: 6);
+                // Transit lines use explicit vertices, never inferred curved tracks.
+                if (route.GeometryType == "Custom" && !string.IsNullOrWhiteSpace(route.CustomWkt))
+                    return MapToRouteDto(route);
+                var curvedPoints = coordsList;
                 var splineCoords = curvedPoints.Select(c => $"{c.Longitude.ToString("F6", CultureInfo.InvariantCulture)} {c.Latitude.ToString("F6", CultureInfo.InvariantCulture)}");
                 var splineWkt = $"LINESTRING({string.Join(", ", splineCoords)})";
 
@@ -1278,7 +1343,7 @@ namespace GeoraphMap.Infrastructure.Services
                     (stop.Route != null && !stop.Route.IsDeleted && NormalizeClass(stop.Route.RouteClass) == "metro") ||
                     (stop.RouteStops != null && stop.RouteStops.Any(rs => rs.Route != null && !rs.Route.IsDeleted && NormalizeClass(rs.Route.RouteClass) == "metro"));
 
-                if (!isConnectedToMetro)
+                if (!isConnectedToMetro && CanConvertLinkedStopToBus(stop))
                 {
                     stop.StopClass = "otobus";
                     stop.ModifiedDate = DateTime.UtcNow;
@@ -1290,7 +1355,7 @@ namespace GeoraphMap.Infrastructure.Services
             var busJunctionsOnMetro = await _context.RouteStops
                 .Include(rs => rs.Stop)
                 .Include(rs => rs.Route)
-                .Where(rs => rs.Stop != null && rs.Stop.StopClass == "metro" && rs.Route != null && NormalizeClass(rs.Route.RouteClass) == "otobus")
+                .Where(rs => rs.Stop != null && rs.Stop.StopClass == "metro" && rs.Route != null && (rs.Route.RouteClass == "otobus" || rs.Route.RouteClass == "bus" || rs.Route.RouteClass == "araba"))
                 .ToListAsync();
 
             if (busJunctionsOnMetro.Any())
@@ -1320,7 +1385,7 @@ namespace GeoraphMap.Infrastructure.Services
                     (stop.Route != null && !stop.Route.IsDeleted && NormalizeClass(stop.Route.RouteClass) == "tren") ||
                     (stop.RouteStops != null && stop.RouteStops.Any(rs => rs.Route != null && !rs.Route.IsDeleted && NormalizeClass(rs.Route.RouteClass) == "tren"));
 
-                if (!isConnectedToTren)
+                if (!isConnectedToTren && CanConvertLinkedStopToBus(stop))
                 {
                     stop.StopClass = "otobus";
                     stop.ModifiedDate = DateTime.UtcNow;
@@ -1332,7 +1397,7 @@ namespace GeoraphMap.Infrastructure.Services
             var busJunctionsOnTren = await _context.RouteStops
                 .Include(rs => rs.Stop)
                 .Include(rs => rs.Route)
-                .Where(rs => rs.Stop != null && rs.Stop.StopClass == "tren" && rs.Route != null && NormalizeClass(rs.Route.RouteClass) == "otobus")
+                .Where(rs => rs.Stop != null && rs.Stop.StopClass == "tren" && rs.Route != null && (rs.Route.RouteClass == "otobus" || rs.Route.RouteClass == "bus" || rs.Route.RouteClass == "araba"))
                 .ToListAsync();
 
             if (busJunctionsOnTren.Any())
@@ -1350,12 +1415,14 @@ namespace GeoraphMap.Infrastructure.Services
             if (codesOrIds == null || codesOrIds.Count == 0) return 0;
             var set = codesOrIds.Select(c => c.Trim()).Where(c => !string.IsNullOrEmpty(c)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            var allStops = await _context.Stops.Where(s => !s.IsDeleted).ToListAsync();
+            var allStops = await _context.Stops.Include(s => s.Route).Include(s => s.RouteStops).ThenInclude(j => j.Route).Where(s => !s.IsDeleted).ToListAsync();
             int converted = 0;
             foreach (var s in allStops)
             {
                 if (set.Contains(s.Id.ToString()) || (!string.IsNullOrEmpty(s.StopCode) && set.Contains(s.StopCode.Trim())))
                 {
+                    if (!CanConvertLinkedStopToBus(s, allowUnlinked: true))
+                        throw new ArgumentException("Bağlı hatları başka türde olan durak otobüs durağına dönüştürülemez.");
                     if (s.StopClass != "otobus")
                     {
                         s.StopClass = "otobus";
@@ -1421,6 +1488,9 @@ namespace GeoraphMap.Infrastructure.Services
                 var stopExists = await _context.Stops.AnyAsync(s => s.Id == sId && !s.IsDeleted);
                 var routeExists = await _context.Routes.AnyAsync(r => r.Id == rId && !r.IsDeleted);
                 if (!stopExists || !routeExists) continue;
+                var junctionStop = await _context.Stops.FindAsync(sId);
+                var junctionRoute = await _context.Routes.FindAsync(rId);
+                if (!AreClassesCompatible(junctionStop!.StopClass, junctionRoute!.RouteClass)) continue;
 
                 var existingJunction = await _context.RouteStops
                     .FirstOrDefaultAsync(rs => rs.RouteId == rId && rs.StopId == sId);
@@ -1635,6 +1705,7 @@ namespace GeoraphMap.Infrastructure.Services
             {
                 foreach (var rs in effectiveJunctions)
                 {
+                    if (rs.Route == null || rs.Route.IsDeleted) continue;
                     if (!routeIdList.Contains(rs.RouteId))
                     {
                         routeIdList.Add(rs.RouteId);

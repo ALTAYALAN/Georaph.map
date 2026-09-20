@@ -1,6 +1,8 @@
 // GeoraphMap POI Kapsamlı Vektörel İkon Kütüphanesi
 // Tüm harita ve kategori tiplerine uygun zengin SVG simgeleri (Modern & Minimalist)
 
+import { refinePoiGlyph } from './poiGlyphs';
+
 export const POI_ICON_LIST = [
     // 1. Alışveriş & Ticaret (Shopping & Retail)
     { id: 'shopping-bag', label: 'Alışveriş / AVM / Mağaza', group: 'Alışveriş', glyph: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 6h18" stroke="currentColor" stroke-width="1.8"/><path d="M16 10a4 4 0 0 1-8 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' },
@@ -80,11 +82,19 @@ export const POI_ICON_LIST = [
     { id: 'crescent', label: 'Cami / Mescit / İbadethane', group: 'Dini Tesisler', glyph: '<path d="M18 12a6 6 0 1 1-6-6 4.5 4.5 0 0 0 6 6z" stroke="currentColor" stroke-width="1.8" fill="currentColor"/><circle cx="16.5" cy="7.5" r="1.2" fill="currentColor"/><path d="M4 21h16" stroke="currentColor" stroke-width="1.8"/>' },
     { id: 'church', label: 'Kilise / Şapel', group: 'Dini Tesisler', glyph: '<path d="M12 2v6M9 5h6M4 21V11l8-4 8 4v10H4z" stroke="currentColor" stroke-width="1.8"/><path d="M10 21v-4h4v4" stroke="currentColor" stroke-width="1.8"/>' },
     { id: 'wifi', label: 'Wi-Fi / İnternet Noktası', group: 'Hizmetler', glyph: '<path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' },
-    { id: 'map-pin', label: 'Genel İlgi Noktası', group: 'Diğer', glyph: '<circle cx="12" cy="12" r="6" stroke="currentColor" stroke-width="2" fill="rgba(255,255,255,0.3)"/><circle cx="12" cy="12" r="2" fill="currentColor"/>' }
-];
+    { id: 'map-pin', label: 'Genel İlgi Noktası', group: 'Diğer', glyph: '<circle cx="12" cy="12" r="6" stroke="currentColor" stroke-width="2" fill="rgba(255,255,255,0.3)"/><circle cx="12" cy="12" r="2" fill="currentColor"/>' },
+    { id: 'metro', label: 'Metro / Yeraltı İstasyonu', group: 'Ulaşım', glyph: '' },
+    { id: 'city-landmark', label: 'Şehir Simgesi / Kent Simgesi', group: 'Eğitim & Kültür', glyph: '' },
+    { id: 'military-area', label: 'Askeri Alan / Askeri Tesis', group: 'Hizmetler', glyph: '' },
+    { id: 'tram', label: 'Tramvay / Hafif Raylı Sistem', group: 'Ulaşım', glyph: '' },
+    { id: 'ship', label: 'Vapur / Feribot İskelesi', group: 'Ulaşım', glyph: '' },
+].map(item => ({ ...item, glyph: refinePoiGlyph(item.id, item.glyph) }));
 
 // Standart POI Filtreleme Kategorileri Listesi (SaaS & GIS Tasarımlı)
 export const POI_FILTER_CATEGORIES = [
+    { key: 'sehir_simgesi', label: 'Şehir Simgesi', labelEn: 'City Landmark', iconId: 'city-landmark', color: '#7c3aed', matchKeywords: ['şehir simgesi', 'kent simgesi'] },
+    { key: 'askeri', label: 'Askeri Alan', labelEn: 'Military Area', iconId: 'military-area', color: '#4d7c0f', matchKeywords: ['askeri', 'askerî', 'kışla'] },
+    { key: 'standart', label: 'Standart POI', labelEn: 'General POI', iconId: 'map-pin', color: '#2563eb', matchKeywords: ['standart poi', 'genel poi', 'genel ilgi noktası'] },
     { key: 'alisveris', label: 'Alışveriş & Mağaza', labelEn: 'Shopping & Stores', iconId: 'shopping-bag', color: '#0284c7', matchKeywords: ['alışveriş', 'alisveris', 'avm', 'mağaza', 'magaza', 'butik', 'çarşı', 'carsi', 'pazar', 'giyim', 'ayakkabı', 'kuyumcu', 'avm\'si'] },
     { key: 'market', label: 'Market & Gıda', labelEn: 'Supermarket & Food', iconId: 'cart', color: '#0ea5e9', matchKeywords: ['market', 'bakkal', 'süpermarket', 'supermarket', 'hipermarket', 'şarküteri', 'manav', 'kasap', 'fırın'] },
     { key: 'hastane', label: 'Sağlık & Hastane', labelEn: 'Healthcare & Hospital', iconId: 'hospital', color: '#ef4444', matchKeywords: ['sağlık', 'saglik', 'hastane', 'klinik', 'doktor', 'tıp', 'poliklinik', 'sağlık ocağı'] },
@@ -182,6 +192,16 @@ export function getLocalizedPoiCategoryLabel(catOrName, lang = 'tr') {
 // İsim veya İkon ID'sine göre glyph bulan yardımcı
 export function getGlyphByIconId(iconIdOrName = '') {
     const cleanId = (iconIdOrName || '').toLowerCase().replace('fa-', '').trim();
+    // Explicit saved icon choices take precedence over category-name heuristics.
+    const exactIcon = POI_ICON_LIST.find(item => item.id === cleanId);
+    if (exactIcon) return exactIcon.glyph;
+    const transitName = cleanId.toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ı/g, 'i');
+    const transitMatch = /tramvay|tram/.test(transitName) ? 'tram'
+        : /metrobus|otobus|bus/.test(transitName) ? 'bus'
+        : /metro|subway/.test(transitName) ? 'metro'
+        : /tren|railway|train/.test(transitName) ? 'train'
+        : /feribot|vapur|iskele|ferry|ship/.test(transitName) ? 'ship' : null;
+    if (transitMatch) return POI_ICON_LIST.find(item => item.id === transitMatch).glyph;
 
     // Özel kategori eşleşmeleri
     if (cleanId.includes('alışveriş') || cleanId.includes('alisveris') || cleanId.includes('shopping') || cleanId.includes('avm') || cleanId.includes('mağaza') || cleanId.includes('magaza') || cleanId.includes('butik') || cleanId.includes('bag')) {
@@ -296,11 +316,11 @@ export function getGlyphByIconId(iconIdOrName = '') {
         const item = POI_ICON_LIST.find(i => i.id === 'snowflake');
         if (item) return item.glyph;
     }
-    if (cleanId.includes('havalimanı') || cleanId.includes('havaalanı') || cleanId.includes('uçak') || cleanId.includes('plane') || cleanId.includes('airport')) {
+    if (cleanId.includes('havaliman') || cleanId.includes('hava liman') || cleanId.includes('havaalan') || cleanId.includes('uçak') || cleanId.includes('plane') || cleanId.includes('airport')) {
         const item = POI_ICON_LIST.find(i => i.id === 'plane');
         if (item) return item.glyph;
     }
-    if (cleanId.includes('marina') || cleanId.includes('liman') || cleanId.includes('iskele') || cleanId.includes('anchor') || cleanId.includes('port')) {
+    if (/(^|[\s_-])(marina|liman[ıi]?|iskele[si]*|anchor|port)([\s_-]|$)/u.test(cleanId)) {
         const item = POI_ICON_LIST.find(i => i.id === 'anchor');
         if (item) return item.glyph;
     }
@@ -326,18 +346,29 @@ export function getGlyphByIconId(iconIdOrName = '') {
     }
     
     // Default fallback
-    return POI_ICON_LIST[POI_ICON_LIST.length - 1].glyph;
+    return POI_ICON_LIST.find(item => item.id === 'map-pin').glyph;
 }
 
 // Harita OpenLayers için tam SVG rozet üreten fonksiyon (Modern & Zarif)
 export function getPoiCategoryBadgeSvg(catName = '', catIcon = '', color = '#3b82f6') {
     const glyph = getGlyphByIconId(catIcon || catName);
-    const safeColor = color || '#3b82f6';
+    const safeColor = /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(color || '') ? color : '#2563eb';
+    const hex = safeColor.slice(1);
+    const expanded = hex.length === 3 ? [...hex].map(channel => channel + channel).join('') : hex;
+    // Solid category colors; choose contrasting ink for bright yellow or pale colors.
+    const channels = expanded.match(/../g).map(channel => {
+        const value = parseInt(channel, 16) / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    const inkColor = luminance > 0.3 ? '#10213a' : '#ffffff';
 
     return `<svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="17" cy="17" r="15" fill="${safeColor}" stroke="#ffffff" stroke-width="2"/>
-      <circle cx="17" cy="17" r="13.5" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.8"/>
-      <g transform="translate(5, 5)" color="#ffffff">
+      <rect x="2" y="3" width="30" height="30" rx="10" fill="#0d1626" fill-opacity="0.18"/>
+      <rect x="2" y="2" width="30" height="30" rx="10" fill="#ffffff" stroke="#ffffff" stroke-width="2"/>
+      <rect x="3" y="3" width="28" height="28" rx="9" fill="${safeColor}"/>
+      <rect x="4" y="4" width="26" height="26" rx="8" stroke="#ffffff" stroke-opacity="0.25"/>
+      <g transform="translate(7, 7) scale(0.833333)" color="${inkColor}">
         ${glyph}
       </g>
     </svg>`;
@@ -345,40 +376,18 @@ export function getPoiCategoryBadgeSvg(catName = '', catIcon = '', color = '#3b8
 
 // Akıllı Ulaşım Durakları için Vektörel Rozet SVG Üretici
 export function getTransitStopBadgeSvg(stopClass = 'otobus', color = '#0284c7') {
-    const sc = (stopClass || '').toLowerCase().trim();
-    const isAirport = sc === 'havayolu' || sc === 'havalimani' || sc === 'airport' || sc === 'ucak';
-    const isGemi = sc === 'gemi' || sc === 'liman' || sc === 'deniz' || sc === 'vapur';
-    const isMetro = sc === 'metro' || sc === 'tramvay' || sc === 'metrobus';
-    const isTren = sc === 'tren' || sc === 'train';
-    
-    let glyph = '';
-    let safeColor = color;
-    if (isAirport) {
-        glyph = '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill="#ffffff" stroke="#ffffff" stroke-width="1" stroke-linejoin="round"/>';
-        safeColor = color || '#0284c7';
-    } else if (isGemi) {
-        glyph = '<circle cx="12" cy="5" r="3" stroke="#ffffff" stroke-width="2"/><line x1="12" y1="8" x2="12" y2="21" stroke="#ffffff" stroke-width="2"/><path d="M5 12H2a10 10 0 0 0 20 0h-3" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>';
-        safeColor = color || '#0891b2';
-    } else if (isMetro) {
-        glyph = '<rect x="5" y="4" width="14" height="14" rx="2" stroke="#ffffff" stroke-width="2"/><path d="M5 11h14" stroke="#ffffff" stroke-width="2"/><line x1="12" y1="4" x2="12" y2="11" stroke="#ffffff" stroke-width="1.8"/><circle cx="8" cy="15" r="1.3" fill="#ffffff"/><circle cx="16" cy="15" r="1.3" fill="#ffffff"/><path d="m8 18-3 2.5M16 18l3 2.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>';
-        safeColor = color || '#ef4444';
-    } else if (isTren) {
-        glyph = '<rect x="5" y="4" width="14" height="14" rx="2" stroke="#ffffff" stroke-width="2"/><path d="M5 11h14" stroke="#ffffff" stroke-width="2"/><circle cx="8" cy="15" r="1.3" fill="#ffffff"/><circle cx="16" cy="15" r="1.3" fill="#ffffff"/><path d="m8 18-3 2.5M16 18l3 2.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>';
-        safeColor = color || '#f59e0b';
-    } else {
-        glyph = '<rect x="4" y="4" width="16" height="13" rx="2" stroke="#ffffff" stroke-width="2"/><path d="M4 9h16" stroke="#ffffff" stroke-width="2"/><circle cx="7.5" cy="14" r="1.4" fill="#ffffff"/><circle cx="16.5" cy="14" r="1.4" fill="#ffffff"/><path d="M6 17v2.5M18 17v2.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>';
-        safeColor = color || '#0284c7';
-    }
-
-    return `<svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="17" cy="17" r="15" fill="${safeColor}" stroke="#ffffff" stroke-width="2.2"/>
-      <circle cx="17" cy="17" r="13.5" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.8"/>
-      <g transform="translate(5, 5)" color="#ffffff">
-        ${glyph}
-      </g>
-    </svg>`;
+    const key = String(stopClass || '').toLocaleLowerCase('tr-TR').normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '').replace(/ı/g, 'i').trim();
+    const icons = {
+        havayolu: 'plane', havalimani: 'plane', havaalani: 'plane', airport: 'plane', ucak: 'plane', plane: 'plane',
+        liman: 'anchor', marina: 'anchor', port: 'anchor', seaport: 'anchor', anchor: 'anchor',
+        gemi: 'ship', deniz: 'ship', vapur: 'ship', feribot: 'ship', ferry: 'ship', ship: 'ship', iskele: 'ship',
+        metro: 'metro', subway: 'metro', tramvay: 'tram', tram: 'tram',
+        tren: 'train', train: 'train', railway: 'train',
+        otobus: 'bus', bus: 'bus', metrobus: 'bus'
+    };
+    return getPoiCategoryBadgeSvg('', icons[key] || 'bus', color);
 }
-
 // Veritabanındaki Dinamik Kategoriler ile Standart Kategorileri Birleştiren Fonksiyon
 export function getMergedPoiCategories(dynamicDbCategories = []) {
     const list = [...POI_FILTER_CATEGORIES];
@@ -418,31 +427,7 @@ export function getMergedPoiCategories(dynamicDbCategories = []) {
     return list;
 }
 
-// Kategorilere göre renkli gösterge noktası (Unicode Disc) döndüren yardımcı fonksiyon
-export function getCategoryBullet(categoryName = '', color = '') {
-    if (color) {
-        const c = String(color).toLowerCase();
-        if (c.includes('ef4444') || c.includes('dc2626') || c.includes('e11d48') || c.includes('red')) return '🔴';
-        if (c.includes('3b82f6') || c.includes('2563eb') || c.includes('1d4ed8') || c.includes('blue')) return '🔵';
-        if (c.includes('10b981') || c.includes('16a34a') || c.includes('22c55e') || c.includes('green')) return '🟢';
-        if (c.includes('f59e0b') || c.includes('eab308') || c.includes('yellow') || c.includes('amber')) return '🟡';
-        if (c.includes('8b5cf6') || c.includes('a855f7') || c.includes('7c3aed') || c.includes('purple')) return '🟣';
-        if (c.includes('f97316') || c.includes('ea580c') || c.includes('orange')) return '🟠';
-        if (c.includes('06b6d4') || c.includes('0ea5e9') || c.includes('cyan')) return '🔷';
-        if (c.includes('ec4899') || c.includes('d946ef') || c.includes('pink')) return '🌸';
-    }
-
-    const name = String(categoryName || '').toLowerCase();
-    if (name.includes('kültür') || name.includes('turizm') || name.includes('müze') || name.includes('tarih') || name.includes('anıt')) return '🟡';
-    if (name.includes('kamu') || name.includes('hizmet') || name.includes('belediye') || name.includes('kaymakamlık') || name.includes('valilik') || name.includes('bakanlık') || name.includes('muhtarlık') || name.includes('postane') || name.includes('kargo') || name.includes('konsolosluk') || name.includes('adliye')) return '🔵';
-    if (name.includes('park') || name.includes('doğa') || name.includes('bahçe') || name.includes('orman') || name.includes('botanik')) return '🟢';
-    if (name.includes('sağlık') || name.includes('hastane') || name.includes('eczane') || name.includes('klinik') || name.includes('doktor') || name.includes('tıp')) return '🔴';
-    if (name.includes('eğitim') || name.includes('okul') || name.includes('üniversite') || name.includes('lise') || name.includes('kütüphane') || name.includes('fakülte')) return '🟣';
-    if (name.includes('ulaşım') || name.includes('otobüs') || name.includes('metro') || name.includes('havalimanı') || name.includes('iskele') || name.includes('marina') || name.includes('akaryakıt') || name.includes('şarj')) return '🔷';
-    if (name.includes('alışveriş') || name.includes('ticaret') || name.includes('avm') || name.includes('market') || name.includes('mağaza') || name.includes('çarşı')) return '🟠';
-    if (name.includes('yeme') || name.includes('içme') || name.includes('restoran') || name.includes('kafe') || name.includes('fırın') || name.includes('tatlı')) return '🟠';
-    if (name.includes('din') || name.includes('cami') || name.includes('kilise') || name.includes('mescit') || name.includes('şapel')) return '🟤';
-    if (name.includes('spor') || name.includes('saha') || name.includes('stadyum') || name.includes('fitness')) return '🟢';
-
-    return '⚪';
+// Native select options use a monochrome marker; category colors remain on map badges.
+export function getCategoryBullet() {
+    return '●';
 }

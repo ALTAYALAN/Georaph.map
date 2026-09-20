@@ -8857,4 +8857,176 @@ button,
 .stop-route-interactive-btn:active {
     transform: translateY(0) scale(0.98);
 }
-
+
+/* Viewport and overflow corrections shared by the application shells. */
+.login-wrapper,
+.map-container {
+    width: 100%;
+    height: 100dvh;
+}
+
+.login-sidebar,
+.login-map-backdrop {
+    height: 100%;
+}
+
+.login-sidebar,
+.map-sidebar-top,
+.admin-main-wrapper,
+.admin-content {
+    min-height: 0;
+}
+
+.login-sidebar > * {
+    flex-shrink: 0;
+}
+
+.login-wrapper .error-msg {
+    color: #fecaca;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    border-radius: 8px;
+    padding: 10px 14px;
+    line-height: 1.5;
+    text-align: left;
+}
+
+button:focus-visible,
+a:focus-visible {
+    outline: 3px solid #38bdf8;
+    outline-offset: 3px;
+}
+
+.login-btn:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.admin-layout {
+    width: 100% !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+}
+
+.admin-sidebar,
+.admin-main-wrapper {
+    height: 100% !important;
+}
+
+.admin-content {
+    height: auto !important;
+}
+
+.admin-top-bar-left,
+.admin-top-bar-breadcrumb {
+    min-width: 0;
+}
+
+.breadcrumb-current {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-modal-content {
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+@media (max-width: 768px) {
+    .map-sidebar {
+        right: 48px;
+        max-height: calc(100dvh - 20px);
+        height: min(55dvh, 640px);
+        bottom: auto;
+    }
+
+    .map-sidebar.collapsed {
+        transform: translateX(calc(-100% - 10px));
+    }
+
+    .admin-layout {
+        flex-direction: column;
+    }
+
+    .admin-sidebar {
+        width: 100% !important;
+        height: auto !important;
+        max-height: 45dvh;
+        border-right: 0;
+        border-bottom: 1px solid #475569;
+    }
+
+    .admin-sidebar-header {
+        display: none;
+    }
+
+    .admin-sidebar-nav {
+        display: flex;
+        flex-direction: row;
+        flex: 0 0 auto;
+        gap: 8px;
+        padding: 10px 12px;
+        overflow-x: auto;
+    }
+
+    .admin-sidebar-nav .nav-group-title,
+    .admin-nav-sub {
+        display: none;
+    }
+
+    .admin-nav-item {
+        width: auto;
+        flex-shrink: 0;
+        margin: 0;
+        padding: 10px 12px;
+    }
+
+    .admin-sidebar-footer {
+        padding: 8px 12px;
+    }
+
+    .admin-top-bar {
+        padding: 0 16px;
+    }
+
+    .admin-top-bar-badge,
+    .breadcrumb-root,
+    .breadcrumb-separator {
+        display: none;
+    }
+
+    .admin-content {
+        padding: 16px;
+    }
+
+    .zoom-header,
+    .zoom-actions {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .zoom-section-card {
+        min-width: 0;
+        padding: 16px;
+    }
+
+    .admin-modal-overlay {
+        padding: 12px;
+    }
+
+    .admin-modal-content {
+        padding: 20px;
+        max-height: calc(100dvh - 24px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

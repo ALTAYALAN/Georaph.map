@@ -512,6 +512,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
     const filteredPois = useMemo(() => {
         return (pois || []).filter(p => {
             const matchesSearch = !searchTerm ||
+                p.airportCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 p.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 p.categoryName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -687,7 +688,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                             value={selectedCategoryFilter}
                             onChange={(e) => setSelectedCategoryFilter(e.target.value)}
                         >
-                            <option value="">⚪ {isTr ? 'Tüm Kategoriler' : 'All Categories'} ({categories.length})</option>
+                            <option value="">● {isTr ? 'Tüm Kategoriler' : 'All Categories'} ({categories.length})</option>
                             {hierarchicalCategoryGroups.map(({ root, children }) => {
                                 const bullet = getCategoryBullet(root.name, root.color);
                                 return (
@@ -736,7 +737,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                     ) : (
                                         filteredPois.map(poi => (
                                             <tr key={poi.id}>
-                                                <td>#{poi.id}</td>
+                                                <td>{poi.airportCode || `#${poi.id}`}</td>
                                                 <td>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                         <div
@@ -1743,6 +1744,8 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                     <button
                                                         key={item.id}
                                                         type="button"
+                                                        className="poi-icon-choice"
+                                                        aria-pressed={isSelected}
                                                         onClick={() => setCategoryFormData({ ...categoryFormData, icon: item.id })}
                                                         style={{
                                                             display: 'flex',
@@ -1761,7 +1764,7 @@ export const PoiManagement = ({ token, isDarkMode, lang: propLang }) => {
                                                         title={`${item.label} (${item.group})`}
                                                     >
                                                         <div style={{ color: isSelected ? (categoryFormData.color || '#3b82f6') : (isDarkMode ? '#94a3b8' : '#64748b') }}>
-                                                            <PoiCategoryGlyph iconId={item.id} size={18} color="currentColor" />
+                                                            <PoiCategoryGlyph iconId={item.id} size={24} color="currentColor" />
                                                         </div>
                                                         <span style={{ fontSize: '9.5px', fontWeight: isSelected ? 700 : 500, textAlign: 'center', lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', width: '100%', whiteSpace: 'nowrap' }}>
                                                             {item.label.split('/')[0].trim()}

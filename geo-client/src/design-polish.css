@@ -1,0 +1,364 @@
+/* Shared visual rhythm; loaded after the legacy component styles. */
+.admin-layout .poi-icon-choice {
+    min-height: 72px;
+    border: 1px solid var(--ui-border) !important;
+    border-radius: 10px !important;
+    background: var(--ui-surface) !important;
+    color: var(--ui-muted) !important;
+    gap: 8px !important;
+}
+
+.admin-layout .poi-icon-choice > div {
+    color: inherit !important;
+}
+
+.admin-layout .poi-icon-choice:hover,
+.admin-layout .poi-icon-choice[aria-pressed="true"] {
+    background: var(--ui-selected) !important;
+    border-color: var(--ui-accent) !important;
+    color: var(--ui-accent) !important;
+}
+
+.admin-layout .poi-icon-choice[aria-pressed="true"] {
+    outline: 1px solid var(--ui-accent);
+    outline-offset: -2px;
+}
+
+:root {
+    --ui-radius: 12px;
+    --ui-font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --ui-primary: #2563eb;
+    --ui-primary-hover: #1d4ed8;
+}
+
+/* Semantic colors are scoped so map data keeps its own category palette. */
+.admin-layout, .map-container, .login-wrapper {
+    --ui-canvas: #f3f6fa;
+    --ui-surface: #ffffff;
+    --ui-raised: #f8fafc;
+    --ui-border: #dbe3ee;
+    --ui-text: #172b45;
+    --ui-muted: #52657d;
+    --ui-accent: #1d4ed8;
+    --ui-selected: #eaf1ff;
+    --ui-success: #047857;
+    --ui-success-bg: #ecfdf5;
+    --ui-danger: #b91c1c;
+    --ui-danger-bg: #fff1f2;
+}
+
+.admin-layout.dark-mode, .map-container.dark-theme, .login-wrapper {
+    --ui-canvas: #0d1626;
+    --ui-surface: #142034;
+    --ui-raised: #1b2a40;
+    --ui-border: #33465f;
+    --ui-text: #e8eef7;
+    --ui-muted: #a8b8cc;
+    --ui-accent: #93baff;
+    --ui-selected: #203b61;
+    --ui-success: #6ee7b7;
+    --ui-success-bg: #153b35;
+    --ui-danger: #fda4af;
+    --ui-danger-bg: #422333;
+}
+
+.login-wrapper .login-sidebar {
+    background: var(--ui-canvas);
+    border-color: var(--ui-border);
+}
+
+.login-map-backdrop {
+    background: linear-gradient(135deg, #101c30 0%, #203c65 55%, #2b527f 100%);
+}
+
+.login-wrapper .input-group input {
+    background: var(--ui-surface) !important;
+    border-color: var(--ui-border) !important;
+    color: var(--ui-text) !important;
+    -webkit-text-fill-color: var(--ui-text) !important;
+}
+
+.login-wrapper .input-group input::placeholder {
+    color: var(--ui-muted) !important;
+    -webkit-text-fill-color: var(--ui-muted) !important;
+}
+
+.login-wrapper .input-group input:focus {
+    border-color: var(--ui-accent) !important;
+}
+
+.login-wrapper .brand-subtitle, .login-wrapper .login-footer {
+    color: var(--ui-muted);
+    border-color: var(--ui-border);
+}
+
+.admin-layout .admin-main-wrapper,
+.admin-layout .admin-content,
+.admin-layout .geo-mgmt-container {
+    background: var(--ui-canvas) !important;
+    color: var(--ui-text);
+}
+
+.admin-layout .admin-sidebar,
+.admin-layout .admin-top-bar,
+.admin-layout .admin-table-wrapper,
+.admin-layout .role-card,
+.admin-layout .zoom-header,
+.admin-layout .zoom-section-card,
+.admin-layout .geo-header,
+.admin-layout .admin-modal,
+.admin-layout .admin-modal-content {
+    background: var(--ui-surface) !important;
+    border-color: var(--ui-border) !important;
+    color: var(--ui-text);
+}
+
+.admin-layout .admin-table th,
+.admin-layout .zoom-slider-card {
+    background: var(--ui-raised) !important;
+    border-color: var(--ui-border) !important;
+}
+
+.admin-layout .admin-table td {
+    color: var(--ui-text) !important;
+    border-color: var(--ui-border) !important;
+}
+
+.admin-layout .admin-table tr:hover td,
+.admin-layout .admin-table tr:focus-within td,
+.admin-layout .admin-nav-item.active {
+    background: var(--ui-selected) !important;
+}
+
+.admin-layout .admin-nav-item.active {
+    color: var(--ui-accent) !important;
+    border-color: var(--ui-accent) !important;
+}
+
+.admin-layout .admin-subtext,
+.admin-layout .role-description,
+.admin-layout .admin-nav-sub,
+.admin-layout .zoom-subtitle,
+.admin-layout .zoom-slider-desc,
+.admin-layout .zoom-section-sub,
+.admin-layout .admin-table th {
+    color: var(--ui-muted) !important;
+}
+
+.admin-layout .zoom-title,
+.admin-layout .zoom-section-title,
+.admin-layout .zoom-slider-label {
+    color: var(--ui-text) !important;
+}
+
+.login-btn, .admin-layout .admin-primary-btn, .admin-layout .btn-modern-primary {
+    background: var(--ui-primary);
+    border-color: var(--ui-primary);
+    color: #ffffff;
+}
+
+.login-btn:hover:not(:disabled),
+.admin-layout .admin-primary-btn:hover:not(:disabled),
+.admin-layout .btn-modern-primary:hover:not(:disabled) {
+    background: var(--ui-primary-hover);
+    border-color: var(--ui-primary-hover);
+}
+
+.admin-layout .admin-secondary-btn,
+.admin-layout .btn-modern-secondary {
+    background: var(--ui-raised) !important;
+    color: var(--ui-text) !important;
+    border-color: var(--ui-border) !important;
+}
+
+.admin-layout .admin-alert.success, .admin-layout .status-badge.active {
+    background: var(--ui-success-bg) !important;
+    color: var(--ui-success) !important;
+    border-color: var(--ui-success) !important;
+}
+
+.admin-layout .admin-alert.error,
+.admin-layout .status-badge.inactive,
+.admin-layout .status-badge.deleted {
+    background: var(--ui-danger-bg) !important;
+    color: var(--ui-danger) !important;
+    border-color: var(--ui-danger) !important;
+}
+
+.map-container .map-sidebar, .map-container .map-sidebar-mini {
+    background: var(--ui-surface) !important;
+    border-color: var(--ui-border) !important;
+    color: var(--ui-text);
+}
+
+.map-container .coords-card {
+    background: var(--ui-raised) !important;
+    border-color: var(--ui-border) !important;
+}
+
+.map-container .coords-val {
+    background: var(--ui-selected) !important;
+    color: var(--ui-accent) !important;
+    border-color: var(--ui-border) !important;
+}
+
+.map-container .section-subtitle, .map-container .coords-label {
+    color: var(--ui-muted) !important;
+}
+
+body, button, input, select, textarea {
+    font-family: var(--ui-font);
+}
+
+.login-sidebar {
+    width: 420px;
+    max-width: 440px;
+    padding: clamp(24px, 5vh, 48px) 36px;
+    gap: 20px;
+    background: #101a2d;
+}
+
+.login-card h2 {
+    font-size: 25px;
+    letter-spacing: -0.7px;
+    margin-bottom: 28px;
+}
+
+.login-wrapper .input-label {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+    margin-bottom: 8px;
+}
+
+.login-wrapper .input-group input {
+    font-weight: 400;
+    min-height: 48px;
+}
+
+.login-btn {
+    min-height: 48px;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.login-footer {
+    margin-top: 0;
+    line-height: 1.6;
+    padding-top: 20px;
+    border-top: 1px solid #263449;
+}
+
+.map-sidebar {
+    border-right-width: 1px;
+    border-right-color: #dbe3ee;
+    box-shadow: 8px 0 28px rgba(15, 23, 42, 0.1);
+}
+
+.map-brand-title {
+    font-size: 17px;
+    letter-spacing: -0.3px;
+}
+
+.section-title { font-size: 16px; line-height: 1.4; }
+.section-subtitle { line-height: 1.6; }
+.coords-card { border-width: 1px; }
+.coords-val { font-variant-numeric: tabular-nums; }
+
+.admin-header {
+    gap: 20px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #334155;
+}
+
+.admin-header h2, .zoom-title, .geo-title {
+    letter-spacing: -0.6px;
+    line-height: 1.3;
+}
+
+.admin-subtext, .zoom-subtitle, .geo-subtitle {
+    line-height: 1.6;
+    max-width: 65ch;
+}
+
+.admin-primary-btn, .admin-secondary-btn {
+    min-height: 42px;
+    height: auto;
+    padding: 10px 16px;
+    border-radius: 9px;
+    flex-shrink: 0;
+    font-weight: 600;
+}
+
+.admin-nav-item { border-radius: 10px; }
+.admin-nav-label { font-weight: 600; }
+.admin-nav-sub { line-height: 1.5; }
+
+.admin-table-wrapper {
+    overflow-x: auto;
+    border-radius: var(--ui-radius);
+    scrollbar-width: thin;
+}
+
+.admin-table th {
+    padding: 15px 20px;
+    white-space: nowrap;
+    font-size: 11px;
+    letter-spacing: 0.6px;
+}
+
+.admin-table td {
+    padding: 18px 20px;
+    line-height: 1.5;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-table tbody tr:focus-within td { background: rgba(59, 130, 246, 0.1); }
+.admin-table .action-buttons { flex-wrap: nowrap; }
+
+.roles-cards-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+}
+
+.role-card {
+    border-radius: 16px;
+    gap: 20px;
+    min-width: 0;
+}
+
+.role-card-header { gap: 12px; flex-wrap: wrap; }
+.role-title { letter-spacing: -0.3px; }
+.role-description { line-height: 1.7; }
+
+.admin-layout.light-mode .admin-header { border-bottom-color: #e2e8f0; }
+.admin-layout.light-mode .role-description { color: #475569; }
+.admin-layout.light-mode .role-permissions-section { border-top-color: #e2e8f0; }
+
+.admin-modal {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    border-radius: 16px;
+}
+
+.zoom-mgmt-container { padding: 0; }
+.zoom-slider-desc { line-height: 1.6; }
+
+@media (max-width: 768px) {
+    .login-sidebar {
+        width: 100%;
+        max-width: none;
+        padding: 28px 24px;
+    }
+
+    .admin-header { gap: 16px; margin-bottom: 20px; padding-bottom: 20px; }
+    .admin-header h2 { font-size: 21px; }
+    .admin-header > button { width: 100%; }
+    .form-grid { grid-template-columns: minmax(0, 1fr); }
+    .zoom-header { padding: 18px; }
+    .zoom-actions { width: 100%; }
+    .zoom-actions > button { flex: 1; }
+}

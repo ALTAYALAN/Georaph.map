@@ -9,6 +9,7 @@ import 'primeicons/primeicons.css'
 
 import App from './App.jsx'
 import './App.css'
+import './design-polish.css'
 
 class ErrorBoundary extends React.Component {
     constructor(props) {
