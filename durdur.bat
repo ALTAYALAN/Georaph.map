@@ -1,14 +1,6 @@
 @echo off
 title GeoraphMap - Tum Sistemi Durdur
 
-:: Yonetici yetkisi kontrolu ve otomatik yukseltme (GeoServer servisini durdurabilmek icin)
-net session >nul 2>&1
-if %errorLevel% neq 0 (
-    echo Yonetici yetkisi isteniyor...
-    powershell -Command "Start-Process cmd -ArgumentList '/c \"\"%~f0\"\"' -Verb RunAs"
-    exit /b
-)
-
 cd /d "%~dp0"
 
 echo ========================================================
