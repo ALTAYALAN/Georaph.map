@@ -8,13 +8,13 @@ echo "=================================================="
 # PostGIS extension kurulumu
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
-# Dump dosyasi varsa geri yukleme
-if [ -f /backup/db_backup.dump ]; then
-    echo "-> db_backup.dump tespit edildi, veriler geri yukleniyor..."
-    pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges -v /backup/db_backup.dump || true
+# SQL yedek dosyasi varsa geri yukleme
+if [ -f /backup/db_backup.sql ]; then
+    echo "-> db_backup.sql tespit edildi, 9300+ durak ve hatlar aktariliyor..."
+    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /backup/db_backup.sql || true
     echo "-> [OK] Veritabani basariyla geri yuklendi!"
 else
-    echo "-> db_backup.dump bulunamadi, bos PostGIS semasi ile devam ediliyor."
+    echo "-> db_backup.sql bulunamadi, bos PostGIS semasi ile devam ediliyor."
 fi
 
 echo "=================================================="

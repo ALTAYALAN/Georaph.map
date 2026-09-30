@@ -6,8 +6,8 @@ echo        DOCKER VERITABANI GERI YUKLEME (RESTORE)
 echo ========================================================
 echo.
 
-if not exist "%~dp0db_backup.dump" (
-    echo [HATA] db_backup.dump dosyasi bulunamadi!
+if not exist "%~dp0db_backup.sql" (
+    echo [HATA] db_backup.sql dosyasi bulunamadi!
     pause
     exit /b 1
 )
@@ -21,8 +21,8 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [2/4] db_backup.dump dosyasi konteyner icine kopyalaniyor...
-docker cp "%~dp0db_backup.dump" geomap-postgis:/tmp/db_backup.dump
+echo [2/4] db_backup.sql dosyasi konteyner icine kopyalaniyor...
+docker cp "%~dp0db_backup.sql" geomap-postgis:/tmp/db_backup.sql
 
 echo.
 echo [3/4] Eski sema temizlenip PostGIS sifirlaniyor...
@@ -31,11 +31,11 @@ docker exec geomap-postgis psql -U postgres -d Geo -c "DROP SCHEMA IF EXISTS pub
 
 echo.
 echo [4/4] 9339 Durak, 547 Hat ve Deniz Sinirlari yukleniyor...
-docker exec geomap-postgis pg_restore -U postgres -d Geo --no-owner --no-privileges /tmp/db_backup.dump >nul 2>&1
+docker exec geomap-postgis psql -U postgres -d Geo -q -f /tmp/db_backup.sql
 
 echo.
 echo ========================================================
-echo   YUKLENEN VERILERIN SAYILARI DOGRULANIYOR:
+echo   YUKLENEN VERILERIN SAYILARI:
 echo ========================================================
 docker exec geomap-postgis psql -U postgres -d Geo -c "SELECT 'tbl_stop (Duraklar)' as tablo, count(*) as toplam FROM tbl_stop UNION ALL SELECT 'tbl_route (Hatlar)', count(*) FROM tbl_route UNION ALL SELECT 'tbl_polygon (Deniz/Bolge)', count(*) FROM tbl_polygon UNION ALL SELECT 'tbl_poi (POI)', count(*) FROM tbl_poi;"
 
