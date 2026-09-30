@@ -92,8 +92,10 @@ Yeni bilgisayarda PostgreSQL veya PostGIS kurulu olmasına gerek yoktur, sadece 
    ```bash
    docker compose up -d
    ```
-2. PostGIS (`postgis/postgis:16-3.4`) konteyneri ayağa kalkarken `db_backup.dump` dosyasını **otomatik olarak** içe aktarır (`Geo` veritabanı, PostGIS eklentisi, POI'lar, güzergahlar ve kullanıcılar yüklenir).
-3. Veritabanını durdurmak için:
+2. PostGIS (`postgis/postgis:16-3.4`) konteyneri ayağa kalkarken `db_backup.dump` dosyasını **otomatik olarak** içe aktarır (`Geo` veritabanı, PostGIS eklentisi, deniz sınırları, 9300+ durak, 540+ hat, 508 POI ve kullanıcılar yüklenir).
+3. **Mevcut Çalışan Docker'a Verileri Tek Tıkla Aktarmak İçin:**
+   - Eğer konteyner zaten açıksa ve veriler eksik görünüyorsa, **`docker-restore.bat`** dosyasına çift tıklamanız yeterlidir. Tüm deniz sınırları, duraklar ve hatlar saniyeler içinde Docker'a aktarılır.
+4. Veritabanını durdurmak için:
    ```bash
    docker compose down
    ```

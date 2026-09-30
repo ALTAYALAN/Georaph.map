@@ -16,30 +16,41 @@ echo        GEORAPHMAP SISTEMI BASLATILIYOR
 echo ========================================================
 echo.
 
-:: 1. GeoServer'i Baslat
-echo [1/3] GeoServer Servisi Kontrol Ediliyor...
+:: 1. Veritabani (Docker veya Yerel PostgreSQL) Kontrolu
+echo [1/4] Veritabani (PostgreSQL / Docker) Kontrol Ediliyor...
+docker ps >nul 2>&1
+if %errorlevel% equ 0 (
+    echo       Docker algilandi, PostGIS veritabani baslatiliyor...
+    docker compose up -d geomap-db >nul 2>&1
+) else (
+    echo       Docker bulunamadi veya kapali, yerel PostgreSQL portu kullanilacak.
+)
+
+:: 2. GeoServer'i Baslat
+echo.
+echo [2/4] GeoServer Servisi Kontrol Ediliyor...
 sc config GeoServer start= demand >nul 2>&1
 sc query GeoServer | find "RUNNING" >nul
 if %errorlevel% equ 0 (
     echo       [OK] GeoServer zaten calisiyor.
 ) else (
-    echo       GeoServer servisi baslatiliyor, lutfen bekleyin...
+    echo       GeoServer servisi baslatilmaya calisiliyor...
     net start GeoServer >nul 2>&1
     if %errorlevel% equ 0 (
         echo       [OK] GeoServer basariyla baslatildi.
     ) else (
-        echo       [!] GeoServer baslatilamadi veya servis bulunamadi.
+        echo       [BILGI] GeoServer servisi bulunamadi (WMS haric diger ozellikler normal calisir).
     )
 )
 
-:: 2. Backend API (.NET) Baslat
+:: 3. Backend API (.NET) Baslat
 echo.
-echo [2/3] Backend API (.NET) Baslatiliyor...
+echo [3/4] Backend API (.NET) Baslatiliyor...
 start "GeoraphMap API" cmd /k "cd /d "%~dp0GeoraphMap.API" && dotnet run"
 
-:: 3. Frontend Client (React) Baslat
+:: 4. Frontend Client (React) Baslat
 echo.
-echo [3/3] Frontend Client (React) Baslatiliyor...
+echo [4/4] Frontend Client (React) Baslatiliyor...
 start "GeoraphMap Client" cmd /k "cd /d "%~dp0geo-client" && npm run dev"
 
 echo.
