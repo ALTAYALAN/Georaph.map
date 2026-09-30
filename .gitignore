@@ -46,3 +46,10 @@ dist/
 *.md
 !README.md
 
+# Environment variables
+.env
+.env.local
+
+# Large datasets & raw sheets
+*.xlsx
+

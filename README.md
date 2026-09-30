@@ -81,10 +81,46 @@ Georaph.map, **.NET Web API** ve **React (OpenLayers & PrimeReact)** kullanılar
 
 ---
 
+## Veritabanı Kurulumu ve Başka Cihaza Taşıma (Database Setup, Docker & Backup)
+
+Projeyi GitHub'dan başka bir bilgisayara indirdiğinizde (`git clone`), veritabanını çalıştırmak için iki yöntem bulunmaktadır:
+
+### Yöntem 1: Docker ile Tek Komutta Kurulum (En Kolay & Önerilen 🐳)
+Yeni bilgisayarda PostgreSQL veya PostGIS kurulu olmasına gerek yoktur, sadece **Docker Desktop**'ın açık olması yeterlidir.
+
+1. Proje kök dizininde terminali açıp şu komutu çalıştırın (veya **`docker-start.bat`** dosyasına çift tıklayın):
+   ```bash
+   docker compose up -d
+   ```
+2. PostGIS (`postgis/postgis:16-3.4`) konteyneri ayağa kalkarken `db_backup.dump` dosyasını **otomatik olarak** içe aktarır (`Geo` veritabanı, PostGIS eklentisi, POI'lar, güzergahlar ve kullanıcılar yüklenir).
+3. Veritabanını durdurmak için:
+   ```bash
+   docker compose down
+   ```
+   *(veya **`docker-stop.bat`** dosyasına çift tıklayın)*
+
+---
+
+### Yöntem 2: Yerel PostgreSQL ile Geri Yükleme (Local Restore)
+Eğer makinenizde PostgreSQL ve PostGIS kuruluysa:
+1. Proje kök dizinindeki **`db_restore.bat`** dosyasına **çift tıklayın**.
+   - Betik PostgreSQL aracını otomatik bulur.
+   - `Geo` adında veritabanını oluşturur ve `PostGIS` eklentisini aktif eder.
+   - `db_backup.dump` dosyasındaki tüm verileri eksiksiz geri yükler.
+2. Eğer PostgreSQL şifreniz varsayılandan farklıysa, `GeoraphMap.API/appsettings.json` dosyasındaki şifreyi kendi şifrenizle güncelleyin.
+
+---
+
+### Güncel Veritabanı Yedeği Alma (Backup)
+Haritada yeni veriler, POI'lar veya kullanıcılar oluşturduktan sonra güncel yedeği alıp GitHub'a yüklemek için:
+- Proje kök dizinindeki **`db_backup.bat`** dosyasına çift tıklayın. Güncel veritabanı yedeğini `db_backup.dump` dosyasına otomatik yazar.
+
+---
+
 ## Kurulum ve Çalıştırma
 
 ### Tek Tıkla Başlatma (En Kolay Yol)
-Proje kök dizinindeki `start.bat` veya `baslat.bat` dosyasına **çift tıklayarak** hem **Backend (.NET Web API)** hem de **Frontend (React)** servislerini aynı anda otomatik olarak başlatabilirsiniz.
+Proje kök dizinindeki `start.bat` veya `baslat.bat` dosyasına **çift tıklayarak** hem **GeoServer**, hem **Backend (.NET Web API)** hem de **Frontend (React)** servislerini aynı anda otomatik olarak başlatabilirsiniz.
 
 ---
 
@@ -161,22 +197,38 @@ Georaph.map is a GIS (Geographic Information System) web application built using
 
 ---
 
-## Getting Started
+## Database Setup & Portability (Docker, Restore & Backup)
 
-### 1. Backend (API) Launch
-```bash
-cd GeoraphMap.API
-dotnet run
-```
-*Backend API: `http://localhost:5041`*
+When cloning this project on another computer:
 
-### 2. Frontend (React) Launch
-```bash
-cd geo-client
-npm install
-npm run dev
-```
-*Frontend Client: `http://localhost:5173`*
+### Option 1: One-Command Setup with Docker (Recommended 🐳)
+No need to install PostgreSQL or PostGIS locally. Only **Docker Desktop** is required.
+
+1. Run the following command in the project root (or double-click **`docker-start.bat`**):
+   ```bash
+   docker compose up -d
+   ```
+2. The PostGIS (`postgis/postgis:16-3.4`) container will automatically initialize the `Geo` database and restore all schema, POIs, lines, and data from `db_backup.dump`.
+3. To stop the database container:
+   ```bash
+   docker compose down
+   ```
+   *(or double-click **`docker-stop.bat`**)*
+
+---
+
+### Option 2: Local PostgreSQL Restore
+If you prefer running a local PostgreSQL instance with PostGIS installed:
+1. Double-click **`db_restore.bat`** in the repository root.
+   - It automatically locates PostgreSQL tools (`pg_restore` and `psql`).
+   - Creates the `Geo` database and enables the `PostGIS` extension.
+   - Restores all tables, data, spatial geometries, POIs, and routes from `db_backup.dump`.
+2. If your PostgreSQL password differs on the target machine, update `GeoraphMap.API/appsettings.json` accordingly.
+
+---
+
+### Exporting Fresh Database Backups
+- Double-click **`db_backup.bat`** in the repository root anytime to export the latest PostgreSQL state into `db_backup.dump`.
 
 ---
 

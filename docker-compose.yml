@@ -1,0 +1,18 @@
+services:
+  geomap-db:
+    image: postgis/postgis:16-3.4
+    container_name: geomap-postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-Geo}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-14111201}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - geomap_pgdata:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+      - ./db_backup.dump:/backup/db_backup.dump:ro
+
+volumes:
+  geomap_pgdata:
