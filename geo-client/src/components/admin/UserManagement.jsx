@@ -852,9 +852,12 @@ export const UserManagement = ({ token, lang: propLang }) => {
                 <SpatialBoundaryModal
                     user={spatialModalUser}
                     token={token}
+                    lang={lang}
                     onClose={() => setSpatialModalUser(null)}
                     onSaveSuccess={(newWkt) => {
-                        setSuccessMessage(`"${spatialModalUser.username}" için coğrafi yetki sınırı kaydedildi.`);
+                        setSuccessMessage(isTr 
+                            ? `"${spatialModalUser.username}" için coğrafi yetki sınırı kaydedildi.`
+                            : `Geographic permission boundary saved for "${spatialModalUser.username}".`);
                         setSpatialModalUser(null);
                         loadData();
                         setTimeout(() => setSuccessMessage(''), 4000);
@@ -890,8 +893,23 @@ export const readWktFeatureSafely = (wktStr, wktFormatInst) => {
     }
 };
 
+const getLocalizedRegionName = (name, lang) => {
+    if (lang === 'tr') return name;
+    const map = {
+        'Marmara Bölgesi': 'Marmara Region',
+        'Ege Bölgesi': 'Aegean Region',
+        'Akdeniz Bölgesi': 'Mediterranean Region',
+        'İç Anadolu Bölgesi': 'Central Anatolia Region',
+        'Karadeniz Bölgesi': 'Black Sea Region',
+        'Doğu Anadolu Bölgesi': 'Eastern Anatolia Region',
+        'Güneydoğu Anadolu Bölgesi': 'Southeastern Anatolia Region'
+    };
+    return map[name] || name;
+};
+
 // BRAND NEW REBUILT SPATIAL BOUNDARY MODAL (100% GLITCH-FREE)
-const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
+const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess, lang = 'tr' }) => {
+    const isTr = lang === 'tr';
     const mapContainerRef = useRef(null);
     const mapRef = useRef(null);
     const vectorSourceRef = useRef(null);
@@ -1586,7 +1604,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
             await adminApi.setSpatialBoundary(user.id, currentWkt, token);
             onSaveSuccess(currentWkt);
         } catch (err) {
-            setError(err.message || 'Coğrafi yetki sınırı kaydedilemedi.');
+            setError(err.message || (isTr ? 'Coğrafi yetki sınırı kaydedilemedi.' : 'Failed to save geographic boundary.'));
         } finally {
             setSaving(false);
         }
@@ -1612,7 +1630,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                         alignItems: 'center',
                         justifyContent: 'center'
                     }}
-                    title="Kapat"
+                    title={isTr ? "Kapat" : "Close"}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="18" y1="6" x2="6" y2="18" />
@@ -1623,10 +1641,12 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                 <div className="modal-header-section" style={{ marginBottom: '16px' }}>
                     <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '18px' }}>
                         <SpatialBoundaryIcon size={20} />
-                        Coğrafi Sınır & Yetki Tanımlama: <span style={{ color: '#38bdf8' }}>{user.username}</span>
+                        {isTr ? 'Coğrafi Sınır & Yetki Tanımlama: ' : 'Geographic Boundary & Access Permission: '}<span style={{ color: '#38bdf8' }}>{user.username}</span>
                     </h3>
                     <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>
-                        Kullanıcının haritada erişebileceği alanı Türkiye'nin 81 ili ve coğrafi bölgeleri arasından seçebilir veya sağdaki poligon çizim aracıyla serbestçe belirleyebilirsiniz.
+                        {isTr 
+                            ? "Kullanıcının haritada erişebileceği alanı Türkiye'nin 81 ili ve coğrafi bölgeleri arasından seçebilir veya sağdaki poligon çizim aracıyla serbestçe belirleyebilirsiniz."
+                            : "Select the area the user can access on the map from Turkey's 81 provinces and geographic regions, or define it freely using the polygon drawing tool on the right."}
                     </p>
                 </div>
 
@@ -1664,7 +1684,11 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                             }}
                         >
                             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-                            <span>Poligon Çizimi Aktif: Haritada köşeleri tıklayın, bitirmek için çift tıklayın (İptal için butona tekrar basın)</span>
+                            <span>
+                                {isTr 
+                                    ? "Poligon Çizimi Aktif: Haritada köşeleri tıklayın, bitirmek için çift tıklayın (İptal için butona tekrar basın)"
+                                    : "Polygon Drawing Active: Click vertices on the map, double-click to finish (Click button again to cancel)"}
+                            </span>
                         </div>
                     )}
 
@@ -1678,13 +1702,13 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                             zIndex: 10
                         }}
                     >
-                        <button className="zoom-btn-exact" onClick={handleZoomIn} title="Yakınlaştır (+)">
+                        <button className="zoom-btn-exact" onClick={handleZoomIn} title={isTr ? "Yakınlaştır (+)" : "Zoom In (+)"}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
                                 <line x1="12" y1="5" x2="12" y2="19" />
                                 <line x1="5" y1="12" x2="19" y2="12" />
                             </svg>
                         </button>
-                        <button className="zoom-btn-exact" onClick={handleZoomOut} title="Uzaklaştır (-)">
+                        <button className="zoom-btn-exact" onClick={handleZoomOut} title={isTr ? "Uzaklaştır (-)" : "Zoom Out (-)"}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
                                 <line x1="5" y1="12" x2="19" y2="12" />
                             </svg>
@@ -1705,7 +1729,9 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                             type="button"
                             className={`tool-btn-exact dark-style ${isDrawing ? 'active' : ''}`}
                             onClick={handleToggleDraw}
-                            title={isDrawing ? 'Poligon Çizimini İptal Et / Kapat' : 'Özel Poligon Sınırı Çiz'}
+                            title={isDrawing 
+                                ? (isTr ? 'Poligon Çizimini İptal Et / Kapat' : 'Cancel / Close Polygon Drawing') 
+                                : (isTr ? 'Özel Poligon Sınırı Çiz' : 'Draw Custom Polygon Boundary')}
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                                 <polygon points="12 2 22 7.5 18 19 6 19 2 8.5" />
@@ -1716,7 +1742,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                             type="button"
                             className={`tool-btn-exact dark-style ${showRegionSelector ? 'active' : ''}`}
                             onClick={() => setShowRegionSelector(!showRegionSelector)}
-                            title="İl veya Coğrafi Bölge Sınırı Ekle"
+                            title={isTr ? "İl veya Coğrafi Bölge Sınırı Ekle" : "Add Province or Geographic Region Boundary"}
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
@@ -1731,7 +1757,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                             className="tool-btn-exact grey-style"
                             onClick={handleUndo}
                             disabled={historyIndex < 0}
-                            title="Geri Al"
+                            title={isTr ? "Geri Al" : "Undo"}
                         >
                             <UndoIcon size={18} />
                         </button>
@@ -1741,7 +1767,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                             className="tool-btn-exact grey-style"
                             onClick={handleRedo}
                             disabled={historyIndex >= history.length - 1}
-                            title="İleri Al"
+                            title={isTr ? "İleri Al" : "Redo"}
                         >
                             <RedoIcon size={18} />
                         </button>
@@ -1751,7 +1777,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                 type="button"
                                 className="tool-btn-exact red-style"
                                 onClick={handleClearBoundary}
-                                title="Sınırı Temizle"
+                                title={isTr ? "Sınırı Temizle" : "Clear Boundary"}
                             >
                                 <TrashIcon size={18} />
                             </button>
@@ -1784,12 +1810,12 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                                         <circle cx="12" cy="10" r="3" />
                                     </svg>
-                                    İl / Bölge Seç
+                                    {isTr ? 'İl / Bölge Seç' : 'Select Province / Region'}
                                 </span>
                                 <button
                                     onClick={() => setShowRegionSelector(false)}
                                     style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                    title="Kapat"
+                                    title={isTr ? "Kapat" : "Close"}
                                 >
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                         <line x1="18" y1="6" x2="6" y2="18" />
@@ -1814,7 +1840,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                         color: '#ffffff'
                                     }}
                                 >
-                                    Bölgeler (7)
+                                    {isTr ? 'Bölgeler (7)' : 'Regions (7)'}
                                 </button>
                                 <button
                                     type="button"
@@ -1831,7 +1857,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                         color: '#ffffff'
                                     }}
                                 >
-                                    İller (81)
+                                    {isTr ? 'İller (81)' : 'Provinces (81)'}
                                 </button>
                             </div>
 
@@ -1839,7 +1865,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                 <div style={{ padding: '6px 8px', backgroundColor: '#0f172a', borderBottom: '1px solid #1e293b' }}>
                                     <input
                                         type="text"
-                                        placeholder="İl ara (Örn: Ankara)..."
+                                        placeholder={isTr ? "İl ara (Örn: Ankara)..." : "Search province (e.g. Ankara)..."}
                                         value={presetSearch}
                                         onChange={(e) => setPresetSearch(e.target.value)}
                                         style={{
@@ -1877,11 +1903,11 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                             onMouseLeave={(ev) => ev.currentTarget.style.borderColor = '#334155'}
                                         >
                                             <span style={{ fontSize: '11.5px', fontWeight: 600, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: '8px' }}>
-                                                {reg.name}
+                                                {getLocalizedRegionName(reg.name, lang)}
                                             </span>
                                             <button
                                                 type="button"
-                                                title="Yetki Alanına Ekle"
+                                                title={isTr ? "Yetki Alanına Ekle" : "Add to Permission Area"}
                                                 style={{
                                                     width: '24px',
                                                     height: '24px',
@@ -1943,7 +1969,7 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                                                 </div>
                                                 <button
                                                     type="button"
-                                                    title="Yetki Alanına Ekle"
+                                                    title={isTr ? "Yetki Alanına Ekle" : "Add to Permission Area"}
                                                     style={{
                                                         width: '24px',
                                                         height: '24px',
@@ -1975,12 +2001,14 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ fontSize: '12.5px', fontWeight: 600, color: currentWkt ? '#10b981' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: currentWkt ? '#10b981' : '#64748b' }} />
-                        {currentWkt ? 'Sınır Poligonu Tanımlandı' : 'Henüz coğrafi sınır tanımlanmadı (Tüm Türkiye kısıtlamasız).'}
+                        {currentWkt 
+                            ? (isTr ? 'Sınır Poligonu Tanımlandı' : 'Boundary Polygon Defined') 
+                            : (isTr ? 'Henüz coğrafi sınır tanımlanmadı (Tüm Türkiye kısıtlamasız).' : 'No geographic boundary defined yet (Unrestricted across all Turkey).')}
                     </div>
 
                     <div style={{ display: 'flex', gap: '10px' }}>
                         <button type="button" className="admin-secondary-btn" onClick={onClose} disabled={saving}>
-                            İptal
+                            {isTr ? 'İptal' : 'Cancel'}
                         </button>
                         <button
                             type="button"
@@ -1989,7 +2017,9 @@ const SpatialBoundaryModal = ({ user, token, onClose, onSaveSuccess }) => {
                             disabled={saving}
                             style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
                         >
-                            {saving ? 'Kaydediliyor...' : 'Coğrafi Sınırı Kaydet'}
+                            {saving 
+                                ? (isTr ? 'Kaydediliyor...' : 'Saving...') 
+                                : (isTr ? 'Coğrafi Sınırı Kaydet' : 'Save Geographic Boundary')}
                         </button>
                     </div>
                 </div>

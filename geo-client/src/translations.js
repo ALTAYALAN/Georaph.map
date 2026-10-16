@@ -398,12 +398,17 @@ export const translations = {
 
         // Güzergah & Durak Yönetimi Ek Araçlar
         bendRoute: "Hattı Bük",
+        btnBendRoute: "Hattı Bük",
         directLine: "Kuş Uçuşu",
+        btnDirect: "Kuş Uçuşu",
         osrmRoute: "OSRM Rota",
+        btnOsrmRoute: "OSRM Rota",
         attachExistingStop: "Mevcut Durak Bağla",
+        attachStop: "Mevcut Durak Bağla",
         prependStop: "Başa Ekle",
         appendStop: "Sona Ekle",
         addDestination: "Varış Ekle",
+        btnAddArrival: "Varış Ekle",
         allTransitClasses: "Tüm Sınıflar",
         busClass: "Otobüs",
         metroClass: "Metro",
@@ -412,7 +417,12 @@ export const translations = {
         trainClass: "Tren",
         maritimeClass: "Deniz / Vapur",
         allCitiesRegions: "Tüm Şehirler & Bölgeler",
-        otherCities: "Diğer İller"
+        otherCities: "Diğer İller",
+        routeManagementTab: "Güzergah Yönetimi",
+        stopManagementTab: "Durak Yönetimi",
+        routeListTitle: "Güzergah Listesi",
+        addRouteBtn: "Yeni Hat Ekle",
+        addStopBtn: "Yeni Durak Ekle"
     },
     en: {
         // Auth & Login
@@ -814,12 +824,17 @@ export const translations = {
 
         // Route & Stop Management Tools
         bendRoute: "Bend Route",
+        btnBendRoute: "Bend Route",
         directLine: "Direct Line",
+        btnDirect: "Direct Line",
         osrmRoute: "OSRM Route",
+        btnOsrmRoute: "OSRM Route",
         attachExistingStop: "Attach Existing Stop",
+        attachStop: "Attach Existing Stop",
         prependStop: "Prepend",
         appendStop: "Append",
         addDestination: "Add Destination",
+        btnAddArrival: "Add Destination",
         allTransitClasses: "All Classes",
         busClass: "Bus",
         metroClass: "Metro",
@@ -828,7 +843,12 @@ export const translations = {
         trainClass: "Train",
         maritimeClass: "Ferry / Sea",
         allCitiesRegions: "All Cities & Regions",
-        otherCities: "Other Provinces"
+        otherCities: "Other Provinces",
+        routeManagementTab: "Route Management",
+        stopManagementTab: "Stop Management",
+        routeListTitle: "Route List",
+        addRouteBtn: "Add New Route",
+        addStopBtn: "Add New Stop"
     }
 };
 

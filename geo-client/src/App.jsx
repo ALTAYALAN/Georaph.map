@@ -788,13 +788,37 @@ function getAiOptimalObjectPosition(poi, currentImage) {
     return 'center center';
 }
 
+// Mesai Saatleri Çok Dilli Dönüştürücü
+export const formatWorkingHours = (hoursStr, lang = 'tr') => {
+    if (!hoursStr || lang === 'tr') return hoursStr;
+    return hoursStr
+        .replace(/Hafta İçi/gi, 'Weekdays')
+        .replace(/Haftaici/gi, 'Weekdays')
+        .replace(/Hafta Sonu/gi, 'Weekends')
+        .replace(/Haftasonu/gi, 'Weekends')
+        .replace(/7\/24 Açık/gi, 'Open 24/7')
+        .replace(/24 Saat Açık/gi, 'Open 24 Hours')
+        .replace(/Açık/gi, 'Open')
+        .replace(/Kapalı/gi, 'Closed')
+        .replace(/Her Gün/gi, 'Every day')
+        .replace(/Pazartesi/gi, 'Mon')
+        .replace(/Salı/gi, 'Tue')
+        .replace(/Çarşamba/gi, 'Wed')
+        .replace(/Perşembe/gi, 'Thu')
+        .replace(/Cuma/gi, 'Fri')
+        .replace(/Cumartesi/gi, 'Sat')
+        .replace(/Pazar/gi, 'Sun');
+};
+
 // Üst Başlık Banner Galeri Bileşeni (Doğrudan Tıklamayla Tam Ekran Lightbox + Otomatik AI Kadrajı)
 const PoiHeaderBannerGallery = ({
     poi,
     isDarkMode = true,
     onOpenEditModal,
-    onOpenFullscreen
+    onOpenFullscreen,
+    lang = 'tr'
 }) => {
+    const isTr = lang === 'tr';
     const [currentIndex, setCurrentIndex] = useState(0);
 
     const imageObjects = useMemo(() => resolveAllPoiImages(poi), [poi]);
@@ -860,11 +884,11 @@ const PoiHeaderBannerGallery = ({
                     overflow: 'hidden',
                     userSelect: 'none'
                 }}
-                title="Büyük boyutta görüntülemek ve fotoğraflar arası gezmek için tıklayınız"
+                title={isTr ? "Büyük boyutta görüntülemek ve fotoğraflar arası gezmek için tıklayınız" : "Click to view full size and browse photos"}
             >
                 <img
                     src={currentImgUrl}
-                    alt={`${poi.name || 'POI'} - Fotoğraf ${safeIndex + 1}`}
+                    alt={`${poi.name || 'POI'} - ${isTr ? 'Fotoğraf' : 'Photo'} ${safeIndex + 1}`}
                     style={{
                         width: '100%',
                         height: '100%',
@@ -910,7 +934,7 @@ const PoiHeaderBannerGallery = ({
                         boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
                     }}>
                         <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block', boxShadow: '0 0 8px #10b981' }} />
-                        <span>{currentImgObj.isSatelliteFallback ? 'AI Uydu Önizlemesi' : 'Aktif POI'}</span>
+                        <span>{currentImgObj.isSatelliteFallback ? (isTr ? 'AI Uydu Önizlemesi' : 'AI Satellite Preview') : (isTr ? 'Aktif POI' : 'Active POI')}</span>
                     </div>
 
                     {poi.categoryName && (
@@ -926,7 +950,7 @@ const PoiHeaderBannerGallery = ({
                             fontWeight: '600',
                             color: poi.categoryColor || '#60a5fa'
                         }}>
-                            {poi.categoryName}
+                            {getLocalizedPoiCategoryLabel(poi.categoryName, lang)}
                         </div>
                     )}
                 </div>
@@ -983,7 +1007,7 @@ const PoiHeaderBannerGallery = ({
                                 padding: 0,
                                 transition: 'all 0.15s ease'
                             }}
-                            title="Büyük Boyutta Aç (Lightbox)"
+                            title={isTr ? "Büyük Boyutta Aç (Lightbox)" : "Open Full Size (Lightbox)"}
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                         </button>
@@ -1019,7 +1043,7 @@ const PoiHeaderBannerGallery = ({
                                 zIndex: 3,
                                 transition: 'all 0.15s ease'
                             }}
-                            title="Önceki Fotoğraf"
+                            title={isTr ? "Önceki Fotoğraf" : "Previous Photo"}
                         >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6" /></svg>
                         </button>
@@ -1050,7 +1074,7 @@ const PoiHeaderBannerGallery = ({
                                 zIndex: 3,
                                 transition: 'all 0.15s ease'
                             }}
-                            title="Sonraki Fotoğraf"
+                            title={isTr ? "Sonraki Fotoğraf" : "Next Photo"}
                         >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
                         </button>
@@ -7167,14 +7191,14 @@ function App() {
     };
 
     const handleDeletePoiFromMap = async (poiId, poiName) => {
-        if (!window.confirm(`"${poiName}" adlı POI'yi silmek istediğinize emin misiniz?`)) return;
+        if (!window.confirm(isTr ? `"${poiName}" adlı POI'yi silmek istediğinize emin misiniz?` : `Are you sure you want to delete POI "${poiName}"?`)) return;
         try {
             await adminApi.deletePoi(poiId, token);
             if (toastRef.current) {
                 toastRef.current.show({
                     severity: 'info',
-                    summary: 'Silindi',
-                    detail: 'POI başarıyla kaldırıldı.',
+                    summary: isTr ? 'Silindi' : 'Deleted',
+                    detail: isTr ? 'POI başarıyla kaldırıldı.' : 'POI removed successfully.',
                     life: 3000
                 });
             }
@@ -7182,7 +7206,7 @@ function App() {
             fetchPois();
         } catch (err) {
             if (toastRef.current) {
-                toastRef.current.show({ severity: 'error', summary: 'Hata', detail: err.message || 'Silme başarısız.', life: 4000 });
+                toastRef.current.show({ severity: 'error', summary: isTr ? 'Hata' : 'Error', detail: err.message || (isTr ? 'Silme başarısız.' : 'Deletion failed.'), life: 4000 });
             }
         }
     };
@@ -11202,7 +11226,7 @@ function App() {
                                             <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2" />
                                         </svg>
                                         <span>
-                                            <strong style={{ color: '#10b981' }}>Poligon POI:</strong> {newPoiForm.area >= 1000000 ? (newPoiForm.area / 1000000).toFixed(2) + ' km²' : Math.round(newPoiForm.area).toLocaleString() + ' m²'} (Merkez: {newPoiForm.lat?.toFixed(5)}° K, {newPoiForm.lon?.toFixed(5)}° D)
+                                            <strong style={{ color: '#10b981' }}>{isTr ? 'Poligon POI:' : 'Polygon POI:'}</strong> {newPoiForm.area >= 1000000 ? (newPoiForm.area / 1000000).toFixed(2) + ' km²' : Math.round(newPoiForm.area).toLocaleString() + ' m²'} ({isTr ? 'Merkez' : 'Center'}: {newPoiForm.lat?.toFixed(5)}° {isTr ? 'K' : 'N'}, {newPoiForm.lon?.toFixed(5)}° {isTr ? 'D' : 'E'})
                                         </span>
                                     </>
                                 ) : (
@@ -11211,20 +11235,20 @@ function App() {
                                             <circle cx="12" cy="12" r="10" />
                                             <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
                                         </svg>
-                                        <span><strong>Nokta Konumu:</strong> {newPoiForm.lat?.toFixed(5)}° K, {newPoiForm.lon?.toFixed(5)}° D</span>
+                                        <span><strong>{isTr ? 'Nokta Konumu:' : 'Point Location:'}</strong> {newPoiForm.lat?.toFixed(5)}° {isTr ? 'K' : 'N'}, {newPoiForm.lon?.toFixed(5)}° {isTr ? 'D' : 'E'}</span>
                                     </>
                                 )}
                             </div>
 
                             <div className="poi-modal-actions">
                                 <button type="button" className="poi-btn-cancel" onClick={() => { setShowCreatePoiModal(false); setEditingPoiModalData(null); }}>
-                                    İptal
+                                    {isTr ? 'İptal' : 'Cancel'}
                                 </button>
                                 <button type="submit" className="poi-btn-save">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                         <polyline points="20 6 9 17 4 12" />
                                     </svg>
-                                    <span>{editingPoiModalData ? 'Değişiklikleri Kaydet' : 'Haritaya Kaydet'}</span>
+                                    <span>{editingPoiModalData ? (isTr ? 'Değişiklikleri Kaydet' : 'Save Changes') : (isTr ? 'Haritaya Kaydet' : 'Save to Map')}</span>
                                 </button>
                             </div>
                         </form>
@@ -11239,6 +11263,7 @@ function App() {
                     <PoiHeaderBannerGallery
                         poi={selectedPoiInfo}
                         isDarkMode={isDarkMode}
+                        lang={lang}
                         onOpenEditModal={() => handleStartEditPoi(selectedPoiInfo)}
                         onOpenFullscreen={(url, idx) => {
                             const allImages = resolveAllPoiImages(selectedPoiInfo);
@@ -11264,14 +11289,14 @@ function App() {
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                                 <h3 className="poi-card-title">{selectedPoiInfo.name}</h3>
-                                <span className="poi-card-subtitle">{selectedPoiInfo.airportCode ? `Havalimanı ID: ${selectedPoiInfo.airportCode}` : 'POI Detayları'}</span>
+                                <span className="poi-card-subtitle">{selectedPoiInfo.airportCode ? `${isTr ? 'Havalimanı ID' : 'Airport ID'}: ${selectedPoiInfo.airportCode}` : (isTr ? 'POI Detayları' : 'POI Details')}</span>
                             </div>
                         </div>
                         <button
                             type="button"
                             onClick={() => setSelectedPoiInfo(null)}
                             style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center' }}
-                            title="Kapat"
+                            title={isTr ? "Kapat" : "Close"}
                         >
                             <CloseIcon size={14} />
                         </button>
@@ -11279,7 +11304,7 @@ function App() {
 
                     <div className="poi-card-body">
                         <div className="poi-detail-row">
-                            <span className="poi-detail-label">Kategori:</span>
+                            <span className="poi-detail-label">{isTr ? 'Kategori:' : 'Category:'}</span>
                             <span
                                 className="poi-badge"
                                 style={{
@@ -11287,43 +11312,43 @@ function App() {
                                     color: selectedPoiInfo.categoryColor || '#3b82f6'
                                 }}
                             >
-                                {selectedPoiInfo.parentCategoryName ? `${selectedPoiInfo.parentCategoryName} → ` : ''}{selectedPoiInfo.categoryName}
+                                {selectedPoiInfo.parentCategoryName ? `${getLocalizedPoiCategoryLabel(selectedPoiInfo.parentCategoryName, lang)} → ` : ''}{getLocalizedPoiCategoryLabel(selectedPoiInfo.categoryName, lang)}
                             </span>
                         </div>
 
                         {selectedPoiInfo.workingHours && (
                             <div className="poi-detail-row">
-                                <span className="poi-detail-label">Mesai Saatleri:</span>
+                                <span className="poi-detail-label">{isTr ? 'Mesai Saatleri:' : 'Working Hours:'}</span>
                                 <span className="poi-detail-value" style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                         <circle cx="12" cy="12" r="10" />
                                         <polyline points="12 6 12 12 16 14" />
                                     </svg>
-                                    <strong>{selectedPoiInfo.workingHours}</strong>
+                                    <strong>{formatWorkingHours(selectedPoiInfo.workingHours, lang)}</strong>
                                 </span>
                             </div>
                         )}
 
                         <div className="poi-detail-row">
-                            <span className="poi-detail-label">Ekleyen:</span>
+                            <span className="poi-detail-label">{isTr ? 'Ekleyen:' : 'Added By:'}</span>
                             <span className="poi-detail-value" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                <strong>{selectedPoiInfo.username || 'Sistem'}</strong>
+                                <strong>{selectedPoiInfo.username || (isTr ? 'Sistem' : 'System')}</strong>
                                 <span style={{ color: '#94a3b8', fontSize: '11px' }}>(ID: {selectedPoiInfo.userId})</span>
                             </span>
                         </div>
 
                         {selectedPoiInfo.createdDate && (
                             <div className="poi-detail-row">
-                                <span className="poi-detail-label">Kayıt Tarihi:</span>
+                                <span className="poi-detail-label">{isTr ? 'Kayıt Tarihi:' : 'Created At:'}</span>
                                 <span className="poi-detail-value" style={{ color: '#94a3b8' }}>
-                                    {new Date(selectedPoiInfo.createdDate).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    {new Date(selectedPoiInfo.createdDate).toLocaleDateString(isTr ? 'tr-TR' : 'en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                 </span>
                             </div>
                         )}
 
                         {selectedPoiInfo.latitude != null && selectedPoiInfo.longitude != null && (
                             <div className="poi-detail-row">
-                                <span className="poi-detail-label">Konum:</span>
+                                <span className="poi-detail-label">{isTr ? 'Konum:' : 'Location:'}</span>
                                 <span className="poi-detail-value" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <span>{selectedPoiInfo.latitude.toFixed(5)}°, {selectedPoiInfo.longitude.toFixed(5)}°</span>
                                     <button
@@ -11332,10 +11357,15 @@ function App() {
                                         onClick={() => {
                                             navigator.clipboard.writeText(`${selectedPoiInfo.latitude}, ${selectedPoiInfo.longitude}`);
                                             if (toastRef.current) {
-                                                toastRef.current.show({ severity: 'info', summary: 'Kopyalandı', detail: 'Koordinatlar panoya kopyalandı.', life: 2500 });
+                                                toastRef.current.show({
+                                                    severity: 'info',
+                                                    summary: isTr ? 'Kopyalandı' : 'Copied',
+                                                    detail: isTr ? 'Koordinatlar panoya kopyalandı.' : 'Coordinates copied to clipboard.',
+                                                    life: 2500
+                                                });
                                             }
                                         }}
-                                        title="Koordinatları Kopyala"
+                                        title={isTr ? "Koordinatları Kopyala" : "Copy Coordinates"}
                                     >
                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -11348,7 +11378,7 @@ function App() {
 
                         {selectedPoiInfo.description && (
                             <div className="poi-detail-row" style={{ flexDirection: 'column', gap: '4px' }}>
-                                <span className="poi-detail-label">Açıklama:</span>
+                                <span className="poi-detail-label">{isTr ? 'Açıklama:' : 'Description:'}</span>
                                 <p style={{ margin: 0, fontSize: '12px', color: isDarkMode ? '#cbd5e1' : '#475569', lineHeight: 1.4 }}>
                                     {selectedPoiInfo.description}
                                 </p>
@@ -11363,12 +11393,12 @@ function App() {
                                 type="button"
                                 className="poi-btn-directions"
                                 onClick={() => handleStartDirectionsToPoi(selectedPoiInfo)}
-                                title="Bu noktaya yol tarifi oluştur"
+                                title={isTr ? "Bu noktaya yol tarifi oluştur" : "Get directions to this point"}
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                     <polygon points="3 11 22 2 13 21 11 13 3 11" />
                                 </svg>
-                                <span>Yol Tarifi Al</span>
+                                <span>{isTr ? 'Yol Tarifi Al' : 'Get Directions'}</span>
                             </button>
 
                             {/* FAVORİYE EKLE / ÇIKAR BUTONU */}
@@ -11376,12 +11406,12 @@ function App() {
                                 type="button"
                                 className={`poi-btn-fav ${favoritePoiIds.has(selectedPoiInfo.id) ? 'active' : 'inactive'}`}
                                 onClick={() => handleToggleFavoritePoi(selectedPoiInfo)}
-                                title={favoritePoiIds.has(selectedPoiInfo.id) ? 'Favorilerden Çıkar' : 'Favorilere Ekle'}
+                                title={favoritePoiIds.has(selectedPoiInfo.id) ? (isTr ? 'Favorilerden Çıkar' : 'Remove from Favorites') : (isTr ? 'Favorilere Ekle' : 'Add to Favorites')}
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill={favoritePoiIds.has(selectedPoiInfo.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                                 </svg>
-                                <span>{favoritePoiIds.has(selectedPoiInfo.id) ? 'Favorilerde' : 'Favorile'}</span>
+                                <span>{favoritePoiIds.has(selectedPoiInfo.id) ? (isTr ? 'Favorilerde' : 'Favorited') : (isTr ? 'Favorile' : 'Favorite')}</span>
                             </button>
                         </div>
 
@@ -11391,7 +11421,7 @@ function App() {
                                     type="button"
                                     className="poi-btn-edit-action"
                                     onClick={() => handleOpenEditPoiModal(selectedPoiInfo)}
-                                    title="POI Bilgilerini ve Fotoğraflarını Düzenle"
+                                    title={isTr ? "POI Bilgilerini ve Fotoğraflarını Düzenle" : "Edit POI Info & Photos"}
                                     style={{
                                         display: 'inline-flex',
                                         alignItems: 'center',
@@ -11410,7 +11440,7 @@ function App() {
                                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                                     </svg>
-                                    <span>Düzenle</span>
+                                    <span>{isTr ? 'Düzenle' : 'Edit'}</span>
                                 </button>
                             )}
 
@@ -11419,7 +11449,7 @@ function App() {
                                     type="button"
                                     className="poi-btn-edit-action"
                                     onClick={() => startPoiEditing(selectedPoiInfo)}
-                                    title={selectedPoiInfo.wkt?.toUpperCase().includes('POLYGON') ? 'POI Poligon Sınırlarını ve Köşelerini Düzenle' : 'POI Konumunu Haritada Taşı'}
+                                    title={selectedPoiInfo.wkt?.toUpperCase().includes('POLYGON') ? (isTr ? 'POI Poligon Sınırlarını ve Köşelerini Düzenle' : 'Edit POI Polygon Boundaries and Vertices') : (isTr ? 'POI Konumunu Haritada Taşı' : 'Move POI Location on Map')}
                                 >
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                         <polyline points="5 9 2 12 5 15" />
@@ -11429,7 +11459,7 @@ function App() {
                                         <line x1="2" y1="12" x2="22" y2="12" />
                                         <line x1="12" y1="2" x2="12" y2="22" />
                                     </svg>
-                                    <span>{selectedPoiInfo.wkt?.toUpperCase().includes('POLYGON') ? 'Poligonu Düzenle' : 'Konumu Taşı'}</span>
+                                    <span>{selectedPoiInfo.wkt?.toUpperCase().includes('POLYGON') ? (isTr ? 'Poligonu Düzenle' : 'Edit Polygon') : (isTr ? 'Konumu Taşı' : 'Move Location')}</span>
                                 </button>
                             )}
 
@@ -11438,7 +11468,7 @@ function App() {
                                     type="button"
                                     className="poi-btn-delete-icon"
                                     onClick={() => handleDeletePoiFromMap(selectedPoiInfo.id, selectedPoiInfo.name)}
-                                    title="POI'yi Sil"
+                                    title={isTr ? "POI'yi Sil" : "Delete POI"}
                                 >
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                         <polyline points="3 6 5 6 21 6"></polyline>

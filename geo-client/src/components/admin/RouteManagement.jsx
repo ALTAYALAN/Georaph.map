@@ -106,12 +106,17 @@ const SearchablePortSelect = ({
     onChange,
     ports = [],
     disabledId,
-    placeholder = "Liman seçiniz...",
-    isDarkMode
+    placeholder,
+    isDarkMode,
+    lang = 'tr'
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
     const containerRef = useRef(null);
+
+    const defaultPlaceholder = lang === 'tr' ? 'Liman seçiniz...' : 'Select port...';
+    const effectivePlaceholder = placeholder || defaultPlaceholder;
+    const defaultCity = lang === 'tr' ? 'Kıyı Limanı' : 'Coastal Port';
 
     const selectedPort = ports.find(p => p.id === selectedId || p.stopId === selectedId || p.name === selectedId);
 
@@ -167,7 +172,7 @@ const SearchablePortSelect = ({
                 }}
             >
                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: selectedPort ? '600' : 'normal' }}>
-                    {selectedPort ? `${selectedPort.shortName} (${selectedPort.city || 'Kıyı Limanı'})` : placeholder}
+                    {selectedPort ? `${selectedPort.shortName} (${selectedPort.city || defaultCity})` : effectivePlaceholder}
                 </div>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', color: '#0284c7', flexShrink: 0, marginLeft: '8px' }}>
                     <path d="M6 9l6 6 6-6"/>
@@ -198,7 +203,7 @@ const SearchablePortSelect = ({
                         <input
                             type="text"
                             autoFocus
-                            placeholder="Liman ara..."
+                            placeholder={lang === 'tr' ? "Liman ara..." : "Search port..."}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             onClick={(e) => e.stopPropagation()}
@@ -232,7 +237,7 @@ const SearchablePortSelect = ({
                     <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         {filtered.length === 0 ? (
                             <div style={{ padding: '10px', fontSize: '12px', color: '#94a3b8', textAlign: 'center' }}>
-                                Eşleşen liman bulunamadı
+                                {lang === 'tr' ? 'Eşleşen liman bulunamadı' : 'No matching ports found'}
                             </div>
                         ) : (
                             filtered.map(port => {
@@ -296,12 +301,17 @@ const SearchableAirportSelect = ({
     onChange,
     airports = [],
     disabledId,
-    placeholder = "Havalimanı seçiniz...",
-    isDarkMode
+    placeholder,
+    isDarkMode,
+    lang = 'tr'
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
     const containerRef = useRef(null);
+
+    const defaultPlaceholder = lang === 'tr' ? 'Havalimanı seçiniz...' : 'Select airport...';
+    const effectivePlaceholder = placeholder || defaultPlaceholder;
+    const defaultCity = lang === 'tr' ? 'Havalimanı' : 'Airport';
 
     const selectedAirport = airports.find(a => a.id === selectedId || a.stopId === selectedId || a.iata === selectedId || a.name === selectedId);
 
@@ -360,9 +370,9 @@ const SearchableAirportSelect = ({
                         <>
                             <span style={{ color: '#0284c7', fontWeight: '700' }}>[{selectedAirport.iata || 'APT'}]</span>
                             <span>{selectedAirport.shortName}</span>
-                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>({selectedAirport.city})</span>
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>({selectedAirport.city || defaultCity})</span>
                         </>
-                    ) : placeholder}
+                    ) : effectivePlaceholder}
                 </div>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', color: '#0284c7', flexShrink: 0, marginLeft: '8px' }}>
                     <path d="M6 9l6 6 6-6"/>
@@ -391,7 +401,7 @@ const SearchableAirportSelect = ({
                         <input
                             type="text"
                             autoFocus
-                            placeholder="Havalimanı veya şehir ara..."
+                            placeholder={lang === 'tr' ? "Havalimanı veya şehir ara..." : "Search airport or city..."}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             onClick={(e) => e.stopPropagation()}
@@ -424,7 +434,7 @@ const SearchableAirportSelect = ({
                     <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         {filtered.length === 0 ? (
                             <div style={{ padding: '10px', fontSize: '12px', color: '#94a3b8', textAlign: 'center' }}>
-                                Eşleşen havalimanı bulunamadı
+                                {lang === 'tr' ? 'Eşleşen havalimanı bulunamadı' : 'No matching airports found'}
                             </div>
                         ) : (
                             filtered.map(apt => {
@@ -482,6 +492,40 @@ const SearchableAirportSelect = ({
             )}
         </div>
     );
+};
+
+export const getLocalizedClassLabel = (classKey, lang = 'tr') => {
+    const info = getRouteClassInfo(classKey);
+    if (!info) return classKey || '';
+    if (lang === 'tr') return info.label;
+    const enMap = {
+        'otobus': 'Bus',
+        'metro': 'Metro',
+        'tramvay': 'Tramway',
+        'metrobus': 'Metrobus',
+        'tren': 'Train',
+        'deniz': 'Ferry / Sea',
+        'havayolu': 'Flight / Airway',
+        'araba': 'Bus'
+    };
+    return enMap[normalizeTransitClass(classKey)] || info.label;
+};
+
+export const getLocalizedClassShortLabel = (classKey, lang = 'tr') => {
+    const info = getRouteClassInfo(classKey);
+    if (!info) return classKey || '';
+    if (lang === 'tr') return info.shortLabel || info.label;
+    const enMap = {
+        'otobus': 'Bus',
+        'metro': 'Metro',
+        'tramvay': 'Tram',
+        'metrobus': 'Metrobus',
+        'tren': 'Train',
+        'deniz': 'Ferry',
+        'havayolu': 'Flight',
+        'araba': 'Bus'
+    };
+    return enMap[normalizeTransitClass(classKey)] || info.shortLabel || info.label;
 };
 
 // Türkiye Deniz Limanları, Havalimanları ve Tüm Kıyı Durakları
@@ -1233,11 +1277,11 @@ export const RouteManagement = ({
                 }, token);
 
                 setShowRouteModal(false);
-                setSuccessMsg(`${autoName} başarıyla oluşturuldu ve havalimanı terminalleri bağlandı.`);
+                setSuccessMsg(isTr ? `${autoName} başarıyla oluşturuldu ve havalimanı terminalleri bağlandı.` : `${autoName} created successfully with airport terminals connected.`);
                 await loadRoutes(true);
                 setSelectedRouteId(created.id);
             } catch (err) {
-                setError(err.message || 'Uçuş rotası oluşturulurken hata oluştu.');
+                setError(err.message || (isTr ? 'Uçuş rotası oluşturulurken hata oluştu.' : 'An error occurred while creating flight route.'));
             } finally {
                 setLoading(false);
             }
@@ -1247,17 +1291,17 @@ export const RouteManagement = ({
         // 2. Deniz / Gemi Güzergahı: Yalnızca iki liman arasında oluşturulur
         if (routeForm.routeClass === 'gemi' && !isEditingRoute) {
             if (!routeForm.departurePortId || !routeForm.arrivalPortId) {
-                setError('Lütfen kalkış ve varış limanlarını seçiniz.');
+                setError(isTr ? 'Lütfen kalkış ve varış limanlarını seçiniz.' : 'Please select departure and arrival ports.');
                 return;
             }
             if (routeForm.departurePortId === routeForm.arrivalPortId) {
-                setError('Kalkış ve varış limanları birbirinden farklı olmalıdır.');
+                setError(isTr ? 'Kalkış ve varış limanları birbirinden farklı olmalıdır.' : 'Departure and arrival ports must be different.');
                 return;
             }
             const portA = allAvailablePorts.find(p => p.id === routeForm.departurePortId || p.stopId === routeForm.departurePortId || p.name === routeForm.departurePortId);
             const portB = allAvailablePorts.find(p => p.id === routeForm.arrivalPortId || p.stopId === routeForm.arrivalPortId || p.name === routeForm.arrivalPortId);
             if (!portA || !portB) {
-                setError('Seçilen limanlar bulunamadı.');
+                setError(isTr ? 'Seçilen limanlar bulunamadı.' : 'Selected ports not found.');
                 return;
             }
 
@@ -1300,11 +1344,11 @@ export const RouteManagement = ({
                 }, token);
 
                 setShowRouteModal(false);
-                setSuccessMsg(`${autoName} başarıyla oluşturuldu ve liman durakları bağlandı.`);
+                setSuccessMsg(isTr ? `${autoName} başarıyla oluşturuldu ve liman durakları bağlandı.` : `${autoName} created successfully with port stops connected.`);
                 await loadRoutes(true);
                 setSelectedRouteId(created.id);
             } catch (err) {
-                setError(err.message || 'Deniz rotası oluşturulurken hata oluştu.');
+                setError(err.message || (isTr ? 'Deniz rotası oluşturulurken hata oluştu.' : 'An error occurred while creating maritime route.'));
             } finally {
                 setLoading(false);
             }
@@ -1312,7 +1356,7 @@ export const RouteManagement = ({
         }
 
         if (!routeForm.name.trim()) {
-            setError('Güzergah adı boş bırakılamaz.');
+            setError(isTr ? 'Güzergah adı boş bırakılamaz.' : 'Route name cannot be empty.');
             return;
         }
 
@@ -1326,7 +1370,7 @@ export const RouteManagement = ({
                     description: routeForm.description,
                     isActive: routeForm.isActive
                 }, token);
-                setSuccessMsg('Güzergah başarıyla güncellendi.');
+                setSuccessMsg(isTr ? 'Güzergah başarıyla güncellendi.' : 'Route updated successfully.');
             } else {
                 const created = await transportApi.createRoute({
                     name: routeForm.name,
@@ -1334,7 +1378,7 @@ export const RouteManagement = ({
                     routeClass: routeForm.routeClass || 'araba',
                     description: routeForm.description
                 }, token);
-                setSuccessMsg('Yeni güzergah başarıyla oluşturuldu.');
+                setSuccessMsg(isTr ? 'Yeni güzergah başarıyla oluşturuldu.' : 'New route created successfully.');
                 setSelectedRouteId(created.id);
             }
             setShowRouteModal(false);
@@ -1348,12 +1392,12 @@ export const RouteManagement = ({
 
     const handleDeleteRoute = async (routeId, e) => {
         if (e) e.stopPropagation();
-        if (!window.confirm('Bu güzergahı ve içerisindeki tüm durakları silmek istediğinizden emin misiniz?')) return;
+        if (!window.confirm(isTr ? 'Bu güzergahı ve içerisindeki tüm durakları silmek istediğinizden emin misiniz?' : 'Are you sure you want to delete this route and all stops inside it?')) return;
 
         try {
             setLoading(true);
             await transportApi.deleteRoute(routeId, token);
-            setSuccessMsg('Güzergah başarıyla silindi.');
+            setSuccessMsg(isTr ? 'Güzergah başarıyla silindi.' : 'Route deleted successfully.');
             await loadRoutes();
         } catch (err) {
             setError(err.message);
@@ -1471,8 +1515,10 @@ export const RouteManagement = ({
             setIsReordering(true);
             const res = await transportApi.reorderStops(selectedRouteId, orderedIds, token);
             const moveMsg = isShift
-                ? (targetIndex === 0 ? `"${stop.name}" durağı en üste (1. sıraya) taşındı.` : `"${stop.name}" durağı en alta (${targetIndex + 1}. sıraya) taşındı.`)
-                : `"${stop.name}" durağının sırası ${targetIndex + 1} olarak güncellendi.`;
+                ? (targetIndex === 0
+                    ? (isTr ? `"${stop.name}" durağı en üste (1. sıraya) taşındı.` : `Stop "${stop.name}" moved to the top (rank 1).`)
+                    : (isTr ? `"${stop.name}" durağı en alta (${targetIndex + 1}. sıraya) taşındı.` : `Stop "${stop.name}" moved to the bottom (rank ${targetIndex + 1}).`))
+                : (isTr ? `"${stop.name}" durağının sırası ${targetIndex + 1} olarak güncellendi.` : `Rank of stop "${stop.name}" updated to ${targetIndex + 1}.`);
             setSuccessMsg(moveMsg);
             if (res && res.route) {
                 setRoutes(prev => prev.map(r => r.id === selectedRouteId ? res.route : r));
@@ -1480,7 +1526,7 @@ export const RouteManagement = ({
                 setRoutes(prev => prev.map(r => r.id === selectedRouteId ? { ...r, stops: reordered } : r));
             }
         } catch (err) {
-            setError('Sıra güncellenemedi: ' + err.message);
+            setError((isTr ? 'Sıra güncellenemedi: ' : 'Failed to update order: ') + err.message);
             await loadRoutes(true);
         } finally {
             setIsReordering(false);
@@ -1490,7 +1536,7 @@ export const RouteManagement = ({
     const handleSaveStop = async (e) => {
         e.preventDefault();
         if (!stopForm.name.trim()) {
-            setError('Durak adı boş bırakılamaz.');
+            setError(isTr ? 'Durak adı boş bırakılamaz.' : 'Stop name cannot be empty.');
             return;
         }
 
@@ -1512,7 +1558,7 @@ export const RouteManagement = ({
                     wkt: stopForm.wkt,
                     isActive: stopForm.isActive
                 }, token);
-                setSuccessMsg('Durak başarıyla güncellendi.');
+                setSuccessMsg(isTr ? 'Durak başarıyla güncellendi.' : 'Stop updated successfully.');
             } else {
                 await transportApi.createStop({
                     name: stopForm.name.trim(),
@@ -1525,7 +1571,7 @@ export const RouteManagement = ({
                     orderIndex: stopForm.orderIndex,
                     wkt: stopForm.wkt || 'POINT(32.8543 39.9208)' // Ankara Kızılay varsayılanı
                 }, token);
-                setSuccessMsg('Durak başarıyla eklendi.');
+                setSuccessMsg(isTr ? 'Durak başarıyla eklendi.' : 'Stop added successfully.');
             }
             setShowStopModal(false);
             await loadRoutes(true);
@@ -1537,12 +1583,12 @@ export const RouteManagement = ({
     };
 
     const handleDeleteStop = async (stopId) => {
-        if (!window.confirm('Bu durağı güzergahtan silmek istediğinizden emin misiniz?')) return;
+        if (!window.confirm(isTr ? 'Bu durağı silmek istediğinizden emin misiniz?' : 'Are you sure you want to delete this stop?')) return;
 
         try {
             setLoading(true);
             await transportApi.deleteStop(stopId, token);
-            setSuccessMsg('Durak güzergahtan çıkarıldı.');
+            setSuccessMsg(isTr ? 'Durak başarıyla silindi.' : 'Stop deleted successfully.');
             await loadRoutes(true);
         } catch (err) {
             setError(err.message);
@@ -1567,7 +1613,7 @@ export const RouteManagement = ({
 
         const arrivalPort = allAvailablePorts.find(p => p.id === arrivalForm.arrivalPortId || p.stopId === arrivalForm.arrivalPortId || p.name === arrivalForm.arrivalPortId);
         if (!arrivalPort) {
-            setError('Seçilen liman bulunamadı.');
+            setError(isTr ? 'Seçilen liman bulunamadı.' : 'Selected port not found.');
             return;
         }
 
@@ -1604,7 +1650,7 @@ export const RouteManagement = ({
             }
 
             setShowArrivalModal(false);
-            setSuccessMsg('Varış limanı eklendi ve güzergâh oluşturuldu.');
+            setSuccessMsg(isTr ? 'Varış limanı eklendi ve güzergâh oluşturuldu.' : 'Arrival port added and route generated.');
             await loadRoutes(true);
         } catch (err) {
             setError(err.message);
@@ -1620,11 +1666,11 @@ export const RouteManagement = ({
             setLoading(true);
             const res = await transportApi.addStopToRoute(selectedRouteId, stopId, token, position, targetStopId ? Number(targetStopId) : null);
             const stopObj = (allStops || []).find(s => s.id === stopId);
-            setSuccessMsg(res.message || `"${stopObj?.name || 'Durak'}" durağı güzergaha başarıyla bağlandı.`);
+            setSuccessMsg(res.message || (isTr ? `"${stopObj?.name || 'Durak'}" durağı güzergaha başarıyla bağlandı.` : `Stop "${stopObj?.name || 'Stop'}" attached to route successfully.`));
             setShowAttachStopModal(false);
             await loadRoutes(true);
         } catch (err) {
-            setError(err.message || 'Durak güzergaha bağlanamadı.');
+            setError(err.message || (isTr ? 'Durak güzergaha bağlanamadı.' : 'Could not attach stop to route.'));
         } finally {
             setLoading(false);
         }
@@ -1636,18 +1682,18 @@ export const RouteManagement = ({
         if (!selectedRouteId) return;
         const isMulti = (stop.routeIds && stop.routeIds.length > 1) || (stop.routes && stop.routes.length > 1);
         const confirmMsg = isMulti
-            ? `"${stop.name}" durağı yalnızca bu hattan (${selectedRoute?.name || 'seçili hat'}) çıkarılacaktır. Diğer hatlardaki bağlantısı devam eder. Onaylıyor musunuz?`
-            : `"${stop.name}" durağını bu hattan çıkarmak istediğinizden emin misiniz?`;
+            ? (isTr ? `"${stop.name}" durağı yalnızca bu hattan (${selectedRoute?.name || 'seçili hat'}) çıkarılacaktır. Diğer hatlardaki bağlantısı devam eder. Onaylıyor musunuz?` : `Stop "${stop.name}" will only be removed from this route (${selectedRoute?.name || 'selected route'}). Other route connections will be preserved. Do you confirm?`)
+            : (isTr ? `"${stop.name}" durağını bu hattan çıkarmak istediğinizden emin misiniz?` : `Are you sure you want to remove stop "${stop.name}" from this route?`);
         
         if (!window.confirm(confirmMsg)) return;
 
         try {
             setLoading(true);
             const res = await transportApi.removeStopFromRoute(selectedRouteId, stop.id, token);
-            setSuccessMsg(res.message || 'Durak güzergahtan çıkarıldı.');
+            setSuccessMsg(res.message || (isTr ? 'Durak güzergahtan çıkarıldı.' : 'Stop removed from route.'));
             await loadRoutes(true);
         } catch (err) {
-            setError(err.message || 'Durak hattan çıkarılamadı.');
+            setError(err.message || (isTr ? 'Durak hattan çıkarılamadı.' : 'Could not remove stop from route.'));
         } finally {
             setLoading(false);
         }
@@ -1666,14 +1712,14 @@ export const RouteManagement = ({
             setLoading(true);
             if (isCurrentlyAttached) {
                 const res = await transportApi.removeStopFromRoute(routeId, stop.id, token);
-                setSuccessMsg(res.message || 'Hat bağlantısı kaldırıldı.');
+                setSuccessMsg(res.message || (isTr ? 'Hat bağlantısı kaldırıldı.' : 'Route connection removed.'));
             } else {
                 const res = await transportApi.addStopToRoute(routeId, stop.id, token);
-                setSuccessMsg(res.message || 'Hat durağa başarıyla bağlandı.');
+                setSuccessMsg(res.message || (isTr ? 'Hat durağa başarıyla bağlandı.' : 'Route connected to stop successfully.'));
             }
             await loadRoutes(true);
         } catch (err) {
-            setError(err.message || 'İşlem başarısız oldu.');
+            setError(err.message || (isTr ? 'İşlem başarısız oldu.' : 'Operation failed.'));
         } finally {
             setLoading(false);
         }
@@ -1686,10 +1732,10 @@ export const RouteManagement = ({
             setIsGeneratingRouteId(routeId);
             setError('');
             const res = await transportApi.generateOsrmRoute(routeId, token);
-            setSuccessMsg(res.message || 'OSRM ile gerçek karayolu rotası başarıyla oluşturuldu ve haritaya işlendi!');
+            setSuccessMsg(res.message || (isTr ? 'OSRM ile gerçek karayolu rotası başarıyla oluşturuldu ve haritaya işlendi!' : 'Real road route calculated with OSRM and applied to map!'));
             await loadRoutes(true);
         } catch (err) {
-            setError(err.message || 'OSRM ile rota üretilirken hata oluştu.');
+            setError(err.message || (isTr ? 'OSRM ile rota üretilirken hata oluştu.' : 'Error generating route with OSRM.'));
         } finally {
             setIsGeneratingRouteId(null);
         }
@@ -1725,10 +1771,10 @@ export const RouteManagement = ({
             setIsGeneratingRouteId(routeId);
             setError('');
             const res = await transportApi.switchGeometryMode(routeId, mode, token);
-            setSuccessMsg(res.message || 'Hat geometrisi başarıyla güncellendi.');
+            setSuccessMsg(res.message || (isTr ? 'Hat geometrisi başarıyla güncellendi.' : 'Route geometry updated successfully.'));
             await loadRoutes(true);
         } catch (err) {
-            setError(err.message || 'Geometri modu değiştirilemedi.');
+            setError(err.message || (isTr ? 'Geometri modu değiştirilemedi.' : 'Could not switch geometry mode.'));
         } finally {
             setIsGeneratingRouteId(null);
         }
@@ -1741,10 +1787,10 @@ export const RouteManagement = ({
             setIsGeneratingRouteId(routeId);
             setError('');
             const res = await transportApi.revertGeometry(routeId, token);
-            setSuccessMsg(res.message || 'Hat geometrisi önceki haline geri alındı.');
+            setSuccessMsg(res.message || (isTr ? 'Hat geometrisi önceki haline geri alındı.' : 'Route geometry reverted to previous state.'));
             await loadRoutes(true);
         } catch (err) {
-            setError(err.message || 'Önceki geometriye dönülemedi.');
+            setError(err.message || (isTr ? 'Önceki geometriye dönülemedi.' : 'Could not revert to previous geometry.'));
         } finally {
             setIsGeneratingRouteId(null);
         }
@@ -1976,7 +2022,7 @@ export const RouteManagement = ({
                         <circle cx="16.5" cy="14" r="1.3" fill="currentColor" />
                         <path d="M6 17v2.5M18 17v2.5" />
                     </svg>
-                    <span>Güzergah Yönetimi ({routes.length})</span>
+                    <span>{lang === 'tr' ? `Güzergah Yönetimi (${routes.length})` : `Route Management (${routes.length})`}</span>
                 </button>
 
                 <button
@@ -2001,7 +2047,7 @@ export const RouteManagement = ({
                         <circle cx="12" cy="12" r="9" />
                         <circle cx="12" cy="12" r="3" fill="currentColor" />
                     </svg>
-                    <span>Durak Yönetimi ({allStops.length})</span>
+                    <span>{lang === 'tr' ? `Durak Yönetimi (${allStops.length})` : `Stop Management (${allStops.length})`}</span>
                 </button>
             </div>
 
@@ -2012,7 +2058,7 @@ export const RouteManagement = ({
                     <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, padding: '22px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                             <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: 0 }}>
-                                Güzergah Listesi
+                                {lang === 'tr' ? 'Güzergah Listesi' : 'Route List'}
                             </h3>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <button
@@ -2056,7 +2102,7 @@ export const RouteManagement = ({
                                     }}
                                 >
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                    Yeni Hat Ekle
+                                    {lang === 'tr' ? 'Yeni Hat Ekle' : 'Add New Route'}
                                 </button>
                             </div>
                         </div>
@@ -2064,14 +2110,14 @@ export const RouteManagement = ({
                         {/* Tür Filtre Hapları */}
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                             {[
-                                { key: 'ALL', label: 'Tümü', count: typeCounts.ALL, color: '#3b82f6' },
-                                { key: 'havayolu', label: 'Havayolu', count: typeCounts.havayolu, color: '#0284c7' },
-                                { key: 'otobus', label: 'Otobüs', count: typeCounts.otobus, color: '#0284c7' },
-                                { key: 'metro', label: 'Metro', count: typeCounts.metro, color: '#ef4444' },
-                                { key: 'tramvay', label: 'Tramvay', count: typeCounts.tramvay, color: '#06b6d4' },
-                                { key: 'metrobus', label: 'Metrobüs', count: typeCounts.metrobus, color: '#f59e0b' },
-                                { key: 'tren', label: 'Tren', count: typeCounts.tren, color: '#8b5cf6' },
-                                { key: 'deniz', label: 'Deniz', count: typeCounts.deniz, color: '#0ea5e9' }
+                                { key: 'ALL', label: lang === 'tr' ? 'Tümü' : 'All', count: typeCounts.ALL, color: '#3b82f6' },
+                                { key: 'havayolu', label: lang === 'tr' ? 'Havayolu' : 'Flight', count: typeCounts.havayolu, color: '#0284c7' },
+                                { key: 'otobus', label: lang === 'tr' ? 'Otobüs' : 'Bus', count: typeCounts.otobus, color: '#0284c7' },
+                                { key: 'metro', label: lang === 'tr' ? 'Metro' : 'Metro', count: typeCounts.metro, color: '#ef4444' },
+                                { key: 'tramvay', label: lang === 'tr' ? 'Tramvay' : 'Tram', count: typeCounts.tramvay, color: '#06b6d4' },
+                                { key: 'metrobus', label: lang === 'tr' ? 'Metrobüs' : 'Metrobus', count: typeCounts.metrobus, color: '#f59e0b' },
+                                { key: 'tren', label: lang === 'tr' ? 'Tren' : 'Train', count: typeCounts.tren, color: '#8b5cf6' },
+                                { key: 'deniz', label: lang === 'tr' ? 'Deniz' : 'Ferry', count: typeCounts.deniz, color: '#0ea5e9' }
                             ].map(t => {
                                 const isSelected = selectedTypeFilter === t.key;
                                 return (
@@ -2106,7 +2152,7 @@ export const RouteManagement = ({
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                             <div>
                                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#94a3b8', marginBottom: '3px' }}>
-                                    İl / Bölge Filtresi
+                                    {lang === 'tr' ? 'İl / Bölge Filtresi' : 'Province / Region Filter'}
                                 </label>
                                 <select
                                     value={selectedCityFilter}
@@ -2121,16 +2167,16 @@ export const RouteManagement = ({
                                         fontSize: '12px'
                                     }}
                                 >
-                                    <option value="ALL">Tüm İller & Bölgeler</option>
+                                    <option value="ALL">{lang === 'tr' ? 'Tüm İller & Bölgeler' : 'All Provinces & Regions'}</option>
                                     {availableRouteCities.map(c => (
-                                        <option key={c} value={c}>{c}</option>
+                                        <option key={c} value={c}>{c === 'Diğer' ? (lang === 'tr' ? 'Diğer İller' : 'Other Provinces') : c}</option>
                                     ))}
-                                    <option value="Diğer">Diğer İller</option>
+                                    <option value="Diğer">{lang === 'tr' ? 'Diğer İller' : 'Other Provinces'}</option>
                                 </select>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#94a3b8', marginBottom: '3px' }}>
-                                    Sıralama Ölçütü
+                                    {lang === 'tr' ? 'Sıralama Ölçütü' : 'Sort Criteria'}
                                 </label>
                                 <select
                                     value={routeSortBy}
@@ -2145,9 +2191,9 @@ export const RouteManagement = ({
                                         fontSize: '12px'
                                     }}
                                 >
-                                    <option value="TYPE">Türe Göre (Metro ➔ Gemi)</option>
-                                    <option value="NAME">İsim (A-Z)</option>
-                                    <option value="STOPS">Durak Sayısı (Çoktan Aza)</option>
+                                    <option value="TYPE">{lang === 'tr' ? 'Türe Göre (Metro ➔ Gemi)' : 'Sort by Type (Metro ➔ Ferry)'}</option>
+                                    <option value="NAME">{lang === 'tr' ? 'İsim (A-Z)' : 'Name (A-Z)'}</option>
+                                    <option value="STOPS">{lang === 'tr' ? 'Durak Sayısı (Çoktan Aza)' : 'Stop Count (High to Low)'}</option>
                                 </select>
                             </div>
                         </div>
@@ -2156,7 +2202,7 @@ export const RouteManagement = ({
                         <div style={{ position: 'relative' }}>
                             <input
                                 type="text"
-                                placeholder="Güzergah adı veya açıklama ara..."
+                                placeholder={lang === 'tr' ? "Güzergah adı veya açıklama ara..." : "Search route name or description..."}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 style={{
@@ -2195,10 +2241,12 @@ export const RouteManagement = ({
 
                         {/* Güzergahlar Kart Listesi */}
                         {loading && routes.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>Güzergahlar yükleniyor...</div>
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                                {lang === 'tr' ? 'Güzergahlar yükleniyor...' : 'Loading routes...'}
+                            </div>
                         ) : filteredRoutes.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                                {searchQuery ? 'Aramanıza uygun güzergah bulunamadı.' : 'Bu kategoride kayıtlı güzergah bulunmuyor.'}
+                                {searchQuery ? (lang === 'tr' ? 'Aramanıza uygun güzergah bulunamadı.' : 'No routes found matching your search.') : (lang === 'tr' ? 'Bu kategoride kayıtlı güzergah bulunmuyor.' : 'No registered routes in this category.')}
                             </div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '520px', overflowY: 'auto', paddingRight: '4px' }}>
@@ -2243,9 +2291,9 @@ export const RouteManagement = ({
                                                         {route.name}
                                                     </div>
                                                     <div style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
-                                                        <span>{route.stops?.length || 0} Durak</span>
+                                                        <span>{route.stops?.length || 0} {lang === 'tr' ? 'Durak' : ((route.stops?.length || 0) === 1 ? 'Stop' : 'Stops')}</span>
                                                         <span>•</span>
-                                                        <span>{clsInfo?.label || clsKey}</span>
+                                                        <span>{getLocalizedClassLabel(clsKey, lang)}</span>
                                                         {route.geometryType === 'Osrm' && (
                                                             <>
                                                                 <span>•</span>
@@ -2256,7 +2304,7 @@ export const RouteManagement = ({
                                                         )}
                                                         <span>•</span>
                                                         <span style={{ padding: '1px 5px', borderRadius: '4px', backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : '#e0f2fe', color: '#0284c7', fontSize: '10px', fontWeight: 600 }}>
-                                                            {detectedCity}
+                                                            {detectedCity === 'Diğer' ? (lang === 'tr' ? 'Diğer' : 'Other') : detectedCity}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -2267,8 +2315,8 @@ export const RouteManagement = ({
                                                     const isMetroOrSea = ['metro', 'gemi', 'tren'].includes((route.routeClass || '').toLowerCase());
                                                     const isOsrmDisabled = isGeneratingRouteId === route.id || !route.stops || route.stops.length < 2 || isMetroOrSea;
                                                     const osrmTitle = isMetroOrSea 
-                                                        ? 'Metro ve raylı hatlar karayolu olmadığı için OSRM karayolu hesaplaması kullanılamaz' 
-                                                        : ((!route.stops || route.stops.length < 2) ? 'Rota için en az 2 durak gereklidir' : 'OSRM ile Karayolu Rotasını Hesapla');
+                                                        ? (lang === 'tr' ? 'Metro ve raylı hatlar karayolu olmadığı için OSRM karayolu hesaplaması kullanılamaz' : 'OSRM highway routing cannot be used for metro and rail lines') 
+                                                        : ((!route.stops || route.stops.length < 2) ? (lang === 'tr' ? 'Rota için en az 2 durak gereklidir' : 'At least 2 stops are required for route') : (lang === 'tr' ? 'OSRM ile Karayolu Rotasını Hesapla' : 'Calculate Highway Route with OSRM'));
                                                     return (
                                                         <button
                                                             onClick={(e) => handleGenerateOsrmRoute(route.id, e)}
@@ -2482,7 +2530,7 @@ export const RouteManagement = ({
                                                                 onClick={(e) => handleUpdateStopRank(stop, -1, e)} 
                                                                 disabled={index === 0} 
                                                                 style={{ background: 'none', border: 'none', color: index === 0 ? '#475569' : '#94a3b8', cursor: index === 0 ? 'not-allowed' : 'pointer', padding: 0, fontSize: '9px' }}
-                                                                title="Yukarı Taşı (Shift ile En Üste Gönder)"
+                                                                title={isTr ? "Yukarı Taşı (Shift ile En Üste Gönder)" : "Move Up (Shift to move to top)"}
                                                             >
                                                                 ▲
                                                             </button>
@@ -2493,7 +2541,7 @@ export const RouteManagement = ({
                                                                 onClick={(e) => handleUpdateStopRank(stop, 1, e)} 
                                                                 disabled={index >= routeStops.length - 1} 
                                                                 style={{ background: 'none', border: 'none', color: index >= routeStops.length - 1 ? '#475569' : '#94a3b8', cursor: index >= routeStops.length - 1 ? 'not-allowed' : 'pointer', padding: 0, fontSize: '9px' }}
-                                                                title="Aşağı Taşı (Shift ile En Alta Gönder)"
+                                                                title={isTr ? "Aşağı Taşı (Shift ile En Alta Gönder)" : "Move Down (Shift to move to bottom)"}
                                                             >
                                                                 ▼
                                                             </button>
@@ -2538,7 +2586,7 @@ export const RouteManagement = ({
                                                                 setAttachSearchQuery('');
                                                                 setShowAttachStopModal(true);
                                                             }}
-                                                            title={`"${stop.name}" durağından hemen sonraya mevcut durak bağla`}
+                                                            title={isTr ? `"${stop.name}" durağından hemen sonraya mevcut durak bağla` : `Attach existing stop immediately after "${stop.name}"`}
                                                             style={{ background: 'none', border: 'none', color: '#10b981', padding: '6px', cursor: 'pointer', borderRadius: '6px', display: 'flex', alignItems: 'center' }}
                                                         >
                                                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M12 5v14M5 12h14"/></svg>
@@ -2546,7 +2594,7 @@ export const RouteManagement = ({
                                                         {onRepositionStopOnMap && (
                                                             <button
                                                                 onClick={() => onRepositionStopOnMap(stop)}
-                                                                title="Durağın Konumunu Haritada Taşı"
+                                                                title={isTr ? "Durağın Konumunu Haritada Taşı" : "Move Stop Location on Map"}
                                                                 style={{ background: 'none', border: 'none', color: '#38bdf8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
                                                             >
                                                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -2579,7 +2627,7 @@ export const RouteManagement = ({
                             </>
                         ) : (
                             <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-                                Soldaki listeden duraklarını yönetmek istediğiniz bir güzergah seçin.
+                                {isTr ? 'Soldaki listeden duraklarını yönetmek istediğiniz bir güzergah seçin.' : 'Select a route from the list on the left to manage its stops.'}
                             </div>
                         )}
                     </div>
@@ -2597,16 +2645,16 @@ export const RouteManagement = ({
                                     <circle cx="12" cy="12" r="9" />
                                     <circle cx="12" cy="12" r="3" fill="currentColor" />
                                 </svg>
-                                <span>Tüm Duraklar ve POI Yönetimi</span>
+                                <span>{isTr ? 'Tüm Duraklar ve POI Yönetimi' : 'All Stops & POI Management'}</span>
                             </h3>
                             <p style={{ margin: 0, fontSize: '12.5px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                                Tüm bağımsız ve güzergaha bağlı durakların isim, rank (sıra), sınıf ve konumlarını doğrudan düzenleyin.
+                                {isTr ? 'Tüm bağımsız ve güzergaha bağlı durakların isim, rank (sıra), sınıf ve konumlarını doğrudan düzenleyin.' : 'Directly edit names, rank (order), class, and locations of all independent and route-linked stops.'}
                             </p>
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '20px', background: isDarkMode ? '#334155' : '#e2e8f0', color: isDarkMode ? '#cbd5e1' : '#475569', fontWeight: '600' }}>
-                                {filteredStops.length} / {allStops.length} Durak Listeleniyor
+                                {filteredStops.length} / {allStops.length} {isTr ? 'Durak Listeleniyor' : 'Stops Listed'}
                             </span>
                             <button
                                 onClick={handleOpenCreateStop}
@@ -2625,7 +2673,7 @@ export const RouteManagement = ({
                                 }}
                             >
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                Yeni Durak Ekle
+                                {isTr ? 'Yeni Durak Ekle' : 'Add New Stop'}
                             </button>
                         </div>
                     </div>
@@ -2637,7 +2685,7 @@ export const RouteManagement = ({
                             <div style={{ flex: '1 1 240px', position: 'relative' }}>
                                 <input
                                     type="text"
-                                    placeholder="Durak adı, il, açıklama veya hat adı ara..."
+                                    placeholder={isTr ? "Durak adı, il, açıklama veya hat adı ara..." : "Search stop name, city, description, or route..."}
                                     value={stopSearchQuery}
                                     onChange={(e) => setStopSearchQuery(e.target.value)}
                                     style={{
@@ -2716,7 +2764,7 @@ export const RouteManagement = ({
                                 <optgroup label={lang === 'tr' ? `${selectedStopCityFilter === 'ALL' ? 'Tüm Şehirler' : selectedStopCityFilter} Güzergahları` : 'Filter by Route'}>
                                     {availableStopRoutes.map(r => {
                                         const clsInfo = getRouteClassInfo(r.routeClass);
-                                        const shortLabel = clsInfo?.shortLabel || r.routeClass;
+                                        const shortLabel = getLocalizedClassShortLabel(r.routeClass, lang) || r.routeClass;
                                         const bullet = clsInfo?.bullet || '●';
                                         return (
                                             <option key={r.id} value={r.id}>
@@ -2732,13 +2780,13 @@ export const RouteManagement = ({
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                             {[
                                 { id: 'ALL', label: lang === 'tr' ? 'Tüm Sınıflar' : 'All Classes', count: cityFilteredStopsForCounts.length, color: '#64748b' },
-                                { id: 'havayolu', label: lang === 'tr' ? 'Havayolu' : 'Flight', count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'havayolu').length, color: '#0284c7' },
-                                { id: 'otobus', label: lang === 'tr' ? 'Otobüs' : 'Bus', count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'otobus').length, color: '#0284c7' },
-                                { id: 'metro', label: lang === 'tr' ? 'Metro' : 'Metro', count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'metro').length, color: '#ef4444' },
-                                { id: 'tramvay', label: lang === 'tr' ? 'Tramvay' : 'Tram', count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'tramvay').length, color: '#06b6d4' },
-                                { id: 'metrobus', label: lang === 'tr' ? 'Metrobüs' : 'Metrobus', count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'metrobus').length, color: '#f59e0b' },
-                                { id: 'tren', label: lang === 'tr' ? 'Tren' : 'Train', count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'tren').length, color: '#8b5cf6' },
-                                { id: 'deniz', label: lang === 'tr' ? 'Deniz / Vapur' : 'Ferry', count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'deniz').length, color: '#0ea5e9' }
+                                { id: 'havayolu', label: getLocalizedClassLabel('havayolu', lang), count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'havayolu').length, color: '#0284c7' },
+                                { id: 'otobus', label: getLocalizedClassLabel('otobus', lang), count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'otobus').length, color: '#0284c7' },
+                                { id: 'metro', label: getLocalizedClassLabel('metro', lang), count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'metro').length, color: '#ef4444' },
+                                { id: 'tramvay', label: getLocalizedClassLabel('tramvay', lang), count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'tramvay').length, color: '#06b6d4' },
+                                { id: 'metrobus', label: getLocalizedClassLabel('metrobus', lang), count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'metrobus').length, color: '#f59e0b' },
+                                { id: 'tren', label: getLocalizedClassLabel('tren', lang), count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'tren').length, color: '#8b5cf6' },
+                                { id: 'deniz', label: getLocalizedClassLabel('deniz', lang), count: cityFilteredStopsForCounts.filter(s => normalizeTransitClass(s.stopClass) === 'deniz').length, color: '#0ea5e9' }
                             ].map(cls => {
                                 const isSelected = stopClassFilter === cls.id;
                                 return (
@@ -2810,7 +2858,7 @@ export const RouteManagement = ({
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: isDarkMode ? '#f8fafc' : '#0f172a' }}>
-                                            {selectedStopCityFilter} {lang === 'tr' ? 'Toplu Taşıma Durakları' : 'Transit Stops'}
+                                            {selectedStopCityFilter === 'Diğer' ? (isTr ? 'Diğer İller' : 'Other Provinces') : selectedStopCityFilter} {lang === 'tr' ? 'Toplu Taşıma Durakları' : 'Transit Stops'}
                                         </h4>
                                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#2563eb', color: '#ffffff', fontWeight: 700 }}>
                                             {filteredStops.length} {lang === 'tr' ? 'Durak' : 'Stops'}
@@ -2845,7 +2893,7 @@ export const RouteManagement = ({
                                             }}
                                         >
                                             <RouteClassIcon classKey={typeKey} size={12} color={clsInfo?.color || '#3b82f6'} />
-                                            <span>{clsInfo?.shortLabel || typeKey}:</span>
+                                            <span>{getLocalizedClassShortLabel(typeKey, lang)}:</span>
                                             <strong>{count}</strong>
                                         </span>
                                     );
@@ -2875,9 +2923,9 @@ export const RouteManagement = ({
                                     border: `1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}`
                                 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                                        <span>Görüntülenen: <strong>{(stopPage - 1) * STOP_PAGE_SIZE + 1} - {Math.min(stopPage * STOP_PAGE_SIZE, filteredStops.length)}</strong> / {filteredStops.length}</span>
+                                        <span>{isTr ? 'Görüntülenen:' : 'Showing:'} <strong>{(stopPage - 1) * STOP_PAGE_SIZE + 1} - {Math.min(stopPage * STOP_PAGE_SIZE, filteredStops.length)}</strong> / {filteredStops.length}</span>
                                         <span style={{ padding: '2px 8px', borderRadius: '4px', background: isDarkMode ? '#1e293b' : '#e2e8f0', color: isDarkMode ? '#38bdf8' : '#0284c7', fontWeight: 700 }}>
-                                            Sayfa {stopPage} / {totalStopPages}
+                                            {isTr ? 'Sayfa' : 'Page'} {stopPage} / {totalStopPages}
                                         </span>
                                     </div>
 
@@ -2886,7 +2934,7 @@ export const RouteManagement = ({
                                             type="button"
                                             onClick={() => setStopPage(1)}
                                             disabled={stopPage <= 1}
-                                            title="İlk Sayfa"
+                                            title={isTr ? "İlk Sayfa" : "First Page"}
                                             style={{
                                                 padding: '4px 8px',
                                                 borderRadius: '4px',
@@ -2904,7 +2952,7 @@ export const RouteManagement = ({
                                             type="button"
                                             onClick={() => setStopPage(p => Math.max(1, p - 1))}
                                             disabled={stopPage <= 1}
-                                            title="Önceki Sayfa"
+                                            title={isTr ? "Önceki Sayfa" : "Previous Page"}
                                             style={{
                                                 padding: '4px 10px',
                                                 borderRadius: '4px',
@@ -2916,7 +2964,7 @@ export const RouteManagement = ({
                                                 cursor: stopPage <= 1 ? 'not-allowed' : 'pointer'
                                             }}
                                         >
-                                            ◀ Önceki
+                                            {isTr ? '◀ Önceki' : '◀ Prev'}
                                         </button>
 
                                         <select
@@ -2935,7 +2983,7 @@ export const RouteManagement = ({
                                         >
                                             {Array.from({ length: totalStopPages }, (_, i) => i + 1).map(p => (
                                                 <option key={p} value={p}>
-                                                    Sayfa {p} ({((p - 1) * STOP_PAGE_SIZE) + 1} - {Math.min(p * STOP_PAGE_SIZE, filteredStops.length)})
+                                                    {isTr ? 'Sayfa' : 'Page'} {p} ({((p - 1) * STOP_PAGE_SIZE) + 1} - {Math.min(p * STOP_PAGE_SIZE, filteredStops.length)})
                                                 </option>
                                             ))}
                                         </select>
@@ -2944,7 +2992,7 @@ export const RouteManagement = ({
                                             type="button"
                                             onClick={() => setStopPage(p => Math.min(totalStopPages, p + 1))}
                                             disabled={stopPage >= totalStopPages}
-                                            title="Sonraki Sayfa"
+                                            title={isTr ? "Sonraki Sayfa" : "Next Page"}
                                             style={{
                                                 padding: '4px 10px',
                                                 borderRadius: '4px',
@@ -2956,13 +3004,13 @@ export const RouteManagement = ({
                                                 cursor: stopPage >= totalStopPages ? 'not-allowed' : 'pointer'
                                             }}
                                         >
-                                            Sonraki ▶
+                                            {isTr ? 'Sonraki ▶' : 'Next ▶'}
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() => setStopPage(totalStopPages)}
                                             disabled={stopPage >= totalStopPages}
-                                            title="Son Sayfa"
+                                            title={isTr ? "Son Sayfa" : "Last Page"}
                                             style={{
                                                 padding: '4px 8px',
                                                 borderRadius: '4px',
@@ -3007,14 +3055,14 @@ export const RouteManagement = ({
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
                                                 <button
                                                     onClick={(e) => handleUpdateStopRank(stop, -1, e)}
-                                                    title="Yukarı Taşı (Shift ile En Üste Gönder)"
+                                                    title={isTr ? "Yukarı Taşı (Shift ile En Üste Gönder)" : "Move Up (Shift to move to top)"}
                                                     disabled={(stop.orderIndex || 1) <= 1}
                                                     style={{ background: 'none', border: 'none', color: (stop.orderIndex || 1) <= 1 ? '#475569' : '#94a3b8', cursor: (stop.orderIndex || 1) <= 1 ? 'not-allowed' : 'pointer', padding: '0', fontSize: '10px', lineHeight: '1' }}
                                                 >
                                                     ▲
                                                 </button>
                                                 <span
-                                                    title="Durak Sırası / Rank (Düzenlemek için tıkla)"
+                                                    title={isTr ? "Durak Sırası / Rank (Düzenlemek için tıkla)" : "Stop Rank / Order (Click to edit)"}
                                                     onClick={() => handleOpenEditStop(stop)}
                                                     style={{
                                                         width: '26px',
@@ -3035,7 +3083,7 @@ export const RouteManagement = ({
                                                 </span>
                                                 <button
                                                     onClick={(e) => handleUpdateStopRank(stop, 1, e)}
-                                                    title="Aşağı Taşı (Shift ile En Alta Gönder)"
+                                                    title={isTr ? "Aşağı Taşı (Shift ile En Alta Gönder)" : "Move Down (Shift to move to bottom)"}
                                                     disabled={!routeStops || (stop.orderIndex || 1) >= routeStops.length}
                                                     style={{ background: 'none', border: 'none', color: (!routeStops || (stop.orderIndex || 1) >= routeStops.length) ? '#475569' : '#94a3b8', cursor: (!routeStops || (stop.orderIndex || 1) >= routeStops.length) ? 'not-allowed' : 'pointer', padding: '0', fontSize: '10px', lineHeight: '1' }}
                                                 >
@@ -3072,7 +3120,7 @@ export const RouteManagement = ({
                                                             display: 'inline-block',
                                                             flexShrink: 0
                                                         }}
-                                                        title={`Tür: ${clsInfo?.label || clsKey}`}
+                                                        title={`${isTr ? 'Tür' : 'Type'}: ${getLocalizedClassLabel(clsKey, lang)}`}
                                                     />
                                                     <span style={{ fontWeight: '700', fontSize: '13.5px', color: isDarkMode ? '#ffffff' : '#0f172a' }}>
                                                         {stop.name}
@@ -3084,10 +3132,10 @@ export const RouteManagement = ({
                                                     )}
                                                     <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '6px', backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#e2e8f0', color: clsInfo?.color || '#3b82f6', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                                                         <RouteClassIcon classKey={clsKey} size={12} color={clsInfo?.color || '#3b82f6'} />
-                                                        <span>{clsInfo?.shortLabel || clsKey}</span>
+                                                        <span>{getLocalizedClassShortLabel(clsKey, lang)}</span>
                                                     </span>
                                                     <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', backgroundColor: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : '#e0f2fe', color: '#0284c7', fontWeight: '600' }}>
-                                                        {detectedCity}
+                                                        {detectedCity === 'Diğer' ? (isTr ? 'Diğer' : 'Other') : detectedCity}
                                                     </span>
                                                     {stop.imageUrl && (
                                                         <span 
@@ -3103,10 +3151,10 @@ export const RouteManagement = ({
                                                                 alignItems: 'center',
                                                                 gap: '3px'
                                                             }}
-                                                            title="Bu durağa ait fotoğraf mevcut"
+                                                            title={isTr ? "Bu durağa ait fotoğraf mevcut" : "Photo available for this stop"}
                                                         >
                                                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                                                            Fotoğraflı
+                                                            {isTr ? 'Fotoğraflı' : 'With Photo'}
                                                         </span>
                                                     )}
                                                 </div>
@@ -3153,7 +3201,7 @@ export const RouteManagement = ({
                                                                 </span>
                                                                 <button
                                                                     onClick={(e) => handleQuickToggleRouteForStop(stop, r.id, e)}
-                                                                    title={`Bu durağı "${r.name}" hattından çıkar`}
+                                                                    title={isTr ? `Bu durağı "${r.name}" hattından çıkar` : `Remove this stop from route "${r.name}"`}
                                                                     style={{
                                                                         background: 'none',
                                                                         border: 'none',
@@ -3175,7 +3223,7 @@ export const RouteManagement = ({
 
                                                         {assignedRoutes.length === 0 && (
                                                             <div style={{ padding: '4px 8px', borderRadius: '6px', background: isDarkMode ? '#334155' : '#e2e8f0', color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: '11.5px', fontWeight: '500' }}>
-                                                                Bağlı hat yok
+                                                                {isTr ? 'Bağlı hat yok' : 'No connected routes'}
                                                             </div>
                                                         )}
 
@@ -3188,7 +3236,7 @@ export const RouteManagement = ({
                                                                         e.stopPropagation();
                                                                         setQuickRouteMenuStopId(isMenuOpen ? null : stop.id);
                                                                     }}
-                                                                    title="Bu durağı başka bir hatta bağla"
+                                                                    title={isTr ? "Bu durağı başka bir hatta bağla" : "Attach this stop to another route"}
                                                                     style={{
                                                                         display: 'inline-flex',
                                                                         alignItems: 'center',
@@ -3203,7 +3251,7 @@ export const RouteManagement = ({
                                                                         cursor: 'pointer'
                                                                     }}
                                                                 >
-                                                                    <span>+ Hat Bağla</span>
+                                                                    <span>+ {isTr ? 'Hat Bağla' : 'Attach Route'}</span>
                                                                 </button>
 
                                                                 {isMenuOpen && (
@@ -3228,7 +3276,7 @@ export const RouteManagement = ({
                                                                         }}
                                                                     >
                                                                         <div style={{ fontSize: '10.5px', fontWeight: '700', color: '#94a3b8', padding: '4px 6px' }}>
-                                                                            Hatta Bağla:
+                                                                            {isTr ? 'Hatta Bağla:' : 'Attach to Route:'}
                                                                         </div>
                                                                         {unassignedRoutes.map(ur => (
                                                                             <button
@@ -3272,7 +3320,7 @@ export const RouteManagement = ({
                                             {onRepositionStopOnMap && (
                                                 <button
                                                     onClick={() => onRepositionStopOnMap(stop)}
-                                                    title="Haritada Sürükleyerek Konumlandır"
+                                                    title={isTr ? "Haritada Sürükleyerek Konumlandır" : "Reposition on Map by Dragging"}
                                                     style={{ background: 'none', border: 'none', color: '#38bdf8', padding: '6px', cursor: 'pointer', borderRadius: '6px' }}
                                                     onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.15)'}
                                                     onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
@@ -3326,9 +3374,9 @@ export const RouteManagement = ({
                                 marginTop: '4px'
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                                    <span>Görüntülenen: <strong>{(stopPage - 1) * STOP_PAGE_SIZE + 1} - {Math.min(stopPage * STOP_PAGE_SIZE, filteredStops.length)}</strong> / {filteredStops.length}</span>
+                                    <span>{isTr ? 'Görüntülenen:' : 'Showing:'} <strong>{(stopPage - 1) * STOP_PAGE_SIZE + 1} - {Math.min(stopPage * STOP_PAGE_SIZE, filteredStops.length)}</strong> / {filteredStops.length}</span>
                                     <span style={{ padding: '2px 8px', borderRadius: '4px', background: isDarkMode ? '#1e293b' : '#e2e8f0', color: isDarkMode ? '#38bdf8' : '#0284c7', fontWeight: 700 }}>
-                                        Sayfa {stopPage} / {totalStopPages}
+                                        {isTr ? 'Sayfa' : 'Page'} {stopPage} / {totalStopPages}
                                     </span>
                                 </div>
 
@@ -3337,7 +3385,7 @@ export const RouteManagement = ({
                                         type="button"
                                         onClick={() => setStopPage(1)}
                                         disabled={stopPage <= 1}
-                                        title="İlk Sayfa"
+                                        title={isTr ? "İlk Sayfa" : "First Page"}
                                         style={{
                                             padding: '4px 8px',
                                             borderRadius: '4px',
@@ -3355,7 +3403,7 @@ export const RouteManagement = ({
                                         type="button"
                                         onClick={() => setStopPage(p => Math.max(1, p - 1))}
                                         disabled={stopPage <= 1}
-                                        title="Önceki Sayfa"
+                                        title={isTr ? "Önceki Sayfa" : "Previous Page"}
                                         style={{
                                             padding: '4px 10px',
                                             borderRadius: '4px',
@@ -3367,7 +3415,7 @@ export const RouteManagement = ({
                                             cursor: stopPage <= 1 ? 'not-allowed' : 'pointer'
                                         }}
                                     >
-                                        ◀ Önceki
+                                        {isTr ? '◀ Önceki' : '◀ Prev'}
                                     </button>
 
                                     <select
@@ -3386,7 +3434,7 @@ export const RouteManagement = ({
                                     >
                                         {Array.from({ length: totalStopPages }, (_, i) => i + 1).map(p => (
                                             <option key={p} value={p}>
-                                                Sayfa {p} ({((p - 1) * STOP_PAGE_SIZE) + 1} - {Math.min(p * STOP_PAGE_SIZE, filteredStops.length)})
+                                                {isTr ? 'Sayfa' : 'Page'} {p} ({((p - 1) * STOP_PAGE_SIZE) + 1} - {Math.min(p * STOP_PAGE_SIZE, filteredStops.length)})
                                             </option>
                                         ))}
                                     </select>
@@ -3395,7 +3443,7 @@ export const RouteManagement = ({
                                         type="button"
                                         onClick={() => setStopPage(p => Math.min(totalStopPages, p + 1))}
                                         disabled={stopPage >= totalStopPages}
-                                        title="Sonraki Sayfa"
+                                        title={isTr ? "Sonraki Sayfa" : "Next Page"}
                                         style={{
                                             padding: '4px 10px',
                                             borderRadius: '4px',
@@ -3407,13 +3455,13 @@ export const RouteManagement = ({
                                             cursor: stopPage >= totalStopPages ? 'not-allowed' : 'pointer'
                                         }}
                                     >
-                                        Sonraki ▶
+                                        {isTr ? 'Sonraki ▶' : 'Next ▶'}
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => setStopPage(totalStopPages)}
                                         disabled={stopPage >= totalStopPages}
-                                        title="Son Sayfa"
+                                        title={isTr ? "Son Sayfa" : "Last Page"}
                                         style={{
                                             padding: '4px 8px',
                                             borderRadius: '4px',
@@ -3441,7 +3489,7 @@ export const RouteManagement = ({
                     <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, width: '100%', maxWidth: '480px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                             <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>
-                                {isEditingRoute ? 'Güzergahı Düzenle' : 'Yeni Güzergah Oluştur'}
+                                {isEditingRoute ? (isTr ? 'Güzergahı Düzenle' : 'Edit Route') : (isTr ? 'Yeni Güzergah Oluştur' : 'Create New Route')}
                             </h3>
                             <button onClick={() => setShowRouteModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}>
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -3450,11 +3498,13 @@ export const RouteManagement = ({
 
                         <form onSubmit={handleSaveRoute} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Güzergah Adı *</label>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>
+                                    {isTr ? 'Güzergah Adı *' : 'Route Name *'}
+                                </label>
                                 <input
                                     type="text"
                                     required
-                                    placeholder="örn. M4 Kadıköy - Sabiha Gökçen veya 15F Sahil Hattı"
+                                    placeholder={isTr ? "örn. M4 Kadıköy - Sabiha Gökçen veya 15F Sahil Hattı" : "e.g. M4 Kadikoy - Sabiha Gokcen or 15F Coastal Line"}
                                     value={routeForm.name}
                                     onChange={(e) => setRouteForm({ ...routeForm, name: e.target.value })}
                                     style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a' }}
@@ -3462,7 +3512,9 @@ export const RouteManagement = ({
                             </div>
 
                             <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Hat Rengi</label>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>
+                                    {isTr ? 'Hat Rengi' : 'Line Color'}
+                                </label>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                     {PRESET_COLORS.map(p => (
                                         <button
@@ -3492,7 +3544,7 @@ export const RouteManagement = ({
 
                             <div>
                                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>
-                                    Güzergah Sınıfı (Ulaşım Türü) *
+                                    {isTr ? 'Güzergah Sınıfı (Ulaşım Türü) *' : 'Route Class (Transit Type) *'}
                                 </label>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
                                     {ROUTE_CLASSES.map(cls => {
@@ -3508,11 +3560,15 @@ export const RouteManagement = ({
                                                     if (isSwitchingToGemi && !isEditingRoute) {
                                                         const pA = allAvailablePorts.find(p => p.id === routeForm.departurePortId) || allAvailablePorts[0];
                                                         const pB = allAvailablePorts.find(p => p.id === routeForm.arrivalPortId) || allAvailablePorts[1];
-                                                        newName = `${pA?.shortName || 'Kalkış'} - ${pB?.shortName || 'Varış'} Deniz Hattı`;
+                                                        newName = isTr 
+                                                            ? `${pA?.shortName || 'Kalkış'} - ${pB?.shortName || 'Varış'} Deniz Hattı` 
+                                                            : `${pA?.shortName || 'Departure'} - ${pB?.shortName || 'Arrival'} Maritime Line`;
                                                     } else if (isSwitchingToHavayolu && !isEditingRoute) {
                                                         const aA = allAvailableAirports.find(a => a.id === routeForm.departureAirportId) || allAvailableAirports[0];
                                                         const aB = allAvailableAirports.find(a => a.id === routeForm.arrivalAirportId) || allAvailableAirports[1];
-                                                        newName = `${aA?.shortName || 'Kalkış'} - ${aB?.shortName || 'Varış'} Uçuş Hattı`;
+                                                        newName = isTr 
+                                                            ? `${aA?.shortName || 'Kalkış'} - ${aB?.shortName || 'Varış'} Uçuş Hattı` 
+                                                            : `${aA?.shortName || 'Departure'} - ${aB?.shortName || 'Arrival'} Flight Corridor`;
                                                     }
                                                     setRouteForm({ 
                                                         ...routeForm, 
@@ -3538,7 +3594,7 @@ export const RouteManagement = ({
                                                 }}
                                             >
                                                 <RouteClassIcon classKey={cls.id} size={15} color={isSelected ? cls.color : (isDarkMode ? '#cbd5e1' : '#475569')} />
-                                                <span>{cls.shortLabel}</span>
+                                                <span>{getLocalizedClassShortLabel(cls.id, lang)}</span>
                                             </button>
                                         );
                                     })}
@@ -3553,50 +3609,52 @@ export const RouteManagement = ({
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                                 <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
                                             </svg>
-                                            <span>Havalimanları Arası Uçuş Güzergahı</span>
+                                            <span>{isTr ? 'Havalimanları Arası Uçuş Güzergahı' : 'Inter-Airport Flight Corridor'}</span>
                                         </div>
                                         <span style={{ fontSize: '11px', fontWeight: '600', padding: '2px 8px', borderRadius: '10px', background: '#0284c7', color: '#ffffff' }}>
-                                            {allAvailableAirports.length} Havalimanı
+                                            {allAvailableAirports.length} {isTr ? 'Havalimanı' : 'Airports'}
                                         </span>
                                     </div>
                                     <p style={{ margin: 0, fontSize: '11.5px', color: isDarkMode ? '#94a3b8' : '#0369a1', lineHeight: '1.4' }}>
-                                        Havayolu hatları kalkış ve varış havalimanları arasında eğri uçuş koridoru ve terminalleriyle birlikte otomatik oluşturulur.
+                                        {isTr ? 'Havayolu hatları kalkış ve varış havalimanları arasında eğri uçuş koridoru ve terminalleriyle birlikte otomatik oluşturulur.' : 'Flight routes are automatically generated between departure and arrival airports with a curved corridor and terminals.'}
                                     </p>
 
                                     {/* Kalkış ve Varış Havalimanları Seçimi */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                         <SearchableAirportSelect
-                                            label="1. Kalkış Havalimanı *"
+                                            label={isTr ? "1. Kalkış Havalimanı *" : "1. Departure Airport *"}
                                             selectedId={routeForm.departureAirportId}
                                             disabledId={routeForm.arrivalAirportId}
                                             airports={allAvailableAirports}
                                             isDarkMode={isDarkMode}
-                                            placeholder="Kalkış havalimanı seçiniz..."
+                                            lang={lang}
+                                            placeholder={isTr ? "Kalkış havalimanı seçiniz..." : "Select departure airport..."}
                                             onChange={(newDepId) => {
                                                 const aA = allAvailableAirports.find(a => a.id === newDepId || a.stopId === newDepId || a.iata === newDepId);
                                                 const aB = allAvailableAirports.find(a => a.id === routeForm.arrivalAirportId || a.stopId === routeForm.arrivalAirportId || a.iata === routeForm.arrivalAirportId);
                                                 setRouteForm({
                                                     ...routeForm,
                                                     departureAirportId: newDepId,
-                                                    name: aA && aB ? `${aA.shortName} - ${aB.shortName} Uçuş Hattı` : routeForm.name
+                                                    name: aA && aB ? `${aA.shortName} - ${aB.shortName} ${isTr ? 'Uçuş Hattı' : 'Flight Line'}` : routeForm.name
                                                 });
                                             }}
                                         />
 
                                         <SearchableAirportSelect
-                                            label="2. Varış Havalimanı *"
+                                            label={isTr ? "2. Varış Havalimanı *" : "2. Arrival Airport *"}
                                             selectedId={routeForm.arrivalAirportId}
                                             disabledId={routeForm.departureAirportId}
                                             airports={allAvailableAirports}
                                             isDarkMode={isDarkMode}
-                                            placeholder="Varış havalimanı seçiniz..."
+                                            lang={lang}
+                                            placeholder={isTr ? "Varış havalimanı seçiniz..." : "Select arrival airport..."}
                                             onChange={(newArrId) => {
                                                 const aA = allAvailableAirports.find(a => a.id === routeForm.departureAirportId || a.stopId === routeForm.departureAirportId || a.iata === routeForm.departureAirportId);
                                                 const aB = allAvailableAirports.find(a => a.id === newArrId || a.stopId === newArrId || a.iata === newArrId);
                                                 setRouteForm({
                                                     ...routeForm,
                                                     arrivalAirportId: newArrId,
-                                                    name: aA && aB ? `${aA.shortName} - ${aB.shortName} Uçuş Hattı` : routeForm.name
+                                                    name: aA && aB ? `${aA.shortName} - ${aB.shortName} ${isTr ? 'Uçuş Hattı' : 'Flight Line'}` : routeForm.name
                                                 });
                                             }}
                                         />
@@ -3612,50 +3670,52 @@ export const RouteManagement = ({
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                                 <path d="M20 21c-1.39 0-2.78-.47-4-1.32-2.44 1.71-5.56 1.71-8 0C6.78 20.53 5.39 21 4 21H2v2h2c1.38 0 2.74-.35 4-.99 2.52 1.29 5.48 1.29 8 0 1.26.65 2.62.99 4 .99h2v-2h-2zM3.95 19H4c1.6 0 3.02-.88 4-2 .98 1.12 2.4 2 4 2s3.02-.88 4-2c.98 1.12 2.4 2 4 2h.05l1.89-6.68c.08-.26.06-.54-.06-.78s-.33-.42-.6-.47L20 11V4c0-.55-.45-1-1-1h-2V1h-2v2h-6V1H7v2H5c-.55 0-1 .45-1 1v7l-1.28.27c-.27.05-.48.23-.6.47-.12.24-.14.52-.06.78L3.95 19zM6 5h12v6.2l-6-1.2-6 1.2V5z"/>
                                             </svg>
-                                            <span>Limanlar Arası Deniz Güzergahı</span>
+                                            <span>{isTr ? 'Limanlar Arası Deniz Güzergahı' : 'Inter-Port Maritime Corridor'}</span>
                                         </div>
                                         <span style={{ fontSize: '11px', fontWeight: '600', padding: '2px 8px', borderRadius: '10px', background: '#0284c7', color: '#ffffff' }}>
-                                            {allAvailablePorts.length} Liman
+                                            {allAvailablePorts.length} {isTr ? 'Liman' : 'Ports'}
                                         </span>
                                     </div>
                                     <p style={{ margin: 0, fontSize: '11.5px', color: isDarkMode ? '#94a3b8' : '#0369a1', lineHeight: '1.4' }}>
-                                        Deniz hatları iki liman arasında rota çizgisi ve duraklarıyla birlikte oluşturulur. Liman kutusuna tıklayarak arama yapabilir ve seçebilirsiniz.
+                                        {isTr ? 'Deniz hatları iki liman arasında rota çizgisi ve duraklarıyla birlikte oluşturulur. Liman kutusuna tıklayarak arama yapabilir ve seçebilirsiniz.' : 'Maritime routes are created between two ports with route line and stops. Click the port box to search and select.'}
                                     </p>
 
                                     {/* Kalkış ve Varış Limanları Seçimi (Açılır Arama Menüleri) */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                         <SearchablePortSelect
-                                            label="1. Kalkış Limanı *"
+                                            label={isTr ? "1. Kalkış Limanı *" : "1. Departure Port *"}
                                             selectedId={routeForm.departurePortId}
                                             disabledId={routeForm.arrivalPortId}
                                             ports={allAvailablePorts}
                                             isDarkMode={isDarkMode}
-                                            placeholder="Kalkış limanı seçiniz..."
+                                            lang={lang}
+                                            placeholder={isTr ? "Kalkış limanı seçiniz..." : "Select departure port..."}
                                             onChange={(newDepId) => {
                                                 const pA = allAvailablePorts.find(p => p.id === newDepId || p.stopId === newDepId);
                                                 const pB = allAvailablePorts.find(p => p.id === routeForm.arrivalPortId || p.stopId === routeForm.arrivalPortId);
                                                 setRouteForm({
                                                     ...routeForm,
                                                     departurePortId: newDepId,
-                                                    name: pA && pB ? `${pA.shortName} - ${pB.shortName} Deniz Hattı` : routeForm.name
+                                                    name: pA && pB ? `${pA.shortName} - ${pB.shortName} ${isTr ? 'Deniz Hattı' : 'Maritime Line'}` : routeForm.name
                                                 });
                                             }}
                                         />
 
                                         <SearchablePortSelect
-                                            label="2. Varış Limanı *"
+                                            label={isTr ? "2. Varış Limanı *" : "2. Arrival Port *"}
                                             selectedId={routeForm.arrivalPortId}
                                             disabledId={routeForm.departurePortId}
                                             ports={allAvailablePorts}
                                             isDarkMode={isDarkMode}
-                                            placeholder="Varış limanı seçiniz..."
+                                            lang={lang}
+                                            placeholder={isTr ? "Varış limanı seçiniz..." : "Select arrival port..."}
                                             onChange={(newArrId) => {
                                                 const pA = allAvailablePorts.find(p => p.id === routeForm.departurePortId || p.stopId === routeForm.departurePortId);
                                                 const pB = allAvailablePorts.find(p => p.id === newArrId || p.stopId === newArrId);
                                                 setRouteForm({
                                                     ...routeForm,
                                                     arrivalPortId: newArrId,
-                                                    name: pA && pB ? `${pA.shortName} - ${pB.shortName} Deniz Hattı` : routeForm.name
+                                                    name: pA && pB ? `${pA.shortName} - ${pB.shortName} ${isTr ? 'Deniz Hattı' : 'Maritime Line'}` : routeForm.name
                                                 });
                                             }}
                                         />
@@ -3664,10 +3724,12 @@ export const RouteManagement = ({
                             )}
 
                             <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Açıklama</label>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>
+                                    {isTr ? 'Açıklama' : 'Description'}
+                                </label>
                                 <textarea
                                     rows="3"
-                                    placeholder="Hat güzergahı hakkında ek bilgi..."
+                                    placeholder={isTr ? "Hat güzergahı hakkında ek bilgi..." : "Additional info about route..."}
                                     value={routeForm.description}
                                     onChange={(e) => setRouteForm({ ...routeForm, description: e.target.value })}
                                     style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a' }}
@@ -3676,10 +3738,10 @@ export const RouteManagement = ({
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
                                 <button type="button" onClick={() => setShowRouteModal(false)} style={{ padding: '10px 16px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: 'none', color: isDarkMode ? '#ffffff' : '#0f172a', cursor: 'pointer' }}>
-                                    İptal
+                                    {isTr ? 'İptal' : 'Cancel'}
                                 </button>
                                 <button type="submit" disabled={loading} style={{ padding: '10px 20px', borderRadius: '8px', background: '#3b82f6', color: '#ffffff', border: 'none', fontWeight: '600', cursor: 'pointer' }}>
-                                    {loading ? 'Kaydediliyor...' : 'Kaydet'}
+                                    {loading ? (isTr ? 'Kaydediliyor...' : 'Saving...') : (isTr ? 'Kaydet' : 'Save')}
                                 </button>
                             </div>
                         </form>
@@ -3704,12 +3766,14 @@ export const RouteManagement = ({
                                 </div>
                                 <div>
                                     <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 'bold' }}>
-                                        {isEditingStop ? 'Durağı Düzenle' : 'Yeni Durak Ekle'}
+                                        {isEditingStop ? (isTr ? 'Durağı Düzenle' : 'Edit Stop') : (isTr ? 'Yeni Durak Ekle' : 'Add New Stop')}
                                     </h3>
-                                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Durak sınıfını belirleyin ve isteğe bağlı güzergah bağlayın</span>
+                                    <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>
+                                        {isTr ? 'Durak sınıfını belirleyin ve isteğe bağlı güzergah bağlayın' : 'Specify transit class and optionally attach to routes'}
+                                    </span>
                                 </div>
                             </div>
-                            <button onClick={() => setShowStopModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Kapat">
+                            <button onClick={() => setShowStopModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isTr ? "Kapat" : "Close"}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18" />
                                     <line x1="6" y1="6" x2="18" y2="18" />
@@ -3721,21 +3785,25 @@ export const RouteManagement = ({
                             {/* Durak Adı ve Durak Kodu (StopCode) */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '10px' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Durak Adı *</label>
+                                    <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>
+                                        {isTr ? 'Durak Adı *' : 'Stop Name *'}
+                                    </label>
                                     <input
                                         type="text"
                                         required
-                                        placeholder="örn. 15 Temmuz Kızılay, Sıhhiye, Madenli Limanı"
+                                        placeholder={isTr ? "örn. 15 Temmuz Kızılay, Sıhhiye, Madenli Limanı" : "e.g. Central Station, Grand Port"}
                                         value={stopForm.name}
                                         onChange={(e) => setStopForm({ ...stopForm, name: e.target.value })}
                                         style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '13px' }}
                                     />
                                     <span style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '3px', display: 'block' }}>
-                                        Farklı duraklar aynı isme sahip olabilir.
+                                        {isTr ? 'Farklı duraklar aynı isme sahip olabilir.' : 'Different stops may share the same name.'}
                                     </span>
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Durak Numarası / Kodu *</label>
+                                    <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>
+                                        {isTr ? 'Durak Numarası / Kodu *' : 'Stop Code / ID *'}
+                                    </label>
                                     <input
                                         type="text"
                                         required
@@ -3745,14 +3813,16 @@ export const RouteManagement = ({
                                         style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: '#0284c7', fontFamily: 'monospace', fontWeight: '700', fontSize: '12.5px' }}
                                     />
                                     <span style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '3px', display: 'block' }}>
-                                        Her durağın ayırt edici numarasıdır.
+                                        {isTr ? 'Her durağın ayırt edici numarasıdır.' : 'Unique identifier for each stop.'}
                                     </span>
                                 </div>
                             </div>
 
                             {/* Durak Sınıfı (6 Temel Sınıf) */}
                             <div>
-                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Durak Sınıfı / Ulaşım Türü *</label>
+                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>
+                                    {isTr ? 'Durak Sınıfı / Ulaşım Türü *' : 'Stop Class / Transit Type *'}
+                                </label>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                                     {ROUTE_CLASSES.map(item => {
                                         const isSelected = normalizeTransitClass(stopForm.stopClass) === item.id;
@@ -3790,7 +3860,7 @@ export const RouteManagement = ({
                                                 }}
                                             >
                                                 <RouteClassIcon classKey={item.id} size={14} color={isSelected ? item.color : (isDarkMode ? '#94a3b8' : '#64748b')} />
-                                                <span>{item.shortLabel || item.label}</span>
+                                                <span>{getLocalizedClassShortLabel(item.id, lang)}</span>
                                             </button>
                                         );
                                     })}
@@ -3800,8 +3870,12 @@ export const RouteManagement = ({
                             {/* Sıra / Rank (Order Index) */}
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
-                                    <label style={{ fontSize: '12.5px', fontWeight: '600' }}>Sıra / Rank (Order Index)</label>
-                                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>Güzergah ve liste önceliği</span>
+                                    <label style={{ fontSize: '12.5px', fontWeight: '600' }}>
+                                        {isTr ? 'Sıra / Rank (Order Index)' : 'Rank / Order Index'}
+                                    </label>
+                                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                                        {isTr ? 'Güzergah ve liste önceliği' : 'Route and list priority'}
+                                    </span>
                                 </div>
                                 <input
                                     type="number"
@@ -3815,9 +3889,11 @@ export const RouteManagement = ({
                             {/* Bağlı Olduğu Güzergahlar (YALNIZCA AYNI SINIFTAKİ GÜZERGAHLAR) */}
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
-                                    <label style={{ fontSize: '12.5px', fontWeight: '600' }}>Bağlı Güzergahlar (Çoklu Hat Bağlantısı)</label>
+                                    <label style={{ fontSize: '12.5px', fontWeight: '600' }}>
+                                        {isTr ? 'Bağlı Güzergahlar (Çoklu Hat Bağlantısı)' : 'Connected Routes (Multi-Line Transit)'}
+                                    </label>
                                     <span style={{ fontSize: '11px', color: '#10b981', fontWeight: '600' }}>
-                                        {stopForm.routeIds?.length || 0} Hat Seçili
+                                        {stopForm.routeIds?.length || 0} {isTr ? 'Hat Seçili' : 'Routes Selected'}
                                     </span>
                                 </div>
                                 {(() => {
@@ -3825,7 +3901,9 @@ export const RouteManagement = ({
                                     return (
                                         <div style={{ maxHeight: '130px', overflowY: 'auto', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, borderRadius: '8px', padding: '6px 8px', background: isDarkMode ? '#0f172a' : '#f8fafc', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                             {compatibleRoutes.length === 0 ? (
-                                                <span style={{ fontSize: '12px', color: '#94a3b8', padding: '6px' }}>Bu sınıfa ({getRouteClassInfo(stopForm.stopClass)?.label}) ait kayıtlı güzergah bulunmuyor.</span>
+                                                <span style={{ fontSize: '12px', color: '#94a3b8', padding: '6px' }}>
+                                                    {isTr ? `Bu sınıfa (${getRouteClassInfo(stopForm.stopClass)?.label}) ait kayıtlı güzergah bulunmuyor.` : `No routes registered for this class (${getLocalizedClassLabel(stopForm.stopClass, lang)}).`}
+                                                </span>
                                             ) : (
                                                 compatibleRoutes.map(r => {
                                                     const isChecked = (stopForm.routeIds || []).includes(r.id);
@@ -3847,7 +3925,7 @@ export const RouteManagement = ({
                                                             />
                                                             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: r.color || '#3b82f6', flexShrink: 0 }} />
                                                             <span style={{ fontWeight: isChecked ? '700' : '500', flex: 1 }}>{r.name}</span>
-                                                            <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>({getRouteClassInfo(r.routeClass)?.label || r.routeClass})</span>
+                                                            <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>({getLocalizedClassShortLabel(r.routeClass, lang)})</span>
                                                         </label>
                                                     );
                                                 })
@@ -3856,16 +3934,18 @@ export const RouteManagement = ({
                                     );
                                 })()}
                                 <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', display: 'block' }}>
-                                    Katı Sınıf Kuralı: Bir durak yalnızca kendi sınıfındaki ({getRouteClassInfo(stopForm.stopClass)?.label}) güzergahlara 1'den fazla kez bağlanabilir.
+                                    {isTr ? `Katı Sınıf Kuralı: Bir durak yalnızca kendi sınıfındaki (${getRouteClassInfo(stopForm.stopClass)?.label}) güzergahlara 1'den fazla kez bağlanabilir.` : `Strict Class Rule: A stop can only be attached to routes of its own transit class (${getLocalizedClassLabel(stopForm.stopClass, lang)}).`}
                                 </span>
                             </div>
 
                             {/* Açıklama */}
                             <div>
-                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Açıklama & Not (Opsiyonel)</label>
+                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>
+                                    {isTr ? 'Açıklama & Not (Opsiyonel)' : 'Description & Note (Optional)'}
+                                </label>
                                 <input
                                     type="text"
-                                    placeholder="örn. Ana aktarma merkezi, taksi durağı yanı"
+                                    placeholder={isTr ? "örn. Ana aktarma merkezi, taksi durağı yanı" : "e.g. Main transit interchange, near taxi stand"}
                                     value={stopForm.description}
                                     onChange={(e) => setStopForm({ ...stopForm, description: e.target.value })}
                                     style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '12.5px' }}
@@ -3877,7 +3957,7 @@ export const RouteManagement = ({
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
                                     <label style={{ fontSize: '12.5px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                                        Durak / Liman Fotoğrafı (Opsiyonel)
+                                        {isTr ? 'Durak / Liman Fotoğrafı (Opsiyonel)' : 'Stop / Port Photo (Optional)'}
                                     </label>
                                     {stopForm.imageUrl && (
                                         <button
@@ -3885,7 +3965,7 @@ export const RouteManagement = ({
                                             onClick={() => setStopForm(prev => ({ ...prev, imageUrl: '' }))}
                                             style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
                                         >
-                                            Görseli Kaldır
+                                            {isTr ? 'Görseli Kaldır' : 'Remove Image'}
                                         </button>
                                     )}
                                 </div>
@@ -3893,7 +3973,7 @@ export const RouteManagement = ({
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                     <input
                                         type="text"
-                                        placeholder="Görsel URL'si girin veya dosya yükleyin (https://... veya /uploads/...)"
+                                        placeholder={isTr ? "Görsel URL'si girin veya dosya yükleyin (https://... veya /uploads/...)" : "Enter image URL or upload file (https://... or /uploads/...)"}
                                         value={stopForm.imageUrl}
                                         onChange={(e) => setStopForm({ ...stopForm, imageUrl: e.target.value })}
                                         style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '12.5px' }}
@@ -3913,7 +3993,7 @@ export const RouteManagement = ({
                                         whiteSpace: 'nowrap'
                                     }}>
                                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                                        {uploadingStopImage ? 'Yükleniyor...' : 'Gözat'}
+                                        {uploadingStopImage ? (isTr ? 'Yükleniyor...' : 'Uploading...') : (isTr ? 'Gözat' : 'Browse')}
                                         <input
                                             type="file"
                                             accept="image/*"
@@ -3937,10 +4017,10 @@ export const RouteManagement = ({
                                                     if (res && (res.url || res.absoluteUrl)) {
                                                         setStopForm(prev => ({ ...prev, imageUrl: res.url || res.absoluteUrl }));
                                                     }
-                                                    setSuccessMsg('Görsel başarıyla seçildi/yüklendi.');
+                                                    setSuccessMsg(isTr ? 'Görsel başarıyla seçildi/yüklendi.' : 'Image uploaded successfully.');
                                                 } catch (err) {
                                                     console.warn('Durak görsel yükleme uyarısı:', err);
-                                                    setSuccessMsg('Görsel yerel olarak eklendi.');
+                                                    setSuccessMsg(isTr ? 'Görsel yerel olarak eklendi.' : 'Image added locally.');
                                                 } finally {
                                                     setUploadingStopImage(false);
                                                 }
@@ -3953,7 +4033,7 @@ export const RouteManagement = ({
                                     <div style={{ marginTop: '8px', position: 'relative', width: '100%', height: '110px', borderRadius: '8px', overflow: 'hidden', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, background: '#000000' }}>
                                         <img
                                             src={stopForm.imageUrl.startsWith('data:') || stopForm.imageUrl.startsWith('http') || stopForm.imageUrl.startsWith('blob:') ? stopForm.imageUrl : `http://localhost:5041${stopForm.imageUrl}`}
-                                            alt="Durak önizleme"
+                                            alt={isTr ? "Durak önizleme" : "Stop preview"}
                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                             onError={(e) => {
                                                 e.currentTarget.style.display = 'none';
@@ -3965,7 +4045,9 @@ export const RouteManagement = ({
 
                             {/* Konum (WKT Point) */}
                             <div>
-                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>Konum (WKT Point)</label>
+                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '600', marginBottom: '5px' }}>
+                                    {isTr ? 'Konum (WKT Point)' : 'Location (WKT Point)'}
+                                </label>
                                 <input
                                     type="text"
                                     placeholder="POINT(32.8543 39.9208)"
@@ -3974,16 +4056,16 @@ export const RouteManagement = ({
                                     style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '12.5px' }}
                                 />
                                 <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', display: 'block' }}>
-                                    Haritadan eklemek için harita ekranındaki "Durak Ekle" aracını da kullanabilirsiniz.
+                                    {isTr ? 'Haritadan eklemek için harita ekranındaki "Durak Ekle" aracını da kullanabilirsiniz.' : 'You can also use the "Add Stop" tool directly on the map screen.'}
                                 </span>
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
                                 <button type="button" onClick={() => setShowStopModal(false)} style={{ padding: '8px 15px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: 'none', color: isDarkMode ? '#ffffff' : '#0f172a', cursor: 'pointer', fontSize: '13px' }}>
-                                    İptal
+                                    {isTr ? 'İptal' : 'Cancel'}
                                 </button>
                                 <button type="submit" disabled={loading} style={{ padding: '8px 18px', borderRadius: '8px', background: '#3b82f6', color: '#ffffff', border: 'none', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>
-                                    {loading ? 'Kaydediliyor...' : 'Kaydet'}
+                                    {loading ? (isTr ? 'Kaydediliyor...' : 'Saving...') : (isTr ? 'Kaydet' : 'Save')}
                                 </button>
                             </div>
                         </form>
@@ -3997,9 +4079,9 @@ export const RouteManagement = ({
                     <div style={{ background: isDarkMode ? '#1e293b' : '#ffffff', borderRadius: '16px', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, width: '100%', maxWidth: '480px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                             <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>
-                                Varış Ekle
+                                {isTr ? 'Varış Ekle' : 'Add Arrival'}
                             </h3>
-                            <button onClick={() => setShowArrivalModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Kapat">
+                            <button onClick={() => setShowArrivalModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isTr ? "Kapat" : "Close"}>
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18" />
                                     <line x1="6" y1="6" x2="18" y2="18" />
@@ -4009,19 +4091,22 @@ export const RouteManagement = ({
 
                         <form onSubmit={handleAddArrivalPort} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                             <SearchablePortSelect
-                                label="Varış Limanı *"
+                                label={isTr ? "Varış Limanı *" : "Arrival Port *"}
                                 selectedId={arrivalForm.arrivalPortId}
                                 disabledId={routeStops[0]?.name}
                                 ports={allAvailablePorts.filter(p => !routeStops.some(s => s.name === p.name))}
                                 isDarkMode={isDarkMode}
-                                placeholder="Varış limanı seçiniz..."
+                                lang={lang}
+                                placeholder={isTr ? "Varış limanı seçiniz..." : "Select arrival port..."}
                                 onChange={(newArrId) => {
                                     setArrivalForm({ ...arrivalForm, arrivalPortId: newArrId });
                                 }}
                             />
 
                             <div>
-                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>Güzergâh Adı</label>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px' }}>
+                                    {isTr ? 'Güzergâh Adı' : 'Route Name'}
+                                </label>
                                 <input
                                     type="text"
                                     placeholder={(() => {
@@ -4031,23 +4116,23 @@ export const RouteManagement = ({
                                             const depPort = allAvailablePorts.find(p => p.name === dep.name || p.id === dep.id);
                                             if (depPort) return `${cleanPortName(depPort.shortName || depPort.name)} - ${cleanPortName(arr.shortName || arr.name)}`;
                                         }
-                                        return 'örn: Mersin - Girne';
+                                        return isTr ? 'örn: Mersin - Girne' : 'e.g. Mersin - Girne';
                                     })()}
                                     value={arrivalForm.routeName}
                                     onChange={(e) => setArrivalForm({ ...arrivalForm, routeName: e.target.value })}
                                     style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#ffffff', color: isDarkMode ? '#ffffff' : '#0f172a' }}
                                 />
                                 <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
-                                    Boş bırakılırsa otomatik oluşturulur
+                                    {isTr ? 'Boş bırakılırsa otomatik oluşturulur' : 'Auto-generated if left empty'}
                                 </span>
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
                                 <button type="button" onClick={() => setShowArrivalModal(false)} style={{ padding: '10px 16px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: 'none', color: isDarkMode ? '#ffffff' : '#0f172a', cursor: 'pointer' }}>
-                                    İptal
+                                    {isTr ? 'İptal' : 'Cancel'}
                                 </button>
                                 <button type="submit" disabled={isAddingArrival} style={{ padding: '10px 20px', borderRadius: '8px', background: '#0891b2', color: '#ffffff', border: 'none', fontWeight: '600', cursor: 'pointer' }}>
-                                    {isAddingArrival ? 'Oluşturuluyor...' : 'Varış Ekle ve Güzergâh Oluştur'}
+                                    {isAddingArrival ? (isTr ? 'Oluşturuluyor...' : 'Creating...') : (isTr ? 'Varış Ekle ve Güzergâh Oluştur' : 'Add Arrival & Create Route')}
                                 </button>
                             </div>
                         </form>
@@ -4064,10 +4149,10 @@ export const RouteManagement = ({
                             <div>
                                 <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: selectedRoute.color || '#3b82f6' }} />
-                                    <span>Mevcut Durağı "{selectedRoute.name}" Hattına Bağla</span>
+                                    <span>{isTr ? `Mevcut Durağı "${selectedRoute.name}" Hattına Bağla` : `Attach Existing Stop to "${selectedRoute.name}"`}</span>
                                 </h3>
                                 <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>
-                                    Sistemde kayıtlı bir durağı seçerek bu hatta bağlayın (Çoklu hat aktarması)
+                                    {isTr ? 'Sistemde kayıtlı bir durağı seçerek bu hatta bağlayın (Çoklu hat aktarması)' : 'Select a registered stop to attach to this line (Multi-line transfer)'}
                                 </p>
                             </div>
                             <button onClick={() => setShowAttachStopModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}>
@@ -4081,7 +4166,7 @@ export const RouteManagement = ({
                                 <input
                                     type="text"
                                     autoFocus
-                                    placeholder="Durak adı veya durak kodu ara (örn. Kızılay, Sıhhiye, AŞTİ)..."
+                                    placeholder={isTr ? "Durak adı veya durak kodu ara (örn. Kızılay, Sıhhiye, AŞTİ)..." : "Search stop name or stop code..."}
                                     value={attachSearchQuery}
                                     onChange={(e) => setAttachSearchQuery(e.target.value)}
                                     style={{ width: '100%', padding: '9px 12px 9px 34px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: isDarkMode ? '#0f172a' : '#f8fafc', color: isDarkMode ? '#ffffff' : '#0f172a', fontSize: '13px' }}
@@ -4096,7 +4181,7 @@ export const RouteManagement = ({
                         {/* Position Selector */}
                         <div style={{ padding: '0 24px 12px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             <label style={{ fontSize: '12px', fontWeight: '600', color: isDarkMode ? '#cbd5e1' : '#475569' }}>
-                                Ekleme Konumu:
+                                {isTr ? 'Ekleme Konumu:' : 'Insertion Position:'}
                             </label>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                                 <button
@@ -4113,7 +4198,7 @@ export const RouteManagement = ({
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    Sona Ekle
+                                    {isTr ? 'Sona Ekle' : 'Append to End'}
                                 </button>
                                 <button
                                     type="button"
@@ -4129,7 +4214,7 @@ export const RouteManagement = ({
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    En Başa Ekle (1. Sıra)
+                                    {isTr ? 'En Başa Ekle (1. Sıra)' : 'Prepend to Start'}
                                 </button>
                                 <button
                                     type="button"
@@ -4150,7 +4235,7 @@ export const RouteManagement = ({
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    Araya Ekle
+                                    {isTr ? 'Araya Ekle' : 'Insert Between'}
                                 </button>
                             </div>
 
@@ -4171,7 +4256,9 @@ export const RouteManagement = ({
                                     >
                                         {routeStops.map(s => (
                                             <option key={s.id} value={s.id}>
-                                                {s.orderIndex || 1}. {s.name} durağından hemen sonraya ekle
+                                                {isTr 
+                                                    ? `${s.orderIndex || 1}. ${s.name} durağından hemen sonraya ekle` 
+                                                    : `Insert immediately after ${s.orderIndex || 1}. ${s.name}`}
                                             </option>
                                         ))}
                                     </select>
@@ -4201,8 +4288,8 @@ export const RouteManagement = ({
                                     return (
                                         <div style={{ textAlign: 'center', padding: '30px 20px', color: '#94a3b8', fontSize: '13px' }}>
                                             {attachSearchQuery 
-                                                ? 'Aramanıza uygun bu sınıfta bağlanabilir durak bulunamadı.' 
-                                                : `Bu hatta bağlanabilecek başka "${getRouteClassInfo(selectedRoute.routeClass)?.label}" durağı bulunmuyor.`}
+                                                ? (isTr ? 'Aramanıza uygun bu sınıfta bağlanabilir durak bulunamadı.' : 'No attachable stops found in this class matching your search.')
+                                                : (isTr ? `Bu hatta bağlanabilecek başka "${getRouteClassInfo(selectedRoute.routeClass)?.label}" durağı bulunmuyor.` : `No other "${getLocalizedClassLabel(selectedRoute.routeClass, lang)}" stops available to attach to this line.`)}
                                         </div>
                                     );
                                 }
@@ -4235,13 +4322,13 @@ export const RouteManagement = ({
                                                         </span>
                                                     )}
                                                     <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '4px', background: isDarkMode ? 'rgba(255,255,255,0.06)' : '#e2e8f0', color: clsInfo?.color || '#3b82f6', fontWeight: 600 }}>
-                                                        {clsInfo?.shortLabel || stop.stopClass || 'otobus'}
+                                                        {getLocalizedClassShortLabel(stop.stopClass || 'otobus', lang)}
                                                     </span>
                                                 </div>
                                                 <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                                     {connectedRoutes.length > 0 ? (
                                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                                            <span>Bağlı Hatlar:</span>
+                                                            <span>{isTr ? 'Bağlı Hatlar:' : 'Connected Routes:'}</span>
                                                             {connectedRoutes.map(cr => (
                                                                 <span key={cr.id} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '4px', background: isDarkMode ? 'rgba(255,255,255,0.08)' : '#e2e8f0', color: cr.color || '#3b82f6', fontWeight: 600 }}>
                                                                     {cr.name}
@@ -4249,7 +4336,7 @@ export const RouteManagement = ({
                                                             ))}
                                                         </div>
                                                     ) : (
-                                                        <span>Bağlı hat yok</span>
+                                                        <span>{isTr ? 'Bağlı hat yok' : 'No connected routes'}</span>
                                                     )}
                                                 </div>
                                             </div>
@@ -4273,7 +4360,13 @@ export const RouteManagement = ({
                                                     }}
                                                 >
                                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                                                    <span>{attachPosition === 'start' ? 'Başa Bağla' : (attachPosition === 'after' ? 'Araya Bağla' : 'Sona Bağla')}</span>
+                                                    <span>
+                                                        {attachPosition === 'start' 
+                                                            ? (isTr ? 'Başa Bağla' : 'Attach to Start') 
+                                                            : (attachPosition === 'after' 
+                                                                ? (isTr ? 'Araya Bağla' : 'Insert') 
+                                                                : (isTr ? 'Sona Bağla' : 'Attach to End'))}
+                                                    </span>
                                                 </button>
                                             </div>
                                         </div>
@@ -4289,7 +4382,7 @@ export const RouteManagement = ({
                                 onClick={() => setShowAttachStopModal(false)}
                                 style={{ padding: '8px 16px', borderRadius: '8px', border: `1px solid ${isDarkMode ? '#475569' : '#cbd5e1'}`, background: 'none', color: isDarkMode ? '#ffffff' : '#0f172a', cursor: 'pointer', fontSize: '12.5px' }}
                             >
-                                Kapat
+                                {isTr ? 'Kapat' : 'Close'}
                             </button>
                         </div>
                     </div>
